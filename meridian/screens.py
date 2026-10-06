@@ -172,15 +172,19 @@ def funnel(conn, now, p, segment):
     mix = sorted((dict(id=cid, pipeline=row["pipeline"], **{k: row[k] for k in steps}) for cid, row in cur.items()
                   if (ids is None or cid in ids) and any(row[k] for k in steps)), key=lambda r: [-r[k] for k in steps])
     # What sits above "Leads" depends on what is being looked at: website visits for the website, messages for outreach.
-    top = "web" if segment in ("all", "organic", "website", "chatbot") else "outreach" if segment in OUTREACH_TOOLS else None
+    # For every channel together it is both, added up as "people reached".
+    top = "all" if segment == "all" else "web" if segment in ("organic", "website", "chatbot") else "outreach" if segment in OUTREACH_TOOLS else None
 
     def with_top(stats, window):
         a, b = window[2], window[3]
-        if top == "web":
+        tools = OUTREACH_TOOLS.get(segment, OUTREACH_TOOLS["outbound"])
+        if top in ("web", "all"):
             stats.update(visits=health._visits(conn, a, b), web_leads=health._web_leads(conn, a, b))
-        elif top == "outreach":
-            stats.update(sent=sum(health._outbound(conn, t, "sent", a, b) for t in OUTREACH_TOOLS[segment]),
-                         replied=sum(health._outbound(conn, t, "replied", a, b) for t in OUTREACH_TOOLS[segment]))
+        if top in ("outreach", "all"):
+            stats.update(sent=sum(health._outbound(conn, t, "sent", a, b) for t in tools),
+                         replied=sum(health._outbound(conn, t, "replied", a, b) for t in tools))
+        if top == "all":
+            stats["reached"] = stats["visits"] + stats["sent"]
         return stats
 
     return dict(period=p.as_json(), threshold=thr, mix=mix, audience=audience(conn, p, ids, thr), top=top,

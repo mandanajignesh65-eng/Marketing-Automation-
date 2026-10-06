@@ -5,6 +5,9 @@ import { segmented, pageHead, info, sq, switcher } from '../ui.js';
 // key, name, one line under the name, and what the "i" says. `part` groups the steps by where the figure comes from.
 // `rate` gives the two numbers behind the % on the right, `of` names what it is a share of, and `why` explains it.
 const STEPS = {
+  reached: { k: 'reached', label: 'People reached', part: 'reach', sub: 'Website visits plus outreach messages',
+    parts: x => [[x.visits, 'website visits'], [x.sent, 'outreach messages sent'], [x.replied, 'replies to those messages']],
+    tip: 'Everyone marketing touched in this period. It adds two things: how many times people opened our website, and how many LinkedIn requests and emails we sent. When ads are connected, ad clicks will be added too.' },
   visits: { k: 'visits', label: 'Website visits', part: 'web', sub: 'Times people opened our website',
     tip: 'How many times people opened our website in this period. Counted by Google Analytics.' },
   sent: { k: 'sent', label: 'Messages sent', part: 'outreach', sub: 'LinkedIn requests and emails we sent',
@@ -25,11 +28,12 @@ const STEPS = {
 };
 // How leads relate to the step above them, which depends on what that step is.
 const LEAD_RATE = {
+  all: { rate: x => [x.leads, x.reached], of: 'of people reached', why: 'Out of every 100 people we reached, by the website or by a message, how many became a lead.' },
   web: { rate: x => [x.web_leads, x.visits], of: 'of visits', why: 'Out of every 100 website visits, how many became a lead on the website (a form or the chatbot). Leads from outreach and events are left out of this %, because those people did not come through the website.' },
   outreach: { rate: x => [x.leads, x.replied], of: 'of replies', why: 'Out of every 100 replies, how many became a lead in Zoho. If this is very low, replies are probably not being added to Zoho with the right lead source.' },
 };
-const ORDER = { web: ['visits'], outreach: ['sent', 'replied'] };
-const PART = { web: 'Website · Google Analytics', outreach: 'Outreach · HeyReach and Apollo', crm: 'Pipeline · Zoho CRM' };
+const ORDER = { all: ['reached'], web: ['visits'], outreach: ['sent', 'replied'] };
+const PART = { reach: 'Reach · website and outreach', web: 'Website · Google Analytics', outreach: 'Outreach · HeyReach and Apollo', crm: 'Pipeline · Zoho CRM' };
 const TOP = [100, 84, 68, 54, 42, 32], LAST = 24;  // slice widths, top edge of each and the bottom of the last
 // One colour per target segment, then grey for other industries and a pale tone where the company is not known.
 const SEGMENT_COLORS = ['oklch(0.62 0.13 165)', 'oklch(0.70 0.14 65)', 'oklch(0.58 0.14 262)', 'oklch(0.60 0.15 320)', 'oklch(0.66 0.12 25)', 'oklch(0.64 0.10 210)'];
@@ -71,7 +75,8 @@ export default {
           style="clip-path:${clip};background:color-mix(in oklch, var(--accent) ${mix}%, var(--surface));color:${mix >= 55 ? '#fff' : 'var(--ink)'}">${late ? '—' : f.big(n)}</div>
         <div class="stack" style="gap:2px;min-width:0">
           ${s.rate ? html`<span class="row" style="gap:7px"><span style="font-size:17px;font-weight:600;letter-spacing:-0.01em">${f.orDash(r, f.pct)}</span>
-              <span class="small muted">${s.of}</span>${info(s.why, { end: true })}</span>` : html`<span class="small muted">${from ? '' : 'Where it starts'}</span>`}
+              <span class="small muted">${s.of}</span>${info(s.why, { end: true })}</span>` : s.parts ? html`<div class="stack small" style="gap:1px">${s.parts(c).map(([n, word]) => html`<span class="nowrap"><span class="ink medium">${f.num(n)}</span> <span class="muted">${word}</span></span>`)}</div>`
+            : html`<span class="small muted">${from ? '' : 'Where it starts'}</span>`}
           ${show ? html`<span class="tiny nowrap">
             ${delta != null ? html`<span style="color:${f.tone(delta)}">${f.arrowShort(delta)}</span> <span class="faint">vs ${f.big(p[s.k])}</span>` : html`<span class="faint">No earlier figure</span>`}
             ${r != null && pr != null && Math.abs(r - pr) >= 0.005 ? html`<span class="faint"> · rate </span><span style="color:var(--${r >= pr ? 'pos' : 'neg'})">${r >= pr ? '+' : '−'}${Math.abs(r - pr).toFixed(2)} pts</span>` : ''}</span>` : ''}
@@ -114,7 +119,7 @@ export default {
       </div>`)}
     </div>
     <div class="card" style="padding:20px 24px 24px">
-      <div class="baseline" style="margin-bottom:16px"><span class="row" style="gap:8px"><span class="title">${d.top === 'web' ? 'From website visit to won deal' : d.top === 'outreach' ? 'From first message to won deal' : 'From lead to won deal'}</span>
+      <div class="baseline" style="margin-bottom:16px"><span class="row" style="gap:8px"><span class="title">${d.top === 'all' ? 'From first touch to won deal' : d.top === 'web' ? 'From website visit to won deal' : d.top === 'outreach' ? 'From first message to won deal' : 'From lead to won deal'}</span>
           ${info('Read it from top to bottom. Each coloured band is one step. The number inside is how many reached that step. The % on the right is how many moved on from the step above. The shape is just a picture, the widths are not exact.')}</span>
         <span class="small muted">${show ? `Changes are against ${d.period.prev_short}` : d.period.label}</span></div>
       ${rows}
