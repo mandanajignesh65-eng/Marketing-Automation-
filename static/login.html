@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in · Meridian</title>
+<script>
+  (function () { var t = null; try { t = localStorage.getItem('meridian-theme'); } catch (e) {} if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; })();
+</script>
+<link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body style="display:grid;place-items:center;min-height:100vh;margin:0;padding:16px">
+<form id="form" class="card" style="width:100%;max-width:360px;padding:28px 28px 24px;display:flex;flex-direction:column;gap:16px">
+  <div class="brand" style="padding:0"><div class="brand-mark"><i></i></div><span class="semi" style="font-size:16px">Meridian</span></div>
+  <div class="stack" style="gap:4px"><span class="section">Sign in</span><span class="small muted">Use the email and password you were given.</span></div>
+  <label class="field">Email<input class="input" id="email" type="email" autocomplete="username" required autofocus></label>
+  <label class="field">Password<input class="input" id="password" type="password" autocomplete="current-password" required></label>
+  <div id="error" class="small" style="color:var(--neg);min-height:16px" role="alert"></div>
+  <button class="btn primary" type="submit" style="padding:9px 12px;font-size:13px">Sign in</button>
+</form>
+<script>
+  document.getElementById('form').addEventListener('submit', async function (event) {
+    event.preventDefault();
+    var error = document.getElementById('error');
+    error.textContent = '';
+    try {
+      var res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: document.getElementById('email').value, password: document.getElementById('password').value }) });
+      if (res.ok) return location.reload();
+      var detail = (await res.json()).detail;
+      error.textContent = typeof detail === 'string' ? detail : 'Could not sign in.';
+    } catch (e) { error.textContent = 'Could not reach Meridian. Try again in a moment.'; }
+  });
+</script>
+</body>
+</html>

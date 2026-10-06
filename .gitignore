@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+data/*.db
+data/*.db-*
+data/*.part
+.DS_Store
+.env
+.env.*
+data/zoho_mapping.json
+.claude/

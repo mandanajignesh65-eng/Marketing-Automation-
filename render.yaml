@@ -1,0 +1,55 @@
+# Render blueprint: one free web service running Meridian.
+# The free plan sleeps when idle and wipes its disk on restart, so the data file is kept in Supabase Storage
+# (see meridian/backup.py) and a timer calls /tasks/sync a few times a day.
+services:
+  - type: web
+    name: meridian
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn meridian.api:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: TZ
+        value: Asia/Kolkata          # dates and "today" follow India time
+      - key: MERIDIAN_REQUIRE_LOGIN
+        value: "1"                   # never open without sign-in
+      - key: MERIDIAN_BACKUP_AUTO
+        value: "1"                   # save the data file to storage after every change and sync
+      - key: MERIDIAN_ZOHO_EVERY_MINUTES
+        value: "240"                 # while awake, re-sync Zoho at most every four hours
+      # The values below are secrets: paste each one in the Render dashboard, never into this file.
+      - key: MERIDIAN_TASK_TOKEN
+        generateValue: true          # Render makes a random one; the timer's address uses it
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: ZOHO_DC
+        value: in
+      - key: ZOHO_CLIENT_ID
+        sync: false
+      - key: ZOHO_CLIENT_SECRET
+        sync: false
+      - key: ZOHO_REFRESH_TOKEN
+        sync: false
+      - key: HEYREACH_API_KEY
+        sync: false
+      - key: APOLLO_API_KEY
+        sync: false
+      - key: APOLLO_API_KEY_2
+        sync: false
+      - key: APOLLO_LABEL_2
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
+        sync: false
+      - key: GA4_PROPERTY_ID
+        sync: false
+      - key: GSC_SITE_URL
+        sync: false
