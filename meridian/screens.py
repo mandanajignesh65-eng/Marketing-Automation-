@@ -171,9 +171,24 @@ def funnel(conn, now, p, segment):
     # which channels fill each step, biggest first; leads with no channel yet are shown as unmapped
     mix = sorted((dict(id=cid, pipeline=row["pipeline"], **{k: row[k] for k in steps}) for cid, row in cur.items()
                   if (ids is None or cid in ids) and any(row[k] for k in steps)), key=lambda r: [-r[k] for k in steps])
-    return dict(period=p.as_json(), threshold=thr, mix=mix, audience=audience(conn, p, ids, thr),
-                cur=metrics.total(cur, ids),
-                prev=metrics.total(metrics.channel_stats(conn, p.prev, thr), ids))
+    # What sits above "Leads" depends on what is being looked at: website visits for the website, messages for outreach.
+    top = "web" if segment in ("all", "organic", "website", "chatbot") else "outreach" if segment in OUTREACH_TOOLS else None
+
+    def with_top(stats, window):
+        a, b = window[2], window[3]
+        if top == "web":
+            stats.update(visits=health._visits(conn, a, b), web_leads=health._web_leads(conn, a, b))
+        elif top == "outreach":
+            stats.update(sent=sum(health._outbound(conn, t, "sent", a, b) for t in OUTREACH_TOOLS[segment]),
+                         replied=sum(health._outbound(conn, t, "replied", a, b) for t in OUTREACH_TOOLS[segment]))
+        return stats
+
+    return dict(period=p.as_json(), threshold=thr, mix=mix, audience=audience(conn, p, ids, thr), top=top,
+                cur=with_top(metrics.total(cur, ids), p.cur),
+                prev=with_top(metrics.total(metrics.channel_stats(conn, p.prev, thr), ids), p.prev))
+
+
+OUTREACH_TOOLS = {"outbound": ("heyreach", "apollo"), "heyreach": ("heyreach",), "apollo": ("apollo",)}
 
 
 OTHER_INDUSTRY, NO_COMPANY = "Other industries", "Company not known"

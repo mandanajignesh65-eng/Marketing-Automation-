@@ -3,28 +3,33 @@ import * as f from '../format.js';
 import { segmented, pageHead, info, sq, switcher } from '../ui.js';
 
 // key, name, one line under the name, and what the "i" says. `part` groups the steps by where the figure comes from.
-const STEPS = [
-  { k: 'impressions', label: 'Impressions', part: 'reach', sub: 'Times shown in search and ads',
-    tip: 'How many times people saw us on Google or in an ad. Seeing is not clicking. Events and referrals are not counted here.' },
-  { k: 'clicks', label: 'Clicks', part: 'reach', sub: 'Visits from search and ads',
-    tip: 'How many times someone saw us on Google or in an ad and clicked to visit our website. The last 2 or 3 days are not complete yet.' },
-  { k: 'leads', label: 'Leads', part: 'crm', sub: 'New marketing leads in Zoho',
+// `rate` gives the two numbers behind the % on the right, `of` names what it is a share of, and `why` explains it.
+const STEPS = {
+  visits: { k: 'visits', label: 'Website visits', part: 'web', sub: 'Times people opened our website',
+    tip: 'How many times people opened our website in this period. Counted by Google Analytics.' },
+  sent: { k: 'sent', label: 'Messages sent', part: 'outreach', sub: 'LinkedIn requests and emails we sent',
+    tip: 'How many people we wrote to first: LinkedIn connection requests and emails added together.' },
+  replied: { k: 'replied', label: 'Replies', part: 'outreach', sub: 'People who wrote back', rate: x => [x.replied, x.sent], of: 'of messages',
+    tip: 'How many of those people wrote back to us.', why: 'Out of every 100 messages we sent, how many got a reply.' },
+  leads: { k: 'leads', label: 'Leads', part: 'crm', sub: 'New marketing leads in Zoho',
     tip: 'New people who gave us their details in this period. They came from marketing. Cold calls by sales are not counted.' },
-  { k: 'qualified', label: 'Qualified', part: 'crm', sub: 'Leads that fit your ideal customer',
-    tip: d => `Leads that look like the customers we want: the right industry and a big enough company. Each lead gets a score out of 100. A score of ${d.threshold} or more counts as qualified. If we do not know the company, the lead cannot qualify.` },
-  { k: 'deals', label: 'Deals', part: 'crm', sub: 'Deals opened in Zoho',
-    tip: 'Leads that became a real sales chance. Sales opened a deal for them in Zoho in this period.' },
-  { k: 'won', label: 'Won', part: 'crm', sub: 'Deals closed as won',
-    tip: 'Deals that said yes and became customers in this period. Some of them were opened in earlier months.' },
-];
-const RATE_TIP = {
-  clicks: 'Out of every 100 times people saw us, how many clicked. Example: 2% means 2 clicks for every 100 views.',
-  leads: 'Out of every 100 clicks, how many became leads. This is only a rough number, because many leads come from events, where nobody clicks.',
-  qualified: 'Out of every 100 leads, how many look like the customers we want. Higher is better.',
-  deals: 'Out of every 100 qualified leads, how many became a deal. It can go above 100% when deals come from leads of earlier months.',
-  won: 'Out of every 100 deals opened, how many we won. Higher is better.',
+  qualified: { k: 'qualified', label: 'Qualified', part: 'crm', sub: 'Leads that fit your ideal customer', rate: x => [x.qualified, x.leads], of: 'of leads',
+    tip: d => `Leads that look like the customers we want: the right industry and a big enough company. Each lead gets a score out of 100. A score of ${d.threshold} or more counts as qualified. If we do not know the company, the lead cannot qualify.`,
+    why: 'Out of every 100 leads, how many look like the customers we want. Higher is better.' },
+  deals: { k: 'deals', label: 'Deals', part: 'crm', sub: 'Deals opened in Zoho', rate: x => [x.deals, x.leads], of: 'of leads',
+    tip: 'Leads that became a real sales chance. Sales opened a deal for them in Zoho in this period.',
+    why: 'Out of every 100 leads, how many became a deal. Some deals come from leads of earlier months, so on a single day this number can look odd.' },
+  won: { k: 'won', label: 'Won', part: 'crm', sub: 'Deals closed as won', rate: x => [x.won, x.deals], of: 'of deals',
+    tip: 'Deals that said yes and became customers in this period. Some of them were opened in earlier months.',
+    why: 'Out of every 100 deals opened, how many we won. Higher is better.' },
 };
-const PART = { reach: 'Reach · Google and ads', crm: 'Pipeline · Zoho CRM' };
+// How leads relate to the step above them, which depends on what that step is.
+const LEAD_RATE = {
+  web: { rate: x => [x.web_leads, x.visits], of: 'of visits', why: 'Out of every 100 website visits, how many became a lead on the website (a form or the chatbot). Leads from outreach and events are left out of this %, because those people did not come through the website.' },
+  outreach: { rate: x => [x.leads, x.replied], of: 'of replies', why: 'Out of every 100 replies, how many became a lead in Zoho. If this is very low, replies are probably not being added to Zoho with the right lead source.' },
+};
+const ORDER = { web: ['visits'], outreach: ['sent', 'replied'] };
+const PART = { web: 'Website · Google Analytics', outreach: 'Outreach · HeyReach and Apollo', crm: 'Pipeline · Zoho CRM' };
 const TOP = [100, 84, 68, 54, 42, 32], LAST = 24;  // slice widths, top edge of each and the bottom of the last
 // One colour per target segment, then grey for other industries and a pale tone where the company is not known.
 const SEGMENT_COLORS = ['oklch(0.62 0.13 165)', 'oklch(0.70 0.14 65)', 'oklch(0.58 0.14 262)', 'oklch(0.60 0.15 320)', 'oklch(0.66 0.12 25)', 'oklch(0.64 0.10 210)'];
@@ -41,15 +46,16 @@ export default {
       .map(s => ({ ...s, on: app.channel === s.arg }));
     const change = (a, b) => (b ? (a - b) / b * 100 : null);
     const rate = (a, b) => (b ? a / b * 100 : null);
-    // A segment with no search or ad figures (events, outreach) starts its funnel at leads.
-    const reach = c.impressions || c.clicks || p.impressions || p.clicks;
-    const steps = STEPS.filter(s => reach || s.part !== 'reach');
+    // The steps above "Leads" change with what is being looked at; some channels (events, ads not connected) start at leads.
+    const steps = [...(ORDER[d.top] || []), 'leads', 'qualified', 'deals', 'won'].map(k => (k === 'leads' && LEAD_RATE[d.top] ? { ...STEPS.leads, ...LEAD_RATE[d.top] } : STEPS[k]));
     const widths = TOP.slice(TOP.length - steps.length).concat(LAST);
     const shade = i => 26 + Math.round(74 * i / Math.max(steps.length - 1, 1));  // light at the top, full colour at the bottom
 
     const rows = steps.map((s, i) => {
       const from = steps[i - 1], n = c[s.k];
-      const r = from ? rate(n, c[from.k]) : null, pr = from ? rate(p[s.k], p[from.k]) : null;
+      const share = x => { const [a, b] = s.rate(x); return rate(a, b); };
+      const r = s.rate ? share(c) : null, pr = s.rate ? share(p) : null;
+      const late = !i && !n && c.leads > 0;  // the first step has nothing yet although leads exist: its source has not reported
       const wt = widths[i], wb = widths[i + 1], mix = shade(i);
       const clip = `polygon(${(100 - wt) / 2}% 0, ${(100 + wt) / 2}% 0, ${(100 + wb) / 2}% 100%, ${(100 - wb) / 2}% 100%)`;
       const delta = change(n, p[s.k]);
@@ -59,13 +65,13 @@ export default {
       <div class="funnel-row" style="margin-top:4px">
         <div class="stack" style="gap:2px;min-width:0">
           <span class="row" style="gap:7px"><span class="title">${s.label}</span>${info(typeof s.tip === 'function' ? s.tip(d) : s.tip)}</span>
-          <span class="small muted">${s.sub}</span>
+          <span class="small muted">${late ? 'Not counted yet for this period' : s.sub}</span>
         </div>
         <div class="funnel-slice" title="${s.label}: ${f.num(n)}"
-          style="clip-path:${clip};background:color-mix(in oklch, var(--accent) ${mix}%, var(--surface));color:${mix >= 55 ? '#fff' : 'var(--ink)'}">${f.big(n)}</div>
+          style="clip-path:${clip};background:color-mix(in oklch, var(--accent) ${mix}%, var(--surface));color:${mix >= 55 ? '#fff' : 'var(--ink)'}">${late ? '—' : f.big(n)}</div>
         <div class="stack" style="gap:2px;min-width:0">
-          ${from ? html`<span class="row" style="gap:7px"><span style="font-size:17px;font-weight:600;letter-spacing:-0.01em">${f.orDash(r, f.pct)}</span>
-              <span class="small muted">of ${from.label.toLowerCase()}</span>${info(RATE_TIP[s.k], { end: true })}</span>` : html`<span class="small muted">Top of the funnel</span>`}
+          ${s.rate ? html`<span class="row" style="gap:7px"><span style="font-size:17px;font-weight:600;letter-spacing:-0.01em">${f.orDash(r, f.pct)}</span>
+              <span class="small muted">${s.of}</span>${info(s.why, { end: true })}</span>` : html`<span class="small muted">${from ? '' : 'Where it starts'}</span>`}
           ${show ? html`<span class="tiny nowrap">
             ${delta != null ? html`<span style="color:${f.tone(delta)}">${f.arrowShort(delta)}</span> <span class="faint">vs ${f.big(p[s.k])}</span>` : html`<span class="faint">No earlier figure</span>`}
             ${r != null && pr != null && Math.abs(r - pr) >= 0.005 ? html`<span class="faint"> · rate </span><span style="color:var(--${r >= pr ? 'pos' : 'neg'})">${r >= pr ? '+' : '−'}${Math.abs(r - pr).toFixed(2)} pts</span>` : ''}</span>` : ''}
@@ -74,9 +80,9 @@ export default {
     });
 
     const heads = [
-      ['Qualified rate', rate(c.qualified, c.leads), rate(p.qualified, p.leads), RATE_TIP.qualified],
+      ['Qualified rate', rate(c.qualified, c.leads), rate(p.qualified, p.leads), STEPS.qualified.why],
       ['Lead to deal', rate(c.deals, c.leads), rate(p.deals, p.leads), 'Out of every 100 leads, how many became a deal. It shows how much of what marketing brings turns into real sales chances.'],
-      ['Win rate', rate(c.won, c.deals), rate(p.won, p.deals), RATE_TIP.won],
+      ['Win rate', rate(c.won, c.deals), rate(p.won, p.deals), STEPS.won.why],
     ];
     const mixRows = MIX.map(([k, label]) => ({ k, label, total: d.mix.reduce((a, m) => a + m[k], 0), parts: d.mix.filter(m => m[k]).sort((a, b) => b[k] - a[k]) }));
     const legend = d.mix.map(m => ctx.channel(m.id));
@@ -108,7 +114,7 @@ export default {
       </div>`)}
     </div>
     <div class="card" style="padding:20px 24px 24px">
-      <div class="baseline" style="margin-bottom:16px"><span class="row" style="gap:8px"><span class="title">From first sight to won deal</span>
+      <div class="baseline" style="margin-bottom:16px"><span class="row" style="gap:8px"><span class="title">${d.top === 'web' ? 'From website visit to won deal' : d.top === 'outreach' ? 'From first message to won deal' : 'From lead to won deal'}</span>
           ${info('Read it from top to bottom. Each coloured band is one step. The number inside is how many reached that step. The % on the right is how many moved on from the step above. The shape is just a picture, the widths are not exact.')}</span>
         <span class="small muted">${show ? `Changes are against ${d.period.prev_short}` : d.period.label}</span></div>
       ${rows}
