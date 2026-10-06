@@ -103,7 +103,9 @@ def task_sync(token: str = "", request: Request = None):
     if not wanted:
         raise HTTPException(503, "Timed syncs are off. Set MERIDIAN_TASK_TOKEN to enable them.")
     given = token or (request.headers.get("x-meridian-token") if request else "")
-    if not hmac.compare_digest(given or "", wanted):
+    given = given or ""
+    # A "+" inside a web address arrives as a space, so a token holding one is tried both ways.
+    if not any(hmac.compare_digest(g, wanted) for g in (given, given.replace(" ", "+"))):
         raise HTTPException(401, "Bad token")
     started = scheduler.sync_now()
     return {"ok": True, "started": started, "note": "Syncing in the background." if started else "A sync is already running."}
