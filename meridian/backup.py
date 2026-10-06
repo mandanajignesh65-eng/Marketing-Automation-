@@ -29,7 +29,7 @@ from . import config
 DB_NAME, MAPPING_NAME = "meridian.db.gz", "zoho_mapping.json"
 QUIET_SECONDS = 20     # upload this long after the last change, so a burst of clicks is one upload
 MAX_WAIT_SECONDS = 180  # but never leave a change unsaved longer than this
-_state = dict(dirty_since=None, last_change=None, saving=threading.Lock(), last_saved=None, last_error=None)
+_state = dict(dirty_since=None, last_change=None, saving=threading.Lock(), last_saved=None, last_error=None, stamp=None)
 
 
 class BackupError(Exception):
@@ -79,12 +79,29 @@ def ensure_bucket(creds=None):
             raise
 
 
-def save(creds=None):
-    """Upload a consistent copy of the live database and the Zoho rules file. Returns the zipped size in bytes."""
+def stored_stamp(creds=None):
+    """When the stored copy was last written, as Supabase reports it, or None when nothing is stored."""
+    bucket = (creds or settings())[2]
+    try:
+        rows = json.loads(call("POST", "/object/list/" + bucket, json.dumps(dict(prefix="", limit=100)).encode(), creds=creds))
+    except NotFound:
+        return None
+    return next((r.get("updated_at") for r in rows if r.get("name") == DB_NAME), None)
+
+
+def save(creds=None, careful=False):
+    """Upload a consistent copy of the live database and the Zoho rules file. Returns the zipped size in bytes.
+
+    careful is how the hosted copy saves by itself: if someone else has uploaded a copy since this one last looked
+    (a password reset or a fix made on a laptop), it leaves that copy alone and returns 0. The next restart loads it.
+    """
     if not config.LIVE_DB.exists():
         raise BackupError("There is no data file here to save.")
     bucket = (creds or settings())[2]
     with _state["saving"]:
+        if careful and _state["stamp"] is not None and stored_stamp(creds) != _state["stamp"]:
+            _state.update(dirty_since=None, last_error="A newer copy was uploaded from elsewhere. Restart the service to load it.")
+            return 0
         work = tempfile.mkdtemp(prefix="meridian-backup-")
         try:
             plain, packed = os.path.join(work, "copy.db"), os.path.join(work, DB_NAME)
@@ -102,7 +119,7 @@ def save(creds=None):
             mapping = config.DATA_DIR / MAPPING_NAME
             if mapping.exists():
                 call("POST", "/object/{}/{}".format(bucket, MAPPING_NAME), mapping.read_bytes(), "application/json", creds)
-            _state.update(dirty_since=None, last_saved=time.time(), last_error=None)
+            _state.update(dirty_since=None, last_saved=time.time(), last_error=None, stamp=stored_stamp(creds))
             return len(data)
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -128,6 +145,7 @@ def restore(force=False):
     finally:
         check.close()
     os.replace(part, str(config.LIVE_DB))
+    _state["stamp"] = stored_stamp()
     try:
         (config.DATA_DIR / MAPPING_NAME).write_bytes(call("GET", "/object/{}/{}".format(bucket, MAPPING_NAME)))
     except NotFound:
@@ -152,7 +170,7 @@ def loop():
         time.sleep(5)
         if automatic() and due():
             try:
-                save()
+                save(careful=True)
             except Exception as err:  # keep trying: the next pass uploads again
                 _state["last_error"] = str(err)
                 print("Backup:", err)
@@ -166,7 +184,7 @@ def flush():
     """Upload now if anything is waiting; called when the app is shutting down."""
     if automatic() and _state["dirty_since"]:
         try:
-            save()
+            save(careful=True)
         except Exception as err:
             print("Backup on shutdown:", err)
 

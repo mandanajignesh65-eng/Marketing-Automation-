@@ -12,6 +12,7 @@ cannot read; it lasts 14 days.
 
 import hashlib
 import hmac
+import re
 import secrets
 import sys
 import time
@@ -38,8 +39,8 @@ def digest(password, salt):
 
 def add(conn, now, name, email, password, role="member"):
     name, email = (name or "").strip(), (email or "").strip().lower()
-    if not name or "@" not in email:
-        raise ValueError("A name and an email address are needed.")
+    if not name or not re.match(r"^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$", email):
+        raise ValueError("A name and a proper email address are needed (check for a comma where a dot should be).")
     if len(password or "") < 10:
         raise ValueError("The password needs at least 10 characters.")
     if role not in ROLES:
