@@ -127,10 +127,26 @@ def overview(conn, now, p, channel):
         d = first + timedelta(days=i)
         segs = counts.get(d.isoformat(), {})
         chart.append(dict(date=d.isoformat(), day=d.day, month=MONTHS[d.month - 1], total=sum(segs.values()),
-                          partial=d == now.date(), segs=[dict(id=k, n=n) for k, n in segs.items() if k]))
+                          partial=d == now.date(), segs=[dict(id=k or "unmapped", n=n) for k, n in segs.items()]))
 
     range_name = {"month": "Month to date", "week": "Week to date", "day": "Today"}.get(p.rng, span_label(p.s, p.e))
+
+    def outreach(window):
+        a, b = window[2], window[3]
+        return dict(linkedin=dict(sent=health._outbound(conn, "heyreach", "sent", a, b), accepted=health._outbound(conn, "heyreach", "opened", a, b),
+                                  replied=health._outbound(conn, "heyreach", "replied", a, b)),
+                    email=dict(sent=health._outbound(conn, "apollo", "sent", a, b), opened=health._outbound(conn, "apollo", "opened", a, b),
+                               replied=health._outbound(conn, "apollo", "replied", a, b)))
+
+    out_cur, out_prev = outreach(p.cur), outreach(p.prev)
+    visits = health._visits(conn, p.cur[2], p.cur[3])
+    by_channel = {cid or "unmapped": s["leads"] for cid, s in cur_by.items() if s["leads"] and (ids is None or cid in ids)}
     return dict(
+        visits=delta(visits, health._visits(conn, p.prev[2], p.prev[3])),
+        replies=delta(out_cur["linkedin"]["replied"] + out_cur["email"]["replied"], out_prev["linkedin"]["replied"] + out_prev["email"]["replied"]),
+        deals=delta(cur["deals"], prev["deals"]), outreach=out_cur,
+        journey=dict(visits=visits, web_leads=health._web_leads(conn, p.cur[2], p.cur[3]), leads=cur["leads"], qualified=cur["qualified"],
+                     deals=cur["deals"], won=cur["won"]),
         period=p.as_json(),
         date_line="{}, {} {} · {}".format(WEEKDAYS_LONG[now.weekday()], now.day, MONTHS_LONG[now.month - 1], range_name),
         day_of="Day {} of {}".format(now.day, days_in_month(now.date())),
@@ -140,8 +156,7 @@ def overview(conn, now, p, channel):
                   cpql=delta(metrics.cost_per(cur["spend"], cur["qualified"]), metrics.cost_per(prev["spend"], prev["qualified"])),
                   pipeline=delta(cur["pipeline"], prev["pipeline"])),
         chart=chart, chart_label="Daily · " + span_label(first, p.e),
-        by_channel={cid: s["leads"] for cid, s in cur_by.items() if cid and s["leads"] and (ids is None or cid in ids)},
-        targets=target_rows(conn, now),
+        by_channel=by_channel,
         funnel=cur, alerts=open_alerts(conn, now, 4),
     )
 

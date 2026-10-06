@@ -222,9 +222,11 @@ def get_shell(request: Request):
 
 
 @app.get("/api/overview")
-def get_overview(range: str = "month", start: Optional[str] = None, end: Optional[str] = None, channel: str = "all"):
+def get_overview(request: Request, range: str = "month", start: Optional[str] = None, end: Optional[str] = None, channel: str = "all"):
     with session() as conn:
-        return screens.overview(conn, db.now(conn), period(conn, range, start, end), channel)
+        data = screens.overview(conn, db.now(conn), period(conn, range, start, end), channel)
+        data["team"] = team_summary(targets_view(conn, request))
+        return data
 
 
 @app.get("/api/funnel")
@@ -410,19 +412,40 @@ MEMBER_CHANGES = {  # what a team member may change on Targets, and the table th
 }
 
 
+def targets_view(conn, request):
+    """The Targets screen's data, cut down to their own targets for a team member."""
+    view = team.view(conn, db.now(conn))
+    mine = own_member(conn, request)
+    if mine is not None:
+        view["members"] = [m for m in view["members"] if m["id"] == mine]
+        for key in ("goals", "tasks", "blockers"):
+            view[key] = [x for x in view[key] if x["member_id"] == mine]
+        for key in ("notes", "history"):
+            view[key] = {k: v for k, v in view[key].items() if k == mine}
+        view["demo"] = False
+    return view
+
+
+def team_summary(view):
+    """For the Overview: one line per person on how their targets are going."""
+    people_rows = []
+    for m in view["members"]:
+        goals = [g for g in view["goals"] if g["member_id"] == m["id"]]
+        tasks = [t for t in view["tasks"] if t["member_id"] == m["id"]]
+        due = [g for g in goals if g["today_share"] > 0]
+        people_rows.append(dict(
+            id=m["id"], name=m["name"], focus=m["focus"] or "", targets=len(goals),
+            on_track=sum(g["status"] in ("done", "on_track") for g in goals),
+            pct=round(sum(min(g["pct"], 100) for g in goals) / len(goals)) if goals else 0,
+            pace=round(sum(min(g["pace_pct"], 100) for g in goals) / len(goals)) if goals else 0,
+            today_done=sum(bool(g["today_met"]) for g in due) + sum(bool(t["done"]) for t in tasks), today_all=len(due) + len(tasks)))
+    return dict(people=people_rows, blockers=sum(1 for b in view["blockers"] if not b["resolved_at"]), demo=view["demo"], week=view["week_label"])
+
+
 @app.get("/api/targets")
 def get_targets(request: Request):
     with session() as conn:
-        view = team.view(conn, db.now(conn))
-        mine = own_member(conn, request)
-        if mine is not None:  # a team member sees only their own targets
-            view["members"] = [m for m in view["members"] if m["id"] == mine]
-            for key in ("goals", "tasks", "blockers"):
-                view[key] = [x for x in view[key] if x["member_id"] == mine]
-            for key in ("notes", "history"):
-                view[key] = {k: v for k, v in view[key].items() if k == mine}
-            view["demo"] = False
-        return view
+        return targets_view(conn, request)
 
 
 @app.get("/api/targets/report")
