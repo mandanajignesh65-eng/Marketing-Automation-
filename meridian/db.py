@@ -188,6 +188,19 @@ CREATE TABLE IF NOT EXISTS search_page_daily (
   date TEXT NOT NULL, page TEXT NOT NULL, clicks INTEGER NOT NULL DEFAULT 0, impressions INTEGER NOT NULL DEFAULT 0,
   position REAL, PRIMARY KEY (date, page)
 );
+-- the same visit and search figures kept per website, for companies with more than one site
+CREATE TABLE IF NOT EXISTS traffic_site_daily (
+  date TEXT NOT NULL, site TEXT NOT NULL, source TEXT NOT NULL, medium TEXT NOT NULL, sessions INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (date, site, source, medium)
+);
+CREATE TABLE IF NOT EXISTS search_site_daily (
+  date TEXT NOT NULL, site TEXT NOT NULL, clicks INTEGER NOT NULL DEFAULT 0, impressions INTEGER NOT NULL DEFAULT 0, position REAL,
+  PRIMARY KEY (date, site)
+);
+CREATE TABLE IF NOT EXISTS query_site_daily (
+  date TEXT NOT NULL, site TEXT NOT NULL, query TEXT NOT NULL, clicks INTEGER NOT NULL DEFAULT 0, impressions INTEGER NOT NULL DEFAULT 0,
+  position REAL, PRIMARY KEY (date, site, query)
+);
 CREATE TABLE IF NOT EXISTS semrush_files (file TEXT PRIMARY KEY, read_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS semrush_keywords (
   domain TEXT NOT NULL, country TEXT NOT NULL, day TEXT NOT NULL, keyword TEXT NOT NULL, position INTEGER NOT NULL,
@@ -212,6 +225,7 @@ TABLES = [
     "form_daily", "subscriptions", "subscription_history", "targets", "sources", "alert_rules", "alerts",
     "reports", "report_recipients", "outbox", "left_out_leads", "companies",
     "semrush_files", "semrush_keywords", "semrush_competitors", "search_page_daily",
+    "traffic_site_daily", "search_site_daily", "query_site_daily",
     "accounts", "sessions", "benchmarks", "team_members", "goals", "goal_log", "goal_notes", "team_tasks", "team_notes", "blockers",
 ]
 

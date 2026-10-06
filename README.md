@@ -213,6 +213,13 @@ to `app`. They are read within a minute while the app runs, on "Sync now" for Se
 shows the newest one per domain. Sites with over a million keywords (YouTube, Google and the like) are left
 out of the competitor table.
 
+## More than one website
+
+When two Search Console sites are connected (for example chat360.io and chat360.ai), visits, Google clicks and
+searches are also stored per site, and the Website and organic page gets a switch for "All websites" or one of
+them. Zoho records which form a lead filled in but not which site the form is on, so each form is given a site
+once, in "Leads by form" on that page; leads are then counted per site.
+
 ## Sign-in
 
 ```bash

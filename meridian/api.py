@@ -254,9 +254,25 @@ def get_outbound(range: str = "month", start: Optional[str] = None, end: Optiona
 
 
 @app.get("/api/web")
-def get_web(range: str = "month", start: Optional[str] = None, end: Optional[str] = None):
+def get_web(range: str = "month", start: Optional[str] = None, end: Optional[str] = None, site: Optional[str] = None):
     with session() as conn:
-        return website.build(conn, db.now(conn), period(conn, range, start, end))
+        return website.build(conn, db.now(conn), period(conn, range, start, end), site)
+
+
+class FormSite(BaseModel):
+    source: str
+    site: str = ""
+
+
+@app.put("/api/web/forms")
+def put_form_site(body: FormSite):
+    """Say which website a form or chatbot sits on. Zoho records the form's name but not the site."""
+    with session() as conn:
+        try:
+            website.set_form_site(conn, body.source, body.site)
+        except ValueError as err:
+            raise HTTPException(400, str(err))
+        return {"ok": True}
 
 
 @app.get("/api/quality")

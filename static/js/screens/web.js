@@ -35,6 +35,8 @@ const TIPS = {
   stray: 'These are pages on a test copy of the website. Google is showing them to people. They compete with the real pages and confuse Google. The web team should hide the test site from Google.',
   types: 'All pages grouped by what they are. Views is how many times pages of that kind were opened. Google clicks is how many of those visits came from a Google search.',
   pagesList: 'Each page, with how many times it was opened. Google clicks is how many came from Google search. Place is where the page usually shows in Google, 1 is the top. Use the buttons to see one kind of page.',
+  sides: 'The same numbers for each website, next to each other. Click a row to see the whole page for that website only.',
+  forms: 'Every form and chatbot that brought a lead in this period. Zoho tells us the name of the form, but not which website it is on. Pick the website for each form once and Meridian remembers it. After that, leads can be counted for each website.',
   noRank: 'Rankings come from Semrush. To add them: in Semrush open Organic Research, and on the Positions and Competitors tabs click Export, then CSV. Put the files in the "semrush" folder next to the app.',
 };
 
@@ -100,7 +102,7 @@ function semrushCards(s) {
 
 export default {
   uses: { range: true, compare: true },
-  load: ctx => ctx.api.get('web', ctx.rangeParams()),
+  load: ctx => ctx.api.get('web', { ...ctx.rangeParams(), site: ctx.app.params.site }),
 
   render(d, ctx) {
     const { params, compare: show } = ctx.app, ui = ctx.ui();
@@ -119,13 +121,29 @@ export default {
       const m = pick('day', Object.keys(METRIC), 'visits'), mm = pick('month', Object.keys(METRIC), 'visits');
       const toLead = rate(d.leads.value, d.visits.value), toLeadPrev = rate(d.leads.prev, d.visits.prev);
       const total = sum(d.sources, 'visits');
+      const lead = !ctx.app.shell.user || ctx.app.shell.user.admin !== false;
+      const forms = d.forms.filter(x => !d.site || x.site === d.site);
+      const scols = 'minmax(0,1.3fr) repeat(4,minmax(0,1fr))', fcols = 'minmax(0,1.6fr) 90px minmax(150px,1fr) 70px 80px 80px';
       return html`
+      ${d.site && d.unplaced ? html`<div class="row small" style="gap:10px;padding:9px 14px;border-radius:10px;background:color-mix(in oklch, var(--warn) 12%, var(--surface))">
+        <span><span class="semi">${f.num(d.unplaced)} website lead${d.unplaced === 1 ? ' is' : 's are'} not counted for any website yet.</span> Their forms have no website picked.</span>
+        <span style="flex:1"></span><span class="btn xs" data-act="site" data-arg="">Pick websites for the forms</span></div>` : ''}
       <div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
         ${kpi(f.num(d.visits.value), 'Visits', TIPS.visits, change(d.visits.value, d.visits.prev))}
         ${kpi(f.num(d.clicks.value), 'Clicks from Google', TIPS.clicks, change(d.clicks.value, d.clicks.prev), d.visits.value ? `${f.pct(d.clicks.value / d.visits.value * 100)} of visits` : '')}
         ${kpi(f.num(d.leads.value), 'Website leads', TIPS.leads, change(d.leads.value, d.leads.prev), `${f.num(d.leads.qualified)} qualified`)}
         ${kpi(f.orDash(toLead, f.pct), 'Visits that became leads', TIPS.toLead, null, show && toLeadPrev != null ? `was ${f.pct(toLeadPrev)}` : '', { end: true })}
       </div>
+      ${!d.site && d.by_site.length ? html`<div class="card clipped" style="--cols:${scols}">
+        <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">The websites side by side</span>${info(TIPS.sides)}</div>
+        <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Website</span><span>Visits</span><span>Clicks from Google</span><span>Leads</span><span>Visits that became leads</span></div>
+        ${d.by_site.map(x => html`<div class="trow right" data-act="site" data-arg="${x.site}" title="See only ${x.site}" style="cursor:pointer">
+          <span class="medium" style="text-align:left">${x.site}</span>
+          <span><span class="medium">${f.num(x.visits)}</span>${show && x.prev ? html` <span class="tiny" style="color:${f.tone(change(x.visits, x.prev))}">${f.arrowShort(change(x.visits, x.prev))}</span>` : ''}</span>
+          <span>${f.num(x.clicks)}</span><span class="medium">${x.leads || !d.unplaced ? f.num(x.leads) : '—'}</span><span class="muted">${x.leads || !d.unplaced ? f.orDash(rate(x.leads, x.visits), f.pct) : '—'}</span></div>`)}
+        ${d.site_ready ? '' : html`<div class="small muted" style="padding:10px 16px">Numbers for each website will fill in after the next sync.</div>`}
+        ${d.unplaced ? html`<div class="small muted" style="padding:10px 16px;border-top:1px solid var(--line2)">${f.num(d.unplaced)} website lead${d.unplaced === 1 ? '' : 's'} came through forms that have no website picked yet. Pick one in “Leads by form” below.</div>` : ''}
+      </div>` : ''}
       <div class="card" style="padding:18px 24px 16px">
         ${cardHead(`${METRIC[m][0]} per day`, TIPS.daily, sw('day', Object.entries(METRIC).map(([k, v]) => [k, v[0]]), m))}
         ${bars(d.days, x => x[m], METRIC[m][1], { label: dayLabel, title: x => `${x.day} ${x.month}` })}
@@ -140,6 +158,19 @@ export default {
           ${cardHead(`${METRIC[mm][0]} per month`, TIPS.months, sw('month', Object.entries(METRIC).map(([k, v]) => [k, v[0]]), mm))}
           ${bars(d.months, x => x[mm], METRIC[mm][1], { label: x => x.label, title: x => x.label, height: 230 })}
         </div>
+      </div>
+      <div class="card clipped" style="--cols:${fcols}">
+        <div class="baseline" style="padding:16px 16px 10px;gap:16px"><span class="row" style="gap:8px"><span class="title">Leads by form</span>${info(TIPS.forms)}</span>
+          <span class="small muted">${d.site ? `Forms on ${d.site}` : 'Every form and chatbot'}</span></div>
+        <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Form or chatbot</span><span style="text-align:left">Type</span><span style="text-align:left">Website it is on</span><span>Leads</span><span>Qualified</span><span>${show ? 'Change' : ''}</span></div>
+        ${forms.length ? forms.map(x => { const ch = change(x.leads, x.prev); return html`<div class="trow right">
+          <span class="medium clip" style="text-align:left" title="${x.name}">${x.name || 'No lead source written'}</span>
+          <span class="muted" style="text-align:left">${x.kind}</span>
+          <span style="text-align:left">${lead && d.sites.length ? html`<select class="input" data-change="formSite" data-source="${x.name}" style="padding:3px 8px;font-size:12px;${x.site ? '' : 'color:var(--warn)'}">
+            <option value="">Not picked yet</option>${d.sites.map(site => html`<option value="${site}" ${x.site === site ? 'selected' : ''}>${site}</option>`)}</select>` : (x.site || html`<span class="faint">Not picked yet</span>`)}</span>
+          <span class="medium">${f.num(x.leads)}</span><span class="muted">${f.num(x.qualified)}</span>
+          <span class="small" style="color:${ch == null ? 'var(--ink3)' : f.tone(ch)}">${show ? (ch == null ? 'new' : f.arrowShort(ch)) : ''}</span></div>`; })
+          : html`<div class="small muted" style="padding:14px 16px">${d.site ? `No leads came through forms on ${d.site} in this period.` : 'No website leads in this period.'}</div>`}
       </div>`;
     };
 
@@ -213,7 +244,7 @@ export default {
 
     // ------------------------------------------------------------ pages
     const pages = () => {
-      const site = pick('site', d.sites, null), inSite = r => !site || r.site === site;
+      const inSite = () => true;  // the page is already cut down to the chosen website
       const kinds = {};
       d.types.filter(inSite).forEach(t => { const k = kinds[t.type] = kinds[t.type] || { type: t.type, pages: 0, views: 0, prev: 0, clicks: 0 }; ['pages', 'views', 'prev', 'clicks'].forEach(x => { k[x] += t[x]; }); });
       const types = Object.values(kinds).sort((a, b) => b.views - a.views);
@@ -223,7 +254,6 @@ export default {
       const views = sum(types, 'views');
       const cols = 'minmax(0,1.5fr) minmax(70px,0.8fr) 70px 70px 80px 60px';
       return html`
-      ${d.sites.length > 1 ? html`<div class="row" style="gap:12px"><span class="muted">Website</span>${sw('site', [['', 'All sites'], ...d.sites.map(s => [s, s])], site || '')}</div>` : ''}
       <div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
         ${kpi(f.num(views), 'Page views', 'How many times any page on the website was opened in this period.', change(views, sum(types, 'prev')))}
         ${kpi(f.num(sum(types, 'pages')), 'Pages that were read', 'How many different pages were opened at least once in this period.', null)}
@@ -250,18 +280,24 @@ export default {
       ${d.elsewhere ? html`<div class="tiny faint">${f.num(d.elsewhere)} more page views were on test or copy addresses and are not counted here.</div>` : ''}`;
     };
 
-    const rankings = () => (d.semrush && d.semrush.sites.length ? d.semrush.sites.map(semrushCards)
-      : html`<div class="card pad row" style="gap:8px"><span class="muted">No rankings have been added yet.</span>${info(TIPS.noRank)}</div>`);
+    const ranked_sites = d.semrush ? d.semrush.sites.filter(x => !d.site || x.domain.replace(/^www\./, '') === d.site) : [];
+    const rankings = () => (ranked_sites.length ? ranked_sites.map(semrushCards)
+      : html`<div class="card pad row" style="gap:8px"><span class="muted">${d.site && d.semrush ? `No Semrush export has been added for ${d.site} yet.` : 'No rankings have been added yet.'}</span>${info(TIPS.noRank)}</div>`);
 
     return html`
     ${pageHead(show ? `${d.period.short} compared with ${d.period.prev_short}` : d.period.short, 'Website and organic', segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))}
-    <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span><span class="muted">${BLURB[view]}</span></div>
+    <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span><span class="muted">${BLURB[view]}</span>
+      <span style="flex:1"></span>${d.sites.length > 1 ? switcher([{ arg: '', label: 'All websites', on: !d.site }, ...d.sites.map(x => ({ arg: x, label: x, on: d.site === x }))], 'site') : ''}</div>
     ${{ summary, search, pages, rankings }[view]()}`;
   },
 
   actions: {
-    view: (ctx, d) => ctx.setParams({ view: d.arg }),
+    view: (ctx, d) => ctx.setParams({ ...ctx.app.params, view: d.arg }),
+    site(ctx, d) { ctx.setParams({ ...ctx.app.params, site: d.arg || null }); ctx.reload(); },
     // a chart's buttons: "which=brand" remembers the choice for that chart
     set(ctx, d) { const at = d.arg.indexOf('='); ctx.ui()[d.arg.slice(0, at)] = d.arg.slice(at + 1) || null; ctx.render(); },
+  },
+  changes: {
+    formSite: (ctx, value, el) => ctx.save(() => ctx.api.put('web/forms', { source: el.dataset.source, site: value }), value ? `Saved. Leads from this form now count for ${value}.` : 'Saved.'),
   },
 };

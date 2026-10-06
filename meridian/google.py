@@ -152,6 +152,17 @@ def sync_ga4(conn, now, token):
                     path = host + path
                 views, best, name = pages.get((day, path), (0, 0, ""))  # one row per page: views added up, the commonest title kept
                 pages[(day, path)] = (views + n, max(best, n), title if n > best else name)
+    # the same visits per website; the first time this needs the whole year, like any first sync
+    fresh = not conn.execute("SELECT 1 FROM traffic_site_daily LIMIT 1").fetchone()
+    site_start = now.date() - timedelta(days=HISTORY_DAYS) if fresh else start
+    by_site = {}
+    for prop in props:
+        for a, b in chunks(site_start, end):
+            for (day, host, source, medium), n in ga_report(token, prop, a, b, ["date", "hostName", "sessionSource", "sessionMedium"], "sessions"):
+                key = (day, site_name(host) or "(not set)", source or "(not set)", medium or "(not set)")
+                by_site[key] = by_site.get(key, 0) + n
+    conn.execute("DELETE FROM traffic_site_daily WHERE date >= ?", (site_start.isoformat(),))
+    conn.executemany("INSERT INTO traffic_site_daily (date, site, source, medium, sessions) VALUES (?,?,?,?,?)", [k + (v,) for k, v in by_site.items() if v])
     conn.execute("DELETE FROM traffic_daily WHERE date >= ?", (start.isoformat(),))
     conn.executemany("INSERT INTO traffic_daily (date, source, medium, sessions) VALUES (?,?,?,?)", [k + (v,) for k, v in traffic.items() if v])
     # Analytics knows views per page, not leads per page, so that column stays empty.
@@ -191,6 +202,11 @@ def combine(rows):
     return list(out.values())
 
 
+def site_name(text):
+    """A site as it is named everywhere in Meridian: chat360.io, whether it came as sc-domain:chat360.io, https://www.chat360.io/ or a host name."""
+    return re.sub(r"^(sc-domain:|https?://)", "", (text or "").strip().lower()).split("/")[0].replace("www.", "", 1)
+
+
 def page_key(url):
     """A page's address without the scheme, "www.", query or trailing slash: chat360.io/blog/post. The same for Analytics and Search Console."""
     text = re.sub(r"^https?://", "", (url or "").strip().lower()).split("#")[0].split("?")[0]
@@ -204,10 +220,22 @@ def sync_gsc(conn, now, token):
     fresh = not conn.execute("SELECT 1 FROM search_page_daily LIMIT 1").fetchone()
     page_start = now.date() - timedelta(days=HISTORY_DAYS) if fresh else start
     days, queries, pages = [], [], []
+    # each site's own figures are kept too; the first time they need the whole year
+    site_fresh = not conn.execute("SELECT 1 FROM search_site_daily LIMIT 1").fetchone()
+    site_start = now.date() - timedelta(days=HISTORY_DAYS) if site_fresh else start
+    conn.execute("DELETE FROM search_site_daily WHERE date >= ?", (site_start.isoformat(),))
+    conn.execute("DELETE FROM query_site_daily WHERE date >= ?", (site_start.isoformat(),))
     for site in targets()["gsc"]:
-        for a, b in chunks(start, end):
-            days += gsc_rows(token, site, a, b, ["date"])
-            queries += gsc_rows(token, site, a, b, ["date", "query"])
+        name = site_name(site)
+        for a, b in chunks(site_start, end):
+            own_days, own_queries = gsc_rows(token, site, a, b, ["date"]), gsc_rows(token, site, a, b, ["date", "query"])
+            conn.executemany("INSERT OR REPLACE INTO search_site_daily (date, site, clicks, impressions, position) VALUES (?,?,?,?,?)",
+                             [(r["keys"][0], name, int(r.get("clicks") or 0), int(r.get("impressions") or 0), r.get("position")) for r in own_days])
+            conn.executemany("INSERT OR REPLACE INTO query_site_daily (date, site, query, clicks, impressions, position) VALUES (?,?,?,?,?,?)",
+                             [(r["keys"][0], name, r["keys"][1], int(r.get("clicks") or 0), int(r.get("impressions") or 0), r.get("position")) for r in own_queries])
+            first_day = start.isoformat()  # the combined tables below are only refreshed for the usual window
+            days += [r for r in own_days if r["keys"][0] >= first_day]
+            queries += [r for r in own_queries if r["keys"][0] >= first_day]
         for a, b in chunks(page_start, end):
             pages += gsc_rows(token, site, a, b, ["date", "page"])
     for r in pages:

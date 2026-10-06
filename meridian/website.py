@@ -5,11 +5,12 @@ company's name and those that do not, because only the second kind shows new peo
 grouped by what they are (home, blog, case study, product...) and by site, so content can be judged as a group.
 """
 
+import json
 import re
 from datetime import timedelta
 
 from . import metrics, scoring, semrush
-from .db import get_setting, is_demo
+from .db import get_setting, is_demo, set_setting
 from .google import page_key
 from .periods import MONTHS
 
@@ -53,6 +54,28 @@ def sites(conn):
     return [s for s in chosen if "/" not in s and not s.startswith("app.")] or None
 
 
+FORM_SITES = "form_sites"  # setting: which website each Zoho lead source (a form or a chatbot) sits on
+
+
+def form_sites(conn):
+    try:
+        return dict(json.loads(get_setting(conn, FORM_SITES) or "{}"))
+    except ValueError:
+        return {}
+
+
+def set_form_site(conn, source, site):
+    """Remember which website a form is on ("" forgets it)."""
+    known = sites(conn) or []
+    if site and site not in known:
+        raise ValueError("That is not one of the connected websites.")
+    mapping = form_sites(conn)
+    mapping.pop(source, None)
+    if site:
+        mapping[source] = site
+    set_setting(conn, FORM_SITES, json.dumps(mapping))
+
+
 def split_page(key, known):
     """(site, path) for a page key, or (None, path) when the page is not on one of the company's sites."""
     host, _, rest = key.partition("/")
@@ -84,42 +107,61 @@ def weighted(total, weight):
     return total / weight if weight else None
 
 
-def build(conn, now, p):
+def build(conn, now, p, site=None):
+    """Everything on the screen, for every website together or (with `site`) for one of them."""
     thr = scoring.threshold(conn)
     s, e, ps, pe = p.s.isoformat(), p.e.isoformat(), p.ps.isoformat(), p.pe.isoformat()
     known = None if is_demo(conn) else sites(conn)
+    site = site if site and known and site in known else None
     is_brand = brand_test(conn)
+    marks = ",".join("?" for _ in WEB_LEAD_CHANNELS)
+    on_site = form_sites(conn)
+    # One site: read the per-site tables, and count only the leads whose form sits on that site.
+    if site:
+        traffic, t_and, t_args = "traffic_site_daily", " AND site = ?", (site,)
+        queries_from = "query_site_daily"
+        mine = [k for k, v in on_site.items() if v == site]
+        lead_and = " AND channel_id IN ({}) AND lead_source IN ({})".format(marks, ",".join("?" for _ in mine) or "NULL")
+        lead_args = WEB_LEAD_CHANNELS + tuple(mine)
+    else:
+        traffic, t_and, t_args = "traffic_daily", "", ()
+        queries_from = "query_daily"
+        lead_and, lead_args = " AND channel_id IN ({})".format(marks), WEB_LEAD_CHANNELS
+    daily_search = ("SELECT date, clicks, impressions FROM search_site_daily WHERE site = ? AND date BETWEEN ? AND ?" if site else
+                    "SELECT date, clicks, impressions FROM channel_daily WHERE channel_id = 'search' AND date BETWEEN ? AND ?")
 
     def one(sql, args):
         return conn.execute(sql, args).fetchone()
 
     def search_totals(a, b):
+        if site:
+            r = one("SELECT COALESCE(SUM(clicks), 0) AS c, COALESCE(SUM(impressions), 0) AS i, SUM(position * impressions) AS pw FROM search_site_daily "
+                    "WHERE site = ? AND date BETWEEN ? AND ?", (site, a, b))
+            return dict(clicks=r["c"], impressions=r["i"], position=weighted(r["pw"] or 0, r["i"]))
         r = one("SELECT COALESCE(SUM(clicks), 0) AS c, COALESCE(SUM(impressions), 0) AS i FROM channel_daily "
                 "WHERE channel_id = 'search' AND date BETWEEN ? AND ?", (a, b))
         pos = one("SELECT SUM(position * 1.0) / COUNT(*) FROM search_daily WHERE date BETWEEN ? AND ?", (a, b))[0]
         return dict(clicks=r["c"], impressions=r["i"], position=pos)
 
     def web_leads(start_dt, end_dt):
-        marks = ",".join("?" for _ in WEB_LEAD_CHANNELS)
-        r = one("SELECT COUNT(*) AS n, COALESCE(SUM(score >= ?), 0) AS q FROM leads WHERE created_at >= ? AND created_at < ? "
-                "AND channel_id IN ({})".format(marks), (thr, start_dt, end_dt) + WEB_LEAD_CHANNELS)
+        r = one("SELECT COUNT(*) AS n, COALESCE(SUM(score >= ?), 0) AS q FROM leads WHERE created_at >= ? AND created_at < ?" + lead_and,
+                (thr, start_dt, end_dt) + lead_args)
         return r["n"], r["q"]
 
-    visits = one("SELECT COALESCE(SUM(sessions), 0) FROM traffic_daily WHERE date BETWEEN ? AND ?", (s, e))[0]
-    visits_prev = one("SELECT COALESCE(SUM(sessions), 0) FROM traffic_daily WHERE date BETWEEN ? AND ?", (ps, pe))[0]
+    visits = one("SELECT COALESCE(SUM(sessions), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (s, e) + t_args)[0]
+    visits_prev = one("SELECT COALESCE(SUM(sessions), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (ps, pe) + t_args)[0]
     search, search_prev = search_totals(s, e), search_totals(ps, pe)
     leads, qualified = web_leads(p.start_dt, p.end_dt)
     leads_prev, _ = web_leads(p.pstart_dt, p.pend_dt)
 
     # ---- day by day, for the chart at the top
     by_day = {d.isoformat(): dict(visits=0, clicks=0, leads=0) for d in p.days}
-    for r in conn.execute("SELECT date, SUM(sessions) AS n FROM traffic_daily WHERE date BETWEEN ? AND ? GROUP BY date", (s, e)):
+    for r in conn.execute("SELECT date, SUM(sessions) AS n FROM {} WHERE date BETWEEN ? AND ?{} GROUP BY date".format(traffic, t_and), (s, e) + t_args):
         by_day[r["date"]]["visits"] = r["n"]
-    for r in conn.execute("SELECT date, clicks FROM channel_daily WHERE channel_id = 'search' AND date BETWEEN ? AND ?", (s, e)):
+    for r in conn.execute(daily_search, ((site,) if site else ()) + (s, e)):
         by_day[r["date"]]["clicks"] = r["clicks"]
-    marks = ",".join("?" for _ in WEB_LEAD_CHANNELS)
-    for r in conn.execute("SELECT substr(created_at, 1, 10) AS d, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < ? "
-                          "AND channel_id IN ({}) GROUP BY d".format(marks), (p.start_dt, p.end_dt) + WEB_LEAD_CHANNELS):
+    for r in conn.execute("SELECT substr(created_at, 1, 10) AS d, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < ?" + lead_and + " GROUP BY d",
+                          (p.start_dt, p.end_dt) + lead_args):
         if r["d"] in by_day:
             by_day[r["d"]]["leads"] = r["n"]
     days = [dict(date=d, day=int(d[8:]), month=MONTHS[int(d[5:7]) - 1], **v) for d, v in sorted(by_day.items())]
@@ -130,19 +172,19 @@ def build(conn, now, p):
     keys = ["{:04d}-{:02d}".format(*ym) for ym in spans]
     month = {k: dict(visits=0, clicks=0, impressions=0, leads=0, brand=0, other=0) for k in keys}
     first = keys[0] + "-01"
-    for r in conn.execute("SELECT substr(date, 1, 7) AS k, SUM(sessions) AS n FROM traffic_daily WHERE date >= ? AND date <= ? GROUP BY 1", (first, e)):
+    for r in conn.execute("SELECT substr(date, 1, 7) AS k, SUM(sessions) AS n FROM {} WHERE date >= ? AND date <= ?{} GROUP BY 1".format(traffic, t_and), (first, e) + t_args):
         if r["k"] in month:
             month[r["k"]]["visits"] = r["n"]
-    for r in conn.execute("SELECT substr(date, 1, 7) AS k, SUM(clicks) AS c, SUM(impressions) AS i FROM channel_daily "
-                          "WHERE channel_id = 'search' AND date >= ? AND date <= ? GROUP BY 1", (first, e)):
+    for r in conn.execute("SELECT substr(date, 1, 7) AS k, SUM(clicks) AS c, SUM(impressions) AS i FROM ({}) GROUP BY 1".format(
+            daily_search.replace("BETWEEN ? AND ?", ">= ? AND date <= ?")), ((site,) if site else ()) + (first, e)):
         if r["k"] in month:
             month[r["k"]].update(clicks=r["c"] or 0, impressions=r["i"] or 0)
-    for r in conn.execute("SELECT substr(created_at, 1, 7) AS k, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < ? "
-                          "AND channel_id IN ({}) GROUP BY 1".format(marks), (first, p.end_dt) + WEB_LEAD_CHANNELS):
+    for r in conn.execute("SELECT substr(created_at, 1, 7) AS k, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < ?" + lead_and + " GROUP BY 1",
+                          (first, p.end_dt) + lead_args):
         if r["k"] in month:
             month[r["k"]]["leads"] = r["n"]
-    for r in conn.execute("SELECT substr(date, 1, 7) AS k, query, SUM(clicks) AS c FROM query_daily WHERE date >= ? AND date <= ? "
-                          "GROUP BY 1, 2 HAVING c > 0", (first, e)):
+    for r in conn.execute("SELECT substr(date, 1, 7) AS k, query, SUM(clicks) AS c FROM {} WHERE date >= ? AND date <= ?{} "
+                          "GROUP BY 1, 2 HAVING c > 0".format(queries_from, t_and), (first, e) + t_args):
         if r["k"] in month:
             month[r["k"]]["brand" if is_brand(r["query"]) else "other"] += r["c"]
     months = [dict(label=MONTHS[ym[1] - 1], **month[k]) for k, ym in zip(keys, spans)]
@@ -150,7 +192,7 @@ def build(conn, now, p):
     # ---- where visitors came from
     def source_groups(a, b):
         out = {}
-        for r in conn.execute("SELECT source, medium, SUM(sessions) AS n FROM traffic_daily WHERE date BETWEEN ? AND ? GROUP BY 1, 2", (a, b)):
+        for r in conn.execute("SELECT source, medium, SUM(sessions) AS n FROM {} WHERE date BETWEEN ? AND ?{} GROUP BY 1, 2".format(traffic, t_and), (a, b) + t_args):
             src, med = (r["source"] or "").lower(), (r["medium"] or "").lower()
             name = next(n for n, test in SOURCES if test(src, med))
             g = out.setdefault(name, dict(name=name, visits=0, parts={}))
@@ -165,8 +207,8 @@ def build(conn, now, p):
     # ---- Google searches: with the company's name, and without
     def query_rows(a, b):
         return {r["query"]: r for r in conn.execute(
-            "SELECT query, SUM(clicks) AS c, SUM(impressions) AS i, SUM(position * impressions) AS pw FROM query_daily "
-            "WHERE date BETWEEN ? AND ? GROUP BY query", (a, b))}
+            "SELECT query, SUM(clicks) AS c, SUM(impressions) AS i, SUM(position * impressions) AS pw FROM {} "
+            "WHERE date BETWEEN ? AND ?{} GROUP BY query".format(queries_from, t_and), (a, b) + t_args)}
     cur_q, prev_q = query_rows(s, e), query_rows(ps, pe)
     queries, split = [], dict(brand=dict(clicks=0, impressions=0, queries=0), other=dict(clicks=0, impressions=0, queries=0))
     buckets = [dict(label="Top 3", lo=0, hi=3.5, n=0), dict(label="4 to 10", lo=3.5, hi=10.5, n=0),
@@ -207,20 +249,22 @@ def build(conn, now, p):
         "WHERE date BETWEEN ? AND ? GROUP BY page", (s, e))}
     pages, types, elsewhere = [], {}, 0
     for key in set(cur_pages) | set(found):
-        site, path = split_page(key, known)
+        host, path = split_page(key, known)
         views = cur_pages.get(key, {}).get("views", 0)
         hit = found.get(key)
-        if site is None:
+        if host is None:
             elsewhere += views
             continue
+        if site and host != site:
+            continue
         kind = page_type(path)
-        t = types.setdefault((site, kind), dict(site=site, type=kind, pages=0, views=0, prev=0, clicks=0))
+        t = types.setdefault((host, kind), dict(site=host, type=kind, pages=0, views=0, prev=0, clicks=0))
         t["pages"] += 1 if views else 0
         t["views"] += views
         t["prev"] += prev_pages.get(key, {}).get("views", 0)
         t["clicks"] += hit["c"] if hit else 0
         title = (cur_pages.get(key, {}).get("title") or "").split(" - Chat360")[0].split(" | Chat360")[0].strip()
-        pages.append(dict(site=site, path=path, title=title or None, type=kind, views=views, prev=prev_pages.get(key, {}).get("views", 0),
+        pages.append(dict(site=host, path=path, title=title or None, type=kind, views=views, prev=prev_pages.get(key, {}).get("views", 0),
                           clicks=hit["c"] if hit else 0, impressions=hit["i"] if hit else 0,
                           position=weighted(hit["pw"] or 0, hit["i"]) if hit else None))
     pages.sort(key=lambda r: (-r["views"], -r["clicks"]))
@@ -228,8 +272,30 @@ def build(conn, now, p):
     stray = sorted((dict(page=k, clicks=r["c"], impressions=r["i"]) for k, r in found.items()
                     if split_page(k, known)[0] is None and TEST_HOST.search(k.split("/")[0]) and r["i"] >= 50), key=lambda r: -r["impressions"])[:8]
 
+    # ---- which form or chatbot each website lead came through, and which website that form sits on
+    before = {r["k"]: r["n"] for r in conn.execute(
+        "SELECT COALESCE(lead_source, '') AS k, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < ? AND channel_id IN ({}) GROUP BY 1".format(marks),
+        (p.pstart_dt, p.pend_dt) + WEB_LEAD_CHANNELS)}
+    forms = [dict(name=r["k"], kind="Chatbot" if r["ch"] == "chatbot" else "Form", site=on_site.get(r["k"], ""), leads=r["n"], qualified=r["q"] or 0,
+                  prev=before.get(r["k"], 0))
+             for r in conn.execute(
+                 "SELECT COALESCE(lead_source, '') AS k, MAX(channel_id) AS ch, COUNT(*) AS n, SUM(score >= ?) AS q FROM leads "
+                 "WHERE created_at >= ? AND created_at < ? AND channel_id IN ({}) GROUP BY 1 ORDER BY n DESC".format(marks),
+                 (thr, p.start_dt, p.end_dt) + WEB_LEAD_CHANNELS)]
+
+    # ---- the websites side by side
+    by_site = []
+    for name in (known or []) if len(known or []) > 1 else []:
+        v = one("SELECT COALESCE(SUM(sessions), 0) FROM traffic_site_daily WHERE site = ? AND date BETWEEN ? AND ?", (name, s, e))[0]
+        vp = one("SELECT COALESCE(SUM(sessions), 0) FROM traffic_site_daily WHERE site = ? AND date BETWEEN ? AND ?", (name, ps, pe))[0]
+        g = one("SELECT COALESCE(SUM(clicks), 0) AS c, COALESCE(SUM(impressions), 0) AS i FROM search_site_daily WHERE site = ? AND date BETWEEN ? AND ?", (name, s, e))
+        by_site.append(dict(site=name, visits=v, prev=vp, clicks=g["c"], impressions=g["i"],
+                            leads=sum(f["leads"] for f in forms if f["site"] == name), qualified=sum(f["qualified"] for f in forms if f["site"] == name)))
+    ready = bool(conn.execute("SELECT 1 FROM traffic_site_daily LIMIT 1").fetchone())
+
     return dict(
-        period=p.as_json(), company=get_setting(conn, "company", ""), sites=known or [],
+        period=p.as_json(), company=get_setting(conn, "company", ""), sites=known or [], site=site or "", site_ready=ready,
+        forms=forms, by_site=by_site, unplaced=sum(f["leads"] for f in forms if not f["site"]),
         visits=dict(value=visits, prev=visits_prev), clicks=dict(value=search["clicks"], prev=search_prev["clicks"]),
         impressions=dict(value=search["impressions"], prev=search_prev["impressions"]),
         position=dict(value=search["position"], prev=search_prev["position"]),
