@@ -37,7 +37,8 @@ export default {
 
   render(d, ctx) {
     const { params } = ctx.app, ui = ctx.ui();
-    const view = TABS.some(t => t[0] === params.view) ? params.view : 'progress';
+    const user = ctx.app.shell.user, lead = !user || user.admin !== false;  // a team member sees only their own targets and cannot change them
+    const view = TABS.some(t => t[0] === params.view) ? params.view : lead ? 'progress' : 'today';
     const who = d.members.some(m => String(m.id) === String(ui.who)) ? Number(ui.who) : null;
     const period = ui.period === 'month' ? 'month' : 'week';
     const members = d.members.filter(m => !who || m.id === who);
@@ -54,9 +55,11 @@ export default {
     const tasksToday = d.tasks.filter(t => !who || t.member_id === who);
     const itemsDone = metToday + tasksToday.filter(t => t.done).length, itemsAll = dueToday.length + tasksToday.length;
 
+    const nobody = html`<div class="card pad small muted">${lead ? 'Nobody has targets yet. Click “Add person” to start.' : 'No targets have been set for you yet. Ask a leader to add them.'}</div>`;
+
     // ------------------------------------------------------------ progress on the targets
     const goalRow = g => html`<div style="display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1.3fr) 130px ${g.period === 'week' ? '150px' : ''};gap:20px;align-items:center;padding:13px 0;border-top:1px solid var(--line2)">
-      <div class="stack" style="gap:3px;min-width:0"><span class="medium clip editable" data-act="editGoal" data-arg="${g.id}" title="Click to change this target">${g.title}</span>
+      <div class="stack" style="gap:3px;min-width:0">${lead ? html`<span class="medium clip editable" data-act="editGoal" data-arg="${g.id}" title="Click to change this target">${g.title}</span>` : html`<span class="medium clip">${g.title}</span>`}
         <span class="row tiny muted" style="gap:6px">${g.auto ? `Counted from ${g.source}` : 'Counted by hand'}${info(g.auto ? TIPS.auto : TIPS.manual)}</span></div>
       <div class="stack" style="gap:6px">
         <div class="baseline"><span><span class="semi" style="font-size:16px">${amount(g.done)}</span> <span class="muted">of ${amount(g.target)} ${g.unit}</span></span><span class="medium">${f.pct(Math.min(g.pct, 999))}</span></div>
@@ -81,11 +84,11 @@ export default {
         <div class="between" style="align-items:center;margin-bottom:6px">
           <div class="row" style="gap:12px">${avatar(initials(m.name), 34)}<div class="stack" style="gap:1px"><span class="row" style="gap:8px"><span class="title">${m.name}</span>${info(TIPS.person)}</span>
             <span class="small muted">${m.focus || 'No focus written yet'}</span></div></div>
-          <div class="row" style="gap:8px"><span class="btn xs" data-act="editMember" data-arg="${m.id}">Edit</span><span class="btn xs primary" data-act="addGoal" data-arg="${m.id}">Add target</span></div>
+          ${lead ? html`<div class="row" style="gap:8px"><span class="btn xs" data-act="editMember" data-arg="${m.id}">Edit</span><span class="btn xs primary" data-act="addGoal" data-arg="${m.id}">Add target</span></div>` : ''}
         </div>
-        ${list.length ? list.map(goalRow) : html`<div class="small muted" style="padding:14px 0 16px;border-top:1px solid var(--line2)">No ${period === 'week' ? 'weekly' : 'monthly'} targets for ${m.name} yet. Click “Add target” to set the first one.</div>`}
+        ${list.length ? list.map(goalRow) : html`<div class="small muted" style="padding:14px 0 16px;border-top:1px solid var(--line2)">No ${period === 'week' ? 'weekly' : 'monthly'} targets for ${m.name} yet.${lead ? ' Click “Add target” to set the first one.' : ''}</div>`}
       </div>`; })}
-      ${d.members.length ? '' : html`<div class="card pad small muted">Nobody is on the team list yet. Click “Add person” to start.</div>`}`;
+      ${d.members.length ? '' : nobody}`;
 
     // ------------------------------------------------------------ today's checklist
     const tick = (on, act, arg) => html`<span ${act ? html`data-act="${act}" data-arg="${arg}"` : ''} style="width:20px;height:20px;border-radius:6px;flex:none;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;
@@ -112,7 +115,7 @@ export default {
         ${tasks.map(t => html`<div class="row" style="gap:12px;padding:10px 0;border-top:1px solid var(--line2)">
           ${tick(!!t.done, 'toggleTask', t.id)}<span class="${t.done ? 'muted' : 'medium'}" style="flex:1;min-width:0;${t.done ? 'text-decoration:line-through' : ''}">${t.title}</span>
           <span class="tiny faint" data-act="removeTask" data-arg="${t.id}" style="cursor:pointer" title="Remove this task">Remove</span></div>`)}
-        ${all ? '' : html`<div class="small muted" style="padding:10px 0;border-top:1px solid var(--line2)">Nothing is due today. Add a target on the Progress tab, or a one-off task below.</div>`}
+        ${all ? '' : html`<div class="small muted" style="padding:10px 0;border-top:1px solid var(--line2)">Nothing is due today. ${lead ? 'Add a target on the Progress tab, or a one-off task below.' : 'You can add a one-off task below.'}</div>`}
         <form class="row" data-submit="addTask" style="gap:8px;padding:10px 0 0;border-top:1px solid var(--line2)">
           <input type="hidden" name="member_${m.id}" value="${m.id}">
           <input class="input" name="task_${m.id}" placeholder="Add a one-off task for today" autocomplete="off" style="flex:1"><button class="btn" type="submit" name="for" value="${m.id}">Add</button></form>
@@ -131,7 +134,7 @@ export default {
           <div style="display:flex;gap:10px;margin-top:4px">${hist.map(x => html`<span class="micro muted" style="flex:1;text-align:center">${x.label}</span>`)}</div>
         </div>
       </div>`; })}
-      </div>`;
+      </div>${d.members.length ? '' : nobody}`;
 
     // ------------------------------------------------------------ the week, day by day
     const report = () => { const r = d.report, people = r.people.filter(p => !who || p.id === who);
@@ -182,7 +185,7 @@ export default {
 
     return html`
     ${pageHead(`${d.week_label} · ${d.month_label}`, 'Targets', html`<div class="row" style="gap:10px">${segmented(TABS.map(([arg, label]) => ({ arg, label: arg === 'blockers' && open.length ? `${label} · ${open.length}` : label, on: view === arg })), 'view', 16)}
-      <span class="btn" data-act="addMember">Add person</span></div>`)}
+      ${lead ? html`<a class="btn" href="#/people" style="text-decoration:none">Add person</a>` : ''}</div>`)}
     ${d.demo ? html`<div class="row small" style="gap:12px;padding:9px 14px;border-radius:10px;background:color-mix(in oklch, var(--warn) 12%, var(--surface))">
       <span><span class="semi">Example data.</span> The hand-counted numbers, notes, tasks and blockers on this page are made up to show how it works.</span>
       <span style="flex:1"></span><span class="btn xs" data-act="clearDemo">Remove example data</span></div>` : ''}
@@ -198,8 +201,7 @@ export default {
         <span class="section">${m.member ? 'Edit ' + p.name : 'Add a person'}</span>
         <label class="field">Name<input class="input" name="name" value="${p.name || ''}" required data-autofocus></label>
         <label class="field">What they look after<input class="input" name="focus" value="${p.focus || ''}" placeholder="e.g. SEO and LinkedIn posts"></label>
-        <label class="field">Email, for the daily emails later<input class="input" name="email" type="email" value="${p.email || ''}" placeholder="name@company.com"></label>
-        <div class="between" style="margin-top:4px">${m.member ? html`<button type="button" class="btn danger" data-act="removeMember" data-arg="${p.id}">Remove</button>` : html`<span></span>`}
+        <div class="between" style="margin-top:4px"><span></span>
           <div class="row" style="gap:8px"><button type="button" class="btn" data-act="cancelModal">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
       </form>`;
     }
@@ -230,12 +232,10 @@ export default {
     week(ctx, d) { const ui = ctx.ui(); ui.back = Math.max((ui.back || 0) + Number(d.arg), 0); ctx.reload(); },
     print: () => window.print(),
     clearDemo: ctx => ctx.save(() => ctx.api.post('targets', { what: 'clear_demo' }), 'Example data removed. The page is ready for real targets.'),
-    addMember: ctx => ctx.openModal({ kind: 'member', member: null }),
     editMember: (ctx, d) => ctx.openModal({ kind: 'member', member: ctx.app.data.members.find(m => String(m.id) === d.arg) }),
     addGoal: (ctx, d) => ctx.openModal({ kind: 'goal', goal: null, member_id: Number(d.arg) }),
     editGoal: (ctx, d) => ctx.openModal({ kind: 'goal', goal: ctx.app.data.goals.find(g => String(g.id) === d.arg) }),
     async removeGoal(ctx, d) { ctx.app.modal = null; await ctx.save(() => ctx.api.post('targets', { what: 'remove_goal', id: Number(d.arg) }), 'Target removed.'); },
-    async removeMember(ctx, d) { ctx.app.modal = null; await ctx.save(() => ctx.api.post('targets', { what: 'remove_member', id: Number(d.arg) }), 'Removed from the team list.'); },
     log: (ctx, d) => ctx.save(() => ctx.api.post('targets', { what: 'log', id: Number(d.arg), amount: Number(d.step) })),
     toggleTask: (ctx, d) => ctx.save(() => ctx.api.post('targets', { what: 'toggle_task', id: Number(d.arg) })),
     removeTask: (ctx, d) => ctx.save(() => ctx.api.post('targets', { what: 'remove_task', id: Number(d.arg) })),
@@ -252,7 +252,7 @@ export default {
     async saveMember(ctx, v) {
       const member = ctx.app.modal.member;
       ctx.app.modal = null;
-      await ctx.save(() => ctx.api.post('targets', { what: 'member', id: member ? member.id : null, name: v.name, focus: v.focus, email: v.email }), member ? 'Saved.' : 'Added to the team.');
+      await ctx.save(() => ctx.api.post('targets', { what: 'member', id: member ? member.id : null, name: v.name, focus: v.focus, email: member ? member.email : null }), member ? 'Saved.' : 'Added to the team.');
     },
     async saveGoal(ctx, v) {
       const goal = ctx.app.modal.goal;

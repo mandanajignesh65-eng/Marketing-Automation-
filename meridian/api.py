@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ads, alerts, backup, config, db, google, health, ingest, mailer, metrics, money, narrative, outbound, reminders, research, scheduler, scoring, screens, semrush, team, website, zoho
+from . import accounts, ads, alerts, backup, config, db, google, health, ingest, mailer, metrics, money, narrative, outbound, people, reminders, research, scheduler, scoring, screens, semrush, team, website, zoho
 from .periods import Period, iso
 
 app = FastAPI(title="Meridian")
@@ -70,6 +70,11 @@ async def no_stale_assets(request: Request, call_next):
 OPEN_PATHS = ("/api/login", "/api/logout", "/static/", "/webhooks/", "/tasks/", "/healthz")  # webhooks and tasks carry their own token
 
 
+WRITES = ("POST", "PUT", "PATCH", "DELETE")
+LEADER_ONLY = ("/api/people",)                                                                   # not even to look at
+MEMBER_WRITES = ("/api/login", "/api/logout", "/api/account/", "/api/targets", "/api/leads/", "/api/sources/")  # what a team member may change
+
+
 @app.middleware("http")
 async def signed_in_only(request: Request, call_next):
     """Once sign-in is on, every page of data needs a signed-in person; anyone else gets the sign-in page."""
@@ -85,8 +90,12 @@ async def signed_in_only(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse({"detail": "Please sign in."}, status_code=401)
         return FileResponse(str(config.STATIC_DIR / "login.html"), headers={"Cache-Control": "no-store"})
+    if person and person["role"] != "admin":  # a team member sees the figures and fills in their own day; the rest is for leaders
+        write = request.method in WRITES
+        if path.startswith(LEADER_ONLY) or (write and not (path.startswith(MEMBER_WRITES) and not (path == "/api/targets" and request.method == "PUT"))):
+            return JSONResponse({"detail": "Only a leader can do this."}, status_code=403)
     response = await call_next(request)
-    if request.method in ("POST", "PUT", "PATCH", "DELETE") and response.status_code < 400:
+    if request.method in WRITES and response.status_code < 400:
         backup.changed()  # something was saved: the stored copy needs refreshing
     return response
 
@@ -140,6 +149,64 @@ def sign_out(request: Request):
     return response
 
 
+# ------------------------------------------------------------------------------- people
+
+class PersonChange(BaseModel):
+    account_id: Optional[int] = None
+    member_id: Optional[int] = None
+    name: Optional[str] = None
+    email: Optional[str] = None
+    role: Optional[str] = None
+    password: Optional[str] = None
+    focus: Optional[str] = None
+    targets: bool = False
+
+
+class NewPassword(BaseModel):
+    current: str
+    new: str
+
+
+@app.get("/api/people")
+def get_people(request: Request):
+    with session() as conn:
+        return people.view(conn, getattr(request.state, "person", None))
+
+
+@app.post("/api/people")
+def save_person(b: PersonChange, request: Request):
+    with session() as conn:
+        try:
+            people.save(conn, datetime.now().replace(microsecond=0), getattr(request.state, "person", None), b.account_id, b.member_id,
+                        b.name, b.email, b.role, b.password, b.focus, b.targets)
+        except (accounts.AccountError, team.TeamError) as err:
+            raise HTTPException(400, str(err))
+        return {"ok": True}
+
+
+@app.post("/api/people/remove")
+def remove_person(b: PersonChange, request: Request):
+    with session() as conn:
+        try:
+            people.remove(conn, getattr(request.state, "person", None), b.account_id, b.member_id)
+        except accounts.AccountError as err:
+            raise HTTPException(400, str(err))
+        return {"ok": True}
+
+
+@app.post("/api/account/password")
+def change_own_password(b: NewPassword, request: Request):
+    person = getattr(request.state, "person", None)
+    if not person:
+        raise HTTPException(400, "Nobody is signed in.")
+    with session() as conn:
+        try:
+            accounts.change_password(conn, person["id"], b.current, b.new, request.cookies.get(accounts.COOKIE))
+        except accounts.AccountError as err:
+            raise HTTPException(400, str(err))
+        return {"ok": True}
+
+
 # ------------------------------------------------------------------------------- screens
 
 @app.get("/api/shell")
@@ -148,8 +215,9 @@ def get_shell(request: Request):
         shell = screens.shell(conn, db.now(conn))
         person = getattr(request.state, "person", None)
         if person:  # the signed-in person replaces the placeholder shown when sign-in is off
-            shell["user"] = dict(name=person["name"], role="Admin" if person["role"] == "admin" else "Signed in",
-                                 initials="".join(w[0] for w in person["name"].split()[:2]).upper(), signed_in=True)
+            shell["user"] = dict(name=person["name"], role="Leader" if person["role"] == "admin" else "Team member", email=person["email"],
+                                 initials="".join(w[0] for w in person["name"].split()[:2]).upper(), signed_in=True,
+                                 admin=person["role"] == "admin", member_id=people.member_for(conn, person["email"]))
         return shell
 
 
@@ -328,22 +396,57 @@ class TeamChange(BaseModel):
     solved: Optional[bool] = None
 
 
+def own_member(conn, request):
+    """For a signed-in team member: the id of their own place on the Targets screen (0 when they have none). None for a leader."""
+    person = getattr(request.state, "person", None)
+    if not person or person["role"] == "admin":
+        return None
+    return people.member_for(conn, person["email"]) or 0
+
+
+MEMBER_CHANGES = {  # what a team member may change on Targets, and the table that says whose it is
+    "log": "goals", "goal_note": "goals", "toggle_task": "team_tasks", "remove_task": "team_tasks", "resolve": "blockers",
+    "task": None, "note": None, "blocker": None,
+}
+
+
 @app.get("/api/targets")
-def get_targets():
+def get_targets(request: Request):
     with session() as conn:
-        return team.view(conn, db.now(conn))
+        view = team.view(conn, db.now(conn))
+        mine = own_member(conn, request)
+        if mine is not None:  # a team member sees only their own targets
+            view["members"] = [m for m in view["members"] if m["id"] == mine]
+            for key in ("goals", "tasks", "blockers"):
+                view[key] = [x for x in view[key] if x["member_id"] == mine]
+            for key in ("notes", "history"):
+                view[key] = {k: v for k, v in view[key].items() if k == mine}
+            view["demo"] = False
+        return view
 
 
 @app.get("/api/targets/report")
-def get_targets_report(back: int = 0):
+def get_targets_report(request: Request, back: int = 0):
     with session() as conn:
-        return team.report(conn, db.now(conn), back)
+        report = team.report(conn, db.now(conn), back)
+        mine = own_member(conn, request)
+        if mine is not None:
+            report["people"] = [p for p in report["people"] if p["id"] == mine]
+        return report
 
 
 @app.post("/api/targets")
-def change_targets(b: TeamChange):
+def change_targets(b: TeamChange, request: Request):
     with session() as conn:
         now = db.now(conn)
+        mine = own_member(conn, request)
+        if mine is not None:
+            if b.what not in MEMBER_CHANGES:
+                raise HTTPException(403, "Only a leader can do this.")
+            table = MEMBER_CHANGES[b.what]
+            row = conn.execute("SELECT member_id FROM {} WHERE id = ?".format(table), (b.id,)).fetchone() if table else None
+            if (row["member_id"] if row else b.member_id) != mine or not mine:
+                raise HTTPException(403, "You can only fill in your own targets.")
         try:
             if b.what == "member":
                 team.save_member(conn, b.id, b.name, b.focus, b.email)

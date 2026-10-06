@@ -15,14 +15,15 @@ import subs from './screens/subs.js';
 import reports from './screens/reports.js';
 import alerts from './screens/alerts.js';
 import targets from './screens/targets.js';
+import people from './screens/people.js';
 import settings from './screens/settings.js';
 
-const SCREENS = { overview, funnel, channels, paid, outbound, web, leads, quality, targets, subs, reports, alerts, settings };
+const SCREENS = { overview, funnel, channels, paid, outbound, web, leads, quality, targets, people, subs, reports, alerts, settings };
 const NAV = [
   { label: null, items: [['overview', 'Overview']] },
   { label: 'Performance', items: [['funnel', 'Funnel'], ['channels', 'Channels'], ['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic']] },
   { label: 'Leads', items: [['leads', 'Leads', 'leads'], ['quality', 'Lead quality']] },
-  { label: 'Team', items: [['targets', 'Targets']] },
+  { label: 'Team', items: [['targets', 'Targets'], ['people', 'People']] },
   { label: 'Operations', items: [['subs', 'Subscriptions'], ['reports', 'Reports'], ['alerts', 'Alerts & reminders', 'alerts']] },
 ];
 // Sidebar icons: thin single-colour line drawings on one 24-unit grid, so they sit quietly beside the names and
@@ -42,6 +43,10 @@ const ICON = {
   alerts: '<path d="M6.500 16.500V11a5.500 5.500 0 0111 0v5.500l1.500 2.200h-14l1.500-2.200z"/><path d="M10.300 20.800a2 2 0 003.400 0"/>',
   settings: '<path d="M4 7h8.800M17.200 7H20M4 12h2.800M11.200 12H20M4 17h10.800M19.200 17H20"/><circle cx="15" cy="7" r="2.200"/><circle cx="9" cy="12" r="2.200"/><circle cx="17" cy="17" r="2.200"/>',
 };
+ICON.people = '<circle cx="12" cy="8" r="3.400"/><path d="M5.200 19.500c.7-3.700 3.400-5.800 6.800-5.800s6.100 2.100 6.800 5.800"/>';
+// Pages only a leader may open. With sign-in off there is no signed-in person, and everything is open.
+const LEADER_SCREENS = ['people', 'settings'];
+const leader = () => !app.shell || !app.shell.user || app.shell.user.admin !== false;
 const icon = id => html`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${raw(ICON[id] || '')}</svg>`;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -61,7 +66,8 @@ function toHash(screen, params = {}) {
 
 function parseHash() {
   const [path, query] = location.hash.replace(/^#\/?/, '').split('?');
-  return { screen: SCREENS[path] ? path : 'overview', params: Object.fromEntries(new URLSearchParams(query || '')) };
+  const open = SCREENS[path] && (leader() || !LEADER_SCREENS.includes(path));
+  return { screen: open ? path : leader() ? 'overview' : 'targets', params: Object.fromEntries(new URLSearchParams(query || '')) };
 }
 
 async function load(soft = false) {
@@ -167,13 +173,13 @@ function sidebar() {
       <div class="stack"><span class="semi" style="font-size:14px;letter-spacing:-0.01em">${s.product}</span><span class="tiny muted">${s.company}</span></div></div>
     ${NAV.map(g => html`<nav class="nav-group">
       ${g.label ? html`<div class="nav-label">${g.label}</div>` : ''}
-      ${g.items.map(([id, label, badge]) => html`<a class="nav-item ${app.screen === id ? 'on' : ''}" href="#/${id}">
+      ${g.items.filter(([id]) => leader() || !LEADER_SCREENS.includes(id)).map(([id, label, badge]) => html`<a class="nav-item ${app.screen === id ? 'on' : ''}" href="#/${id}">
         <span class="row" style="gap:10px;min-width:0">${icon(id)}<span class="clip">${label}</span></span>${badge && s.badges[badge] ? html`<span class="badge">${s.badges[badge].toLocaleString(s.currency.locale)}</span>` : ''}</a>`)}
     </nav>`)}
     <div class="side-foot">
-      <a class="nav-item ${app.screen === 'settings' ? 'on' : ''}" href="#/settings"><span class="row" style="gap:10px">${icon('settings')}<span>Settings</span></span></a>
+      ${leader() ? html`<a class="nav-item ${app.screen === 'settings' ? 'on' : ''}" href="#/settings"><span class="row" style="gap:10px">${icon('settings')}<span>Settings</span></span></a>` : ''}
       ${s.user ? html`<div class="me">${avatar(s.user.initials, 26)}
-        <div class="stack" style="flex:1;min-width:0"><span class="small medium clip">${s.user.name}</span><span class="tiny muted">${s.user.role}</span></div>
+        <div class="stack" style="flex:1;min-width:0;${s.user.signed_in ? 'cursor:pointer' : ''}" ${s.user.signed_in ? html`data-act="account" title="Change your password"` : ''}><span class="small medium clip">${s.user.name}</span><span class="tiny muted">${s.user.role}</span></div>
         ${s.user.signed_in ? html`<span class="tiny muted" data-act="signOut" style="cursor:pointer" title="Sign out of Meridian">Sign out</span>` : ''}</div>` : ''}
     </div>
   </aside>`;
@@ -266,13 +272,27 @@ function body(screen) {
   return screen.bare ? content : html`<div class="page ${app.loading ? 'stale' : ''}">${content}</div>`;
 }
 
+// Opened by clicking your own name: the one thing every signed-in person can change about themselves.
+function accountModal() {
+  const u = app.shell.user;
+  return html`<form class="modal" data-submit="changePassword" autocomplete="off">
+    <span class="section">Change your password</span>
+    <span class="small muted">Signed in as ${u.email}</span>
+    <label class="field">Current password<input class="input" name="current" type="password" required data-autofocus autocomplete="current-password"></label>
+    <label class="field">New password<input class="input" name="new" type="password" minlength="10" required placeholder="At least 10 characters" autocomplete="new-password"></label>
+    <label class="field">New password again<input class="input" name="again" type="password" minlength="10" required autocomplete="new-password"></label>
+    <div class="row" style="gap:8px;justify-content:flex-end;margin-top:4px"><button type="button" class="btn" data-act="cancelModal">Cancel</button><button class="btn primary" type="submit">Save</button></div>
+  </form>`;
+}
+
 function view() {
   if (!app.shell) {
     return app.error ? html`<div class="page"><div class="empty"><span class="title">Meridian could not start</span><span class="small muted">${app.error}</span></div></div>` : html``;
   }
   const screen = SCREENS[app.screen];
   return html`<div class="app">${sidebar()}<main class="main">${topbar(screen)}${banner()}${body(screen)}</main></div>
-    ${app.modal && screen.modal ? html`<div class="overlay" data-act="closeModal">${screen.modal(app.modal, ctx)}</div>` : ''}`;
+    ${app.modal && app.modal.account ? html`<div class="overlay" data-act="closeModal">${accountModal()}</div>`
+      : app.modal && screen.modal ? html`<div class="overlay" data-act="closeModal">${screen.modal(app.modal, ctx)}</div>` : ''}`;
 }
 
 // A form field's identity across renders: its form plus its name, or its id.
@@ -303,6 +323,7 @@ function render() {
 const actions = {
   menu: (c, d) => ctx.toggleMenu(d.arg),
   async signOut() { await api.post('logout'); location.reload(); },
+  account: () => ctx.openModal({ account: true }),
   setRange(c, d) {
     if (d.arg === 'custom') return ctx.toggleMenu('custom');
     app.range = d.arg;
@@ -320,6 +341,12 @@ const actions = {
 };
 
 const submits = {
+  async changePassword(c, v) {
+    if (v.new !== v.again) return ctx.toast('The two new passwords are different.');
+    try { await api.post('account/password', { current: v.current, new: v.new }); } catch (err) { return ctx.toast(err.message); }
+    ctx.closeModal();
+    ctx.toast('Your password is changed.');
+  },
   customRange(c, values) {
     app.range = 'custom';
     app.start = values.start <= values.end ? values.start : values.end;
@@ -387,5 +414,6 @@ window.addEventListener('hashchange', onRoute);
     app.error = err.message;
     return render();
   }
+  if (!leader() && !location.hash) history.replaceState(null, '', '#/targets?view=today');  // a team member starts on their own day
   onRoute();
 })();

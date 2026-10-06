@@ -37,18 +37,74 @@ def digest(password, salt):
     return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), ROUNDS).hex()
 
 
-def add(conn, now, name, email, password, role="member"):
+class AccountError(ValueError):
+    pass
+
+
+def tidy(name, email, role):
     name, email = (name or "").strip(), (email or "").strip().lower()
     if not name or not re.match(r"^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$", email):
-        raise ValueError("A name and a proper email address are needed (check for a comma where a dot should be).")
-    if len(password or "") < 10:
-        raise ValueError("The password needs at least 10 characters.")
+        raise AccountError("A name and a proper email address are needed (check for a comma where a dot should be).")
     if role not in ROLES:
-        raise ValueError("The role is admin or member.")
+        raise AccountError("The role is admin or member.")
+    return name, email
+
+
+def strong(password):
+    if len(password or "") < 10:
+        raise AccountError("The password needs at least 10 characters.")
+    return password
+
+
+def add(conn, now, name, email, password, role="member"):
+    name, email = tidy(name, email, role)
     salt = secrets.token_hex(16)
     conn.execute("INSERT INTO accounts (email, name, role, salt, pw_hash, created_at) VALUES (?,?,?,?,?,?) "
                  "ON CONFLICT (email) DO UPDATE SET name = excluded.name, role = excluded.role, salt = excluded.salt, pw_hash = excluded.pw_hash",
-                 (email, name, role, salt, digest(password, salt), iso(now)))
+                 (email, name, role, salt, digest(strong(password), salt), iso(now)))
+
+
+def admins(conn, besides=None):
+    return conn.execute("SELECT COUNT(*) FROM accounts WHERE role = 'admin' AND id <> ?", (besides or 0,)).fetchone()[0]
+
+
+def save(conn, now, account_id, name, email, role, password=None):
+    """Add a login, or change one. A password is needed for a new login; for an old one it is replaced only when given."""
+    name, email = tidy(name, email, role)
+    clash = conn.execute("SELECT id FROM accounts WHERE email = ?", (email,)).fetchone()
+    if clash and clash["id"] != account_id:
+        raise AccountError("Somebody already signs in with that email.")
+    if not account_id:
+        add(conn, now, name, email, password, role)
+        return conn.execute("SELECT id FROM accounts WHERE email = ?", (email,)).fetchone()["id"]
+    if role != "admin" and not admins(conn, besides=account_id):
+        raise AccountError("At least one leader is needed, so this person has to stay a leader.")
+    conn.execute("UPDATE accounts SET name = ?, email = ?, role = ? WHERE id = ?", (name, email, role, account_id))
+    if password:
+        set_password(conn, account_id, password)
+    return account_id
+
+
+def set_password(conn, account_id, password, keep_token=None):
+    """Replace a password and sign that person out everywhere (except the browser that made the change)."""
+    salt = secrets.token_hex(16)
+    conn.execute("UPDATE accounts SET salt = ?, pw_hash = ? WHERE id = ?", (salt, digest(strong(password), salt), account_id))
+    keep = hashlib.sha256(keep_token.encode()).hexdigest() if keep_token else ""
+    conn.execute("DELETE FROM sessions WHERE account_id = ? AND token_hash <> ?", (account_id, keep))
+
+
+def change_password(conn, account_id, current, new, keep_token=None):
+    row = conn.execute("SELECT * FROM accounts WHERE id = ?", (account_id,)).fetchone()
+    if not row or not hmac.compare_digest(digest(current or "", row["salt"]), row["pw_hash"]):
+        raise AccountError("The current password is not right.")
+    set_password(conn, account_id, new, keep_token)
+
+
+def remove(conn, account_id):
+    if not admins(conn, besides=account_id):
+        raise AccountError("At least one leader is needed, so this login cannot be removed.")
+    conn.execute("DELETE FROM sessions WHERE account_id = ?", (account_id,))
+    conn.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
 
 
 def blocked(address):

@@ -223,6 +223,15 @@ Asks for a name, email and password and adds a person who can sign in. Sign-in s
 exists, or always when `MERIDIAN_REQUIRE_LOGIN=1`. Only a salted hash of each password is kept.
 `python -m meridian.accounts list` shows who can sign in; `remove EMAIL` takes someone off.
 
+After the first person, add everyone else on the **People** page in the app. There are two kinds of login:
+
+- **Leader**: sees everything, sets targets, adds people and changes settings.
+- **Team member**: sees the dashboards and fills in their own targets, tasks, notes and blockers. Nothing else
+  can be changed, and the People and Settings pages are closed to them.
+
+A person's login and their place on the Targets page are matched by email address. Anyone signed in can change
+their own password by clicking their name at the bottom left.
+
 ## Hosting on Render's free plan
 
 `render.yaml` describes the service. The free plan sleeps when idle and wipes its disk on restart, so:
