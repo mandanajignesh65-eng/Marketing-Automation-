@@ -340,7 +340,7 @@ def assistant_status(request: Request):
 def assistant_ask(b: Question):
     history = [(h.get("role"), h.get("text")) for h in (b.history or []) if isinstance(h, dict) and h.get("text")]
     try:
-        return {"answer": assistant.ask(b.question, history, today=datetime.now().date().isoformat())}
+        return assistant.ask(b.question, history, today=datetime.now().date().isoformat())
     except assistant.AssistantError as err:
         raise HTTPException(400, str(err))
 

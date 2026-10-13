@@ -15,7 +15,8 @@ function draw() {
     <div class="ask-list" id="ask-list">
       ${!state.ready ? '<div class="ask-note">The assistant is not set up yet.</div>'
         : empty ? `<div class="ask-note">Ask anything about leads, deals, channels, the website or competitors.</div>${IDEAS.map(q => `<div class="ask-idea" data-ask="idea">${esc(q)}</div>`).join('')}` : ''}
-      ${state.turns.map(t => `<div class="ask-msg ${t.role}${t.error ? ' error' : ''}">${esc(t.text)}</div>`).join('')}
+      ${state.turns.map(t => `<div class="ask-msg ${t.role}${t.error ? ' error' : ''}">${esc(t.text)}${t.sources && t.sources.length
+        ? `<div class="ask-from"><span>From</span>${t.sources.map(x => `<a href="#/${esc(x.to)}">${esc(x.label)}</a>`).join('')}</div>` : ''}</div>`).join('')}
       ${state.busy ? `<div class="ask-msg assistant ask-wait"><span class="ask-dots"><i></i><i></i><i></i></span><span class="ask-step" id="ask-step">${WAITING[0]}</span></div>` : ''}
     </div>
     <form class="ask-form"><input class="input" id="ask-input" placeholder="Type a question" autocomplete="off" maxlength="600" ${state.ready ? '' : 'disabled'}>
@@ -52,7 +53,7 @@ async function ask(question) {
   try {
     const res = await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, history }) });
     const data = await res.json().catch(() => ({}));
-    state.turns.push(res.ok ? { role: 'assistant', text: data.answer } : { role: 'assistant', text: typeof data.detail === 'string' ? data.detail : 'That did not work. Try again.', error: true });
+    state.turns.push(res.ok ? { role: 'assistant', text: data.answer, sources: data.sources } : { role: 'assistant', text: typeof data.detail === 'string' ? data.detail : 'That did not work. Try again.', error: true });
   } catch (err) {
     state.turns.push({ role: 'assistant', text: 'The assistant could not be reached. Try again.', error: true });
   }

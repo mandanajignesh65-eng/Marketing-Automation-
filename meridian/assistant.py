@@ -60,6 +60,17 @@ def ready():
     return bool(config.setting("GEMINI_API_KEY"))
 
 
+# the screen each table is shown on, so an answer can say where its figures can be checked
+PAGES = {"leads": ("Leads", "leads"), "companies": ("Leads", "leads"), "deals": ("Funnel", "funnel"), "channels": ("Channels", "channels"),
+         "channel_daily": ("Channels", "channels"), "ad_campaigns": ("Paid ads", "paid"), "ad_creatives": ("Paid ads", "paid"), "ad_daily": ("Paid ads", "paid"),
+         "meta_campaigns": ("Paid ads", "paid"), "meta_adsets": ("Paid ads", "paid"), "meta_ads": ("Paid ads", "paid"), "meta_ad_daily": ("Paid ads", "paid"),
+         "outbound_campaigns": ("Outbound", "outbound"), "outbound_daily": ("Outbound", "outbound"),
+         "traffic_daily": ("Website & organic", "web"), "traffic_site_daily": ("Website & organic", "web"), "search_daily": ("Website & organic", "web"),
+         "search_site_daily": ("Website & organic", "web"), "query_daily": ("Website & organic", "web"), "page_daily": ("Website & organic", "web"),
+         "form_daily": ("Website & organic", "web"), "competitors": ("Competitors", "competitors"), "competitor_signals": ("Competitors", "competitors"),
+         "competitor_posts": ("Competitors", "competitors?view=social"), "subscriptions": ("Subscriptions", "subs"), "targets": ("Targets", "targets")}
+
+
 def guard(action, first, second, database, trigger):
     if action in (sqlite3.SQLITE_SELECT, sqlite3.SQLITE_FUNCTION):
         return sqlite3.SQLITE_OK
@@ -84,8 +95,10 @@ def schema(conn):
     return "\n".join(lines)
 
 
-def run(conn, sql):
-    """Run one query under the guard. Returns what is sent back to the model: the rows, or why it did not run."""
+def run(conn, sql, used=None):
+    """Run one query under the guard. Returns what is sent back to the model: the rows, or why it did not run.
+
+    used, when given, collects the tables a query that worked read from."""
     sql = (sql or "").strip().rstrip(";")
     if not sql.lower().startswith(("select", "with")) or ";" in sql:
         return dict(error="Only one SELECT statement is allowed.")
@@ -94,11 +107,19 @@ def run(conn, sql):
     def tick():
         work[0] += 1
         return work[0] > MAX_WORK // 10000
-    conn.set_authorizer(guard)
+    read = set()
+
+    def watch(action, first, second, database, trigger):
+        if action == sqlite3.SQLITE_READ and first in TABLES:
+            read.add(first)
+        return guard(action, first, second, database, trigger)
+    conn.set_authorizer(watch)
     conn.set_progress_handler(tick, 10000)
     try:
         cur = conn.execute(sql)
         rows = cur.fetchmany(MAX_ROWS + 1)
+        if used is not None:
+            used.update(read)
         cols = [c[0] for c in cur.description or []]
         out = [[(v[:200] if isinstance(v, str) else v) for v in r] for r in rows[:MAX_ROWS]]
         return dict(columns=cols, rows=out, more_rows_not_shown=len(rows) > MAX_ROWS)
@@ -152,16 +173,21 @@ def ask(question, history=(), today="", path=None):
         contents.append(dict(role="user", parts=[dict(text=question)]))
         body = dict(systemInstruction=dict(parts=[dict(text=RULES.replace("{today}", today).replace("{schema}", schema(conn)))]),
                     tools=TOOL, contents=contents, generationConfig=dict(temperature=0.2))
+        used = set()
+
+        def done(text):
+            pages = list(dict.fromkeys(PAGES[t] for t in TABLES if t in used and t in PAGES))
+            return dict(answer=text, sources=[dict(label=label, to=to) for label, to in pages])
         for _ in range(STEPS):
             found = (call(body).get("candidates") or [{}])[0].get("content") or {}
             parts = found.get("parts") or []
             asks = [p["functionCall"] for p in parts if p.get("functionCall")]
             if not asks:
                 text = "".join(p.get("text") or "" for p in parts if not p.get("thought")).strip()
-                return text or "I could not work that out from the data."
+                return done(text or "I could not work that out from the data.")
             contents.append(found)
-            contents.append(dict(role="user", parts=[dict(functionResponse=dict(name=a.get("name") or "query", response=run(conn, (a.get("args") or {}).get("sql"))))
+            contents.append(dict(role="user", parts=[dict(functionResponse=dict(name=a.get("name") or "query", response=run(conn, (a.get("args") or {}).get("sql"), used)))
                                                      for a in asks]))
-        return "That needed more steps than I am allowed. Try asking for one thing at a time."
+        return dict(answer="That needed more steps than I am allowed. Try asking for one thing at a time.", sources=[])
     finally:
         conn.close()

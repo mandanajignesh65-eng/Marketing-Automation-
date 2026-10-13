@@ -210,6 +210,9 @@ textarea.input { resize: vertical; line-height: 1.5; }
 .ask-msg.assistant { align-self: flex-start; background: var(--surface2); border-bottom-left-radius: 4px; }
 .ask-msg.error { color: var(--warn); }
 .ask-msg.muted { color: var(--ink2); }
+.ask-from { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--ink2); white-space: normal; }
+.ask-from a { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink); text-decoration: none; }
+.ask-from a:hover { border-color: var(--accent); color: var(--accent); }
 .ask-wait { display: flex; align-items: center; gap: 10px; }
 .ask-dots { display: inline-flex; gap: 4px; }
 .ask-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: ask-bounce 1.1s ease-in-out infinite; }
