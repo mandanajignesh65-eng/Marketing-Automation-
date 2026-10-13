@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ads, icp, alerts, backup, config, db, google, health, ingest, mailer, meta, metrics, money, narrative, outbound, people, reminders, research, scheduler, scoring, screens, semrush, team, website, zoho
+from . import accounts, ads, icp, alerts, backup, config, db, google, health, ingest, mailer, meta, metrics, money, narrative, outbound, people, reminders, research, rivals, scheduler, scoring, screens, semrush, team, website, zoho
 from .periods import Period, iso
 
 app = FastAPI(title="Meridian")
@@ -30,6 +30,7 @@ def start_up():
         if path.exists():
             conn = db.connect(path)
             db.upgrade(conn)
+            rivals.seed(conn)  # the known competitors and their pages, the first time
             conn.commit()
             conn.close()
     scheduler.start()
@@ -315,6 +316,59 @@ def put_form_site(body: FormSite):
         try:
             website.set_form_site(conn, body.source, body.site)
         except ValueError as err:
+            raise HTTPException(400, str(err))
+        return {"ok": True}
+
+
+# ------------------------------------------------------------------------------- competitors
+
+class RivalChange(BaseModel):
+    """One change on the Competitors screen. `what` names it."""
+    what: str
+    id: Optional[int] = None
+    name: Optional[str] = None
+    domain: Optional[str] = None
+    linkedin: Optional[str] = None
+    kind: Optional[str] = None
+    url: Optional[str] = None
+    hidden: Optional[bool] = None
+    text: Optional[str] = None
+
+
+@app.get("/api/competitors")
+def get_competitors(days: int = 30):
+    with session() as conn:
+        return rivals.view(conn, datetime.now().replace(microsecond=0), days)
+
+
+@app.post("/api/competitors")
+def change_competitors(b: RivalChange):
+    with session() as conn:
+        now = datetime.now().replace(microsecond=0)
+        try:
+            if b.what == "sync":
+                done = rivals.sync(conn, now)
+                return {"ok": True, "message": "Read {} pages. {} new signals{}.".format(
+                    done["pages"], done["signals"], ", {} could not be read".format(done["failed"]) if done["failed"] else "")}
+            if b.what == "competitor":
+                rivals.add_competitor(conn, b.name, b.domain, b.linkedin)
+            elif b.what == "source":
+                rivals.add_source(conn, b.id, b.kind, b.url)
+            elif b.what == "remove_source":
+                rivals.remove_source(conn, b.id)
+            elif b.what == "hide":
+                rivals.hide(conn, b.id, b.hidden is not False)
+            elif b.what == "findings":
+                import json as _json
+                try:
+                    data = _json.loads(b.text or "")
+                except ValueError:
+                    raise rivals.RivalError("That file is not readable as a findings file.")
+                done = rivals.take_findings(conn, now, data)
+                return {"ok": True, "message": "{}: {} findings added.".format(done["run"], done["added"])}
+            else:
+                raise HTTPException(400, "Unknown change")
+        except rivals.RivalError as err:
             raise HTTPException(400, str(err))
         return {"ok": True}
 

@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from . import ads, alerts, backup, config, db, google, meta, money, outbound, research, semrush, zoho
+from . import ads, alerts, backup, config, db, google, meta, money, outbound, rivals, research, semrush, zoho
 
 CHECK_SECONDS = 60
 RESEARCH_PER_PASS = 100
@@ -65,6 +65,13 @@ def tick(force=False):
                 meta.flush(conn, now)
             except meta.MetaError as err:
                 print("Background sync:", err)
+        if not db.is_demo(conn) and (force or rivals.due(conn, now)):  # competitors' news and pages, twice a day
+            did = True
+            try:
+                rivals.sync(conn, now)
+            except Exception as err:  # nothing here may hold up the other syncs
+                conn.rollback()
+                print("Background sync: competitors:", err)
         for source in google.SYNCS:  # Google Analytics and Search Console, a few times a day
             if google.configured(source) and (force or google.due(conn, now, source)):
                 did = True

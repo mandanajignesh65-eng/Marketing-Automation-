@@ -234,6 +234,24 @@ CREATE TABLE IF NOT EXISTS meta_events (
   tries INTEGER NOT NULL DEFAULT 0, response TEXT, created_at TEXT NOT NULL, sent_at TEXT, UNIQUE (event_name, ctwa_clid)
 );
 CREATE TABLE IF NOT EXISTS meta_audiences (key TEXT PRIMARY KEY, ext_id TEXT, name TEXT, people INTEGER, synced_at TEXT);
+-- competitor monitoring: who is watched, which of their pages, the links already seen there, and the signals found
+CREATE TABLE IF NOT EXISTS competitors (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, domain TEXT NOT NULL, linkedin TEXT, needs_context INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1, sort INTEGER NOT NULL DEFAULT 0, press_at TEXT, press_note TEXT
+);
+CREATE TABLE IF NOT EXISTS competitor_sources (
+  id INTEGER PRIMARY KEY, competitor_id INTEGER NOT NULL REFERENCES competitors(id), kind TEXT NOT NULL, url TEXT NOT NULL,
+  checked_at TEXT, note TEXT, baseline_at TEXT, fingerprint TEXT
+);
+CREATE TABLE IF NOT EXISTS competitor_seen (source_id INTEGER NOT NULL, url TEXT NOT NULL, PRIMARY KEY (source_id, url));
+CREATE TABLE IF NOT EXISTS competitor_signals (
+  id INTEGER PRIMARY KEY, competitor_id INTEGER NOT NULL REFERENCES competitors(id), category TEXT NOT NULL, title TEXT NOT NULL, url TEXT NOT NULL,
+  source TEXT, origin TEXT NOT NULL,          -- press | site | watch
+  published_at TEXT, first_seen TEXT NOT NULL,
+  verification TEXT NOT NULL,                 -- dated | first_seen | verified | lead
+  summary TEXT, hidden INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 1, UNIQUE (competitor_id, url)
+);
+CREATE INDEX IF NOT EXISTS competitor_signals_at ON competitor_signals (published_at, first_seen);
 -- one line per export, counted the way Semrush's own screen counts (every listed position, map and AI results included)
 CREATE TABLE IF NOT EXISTS semrush_totals (
   domain TEXT NOT NULL, country TEXT NOT NULL, day TEXT NOT NULL, positions INTEGER NOT NULL, traffic INTEGER NOT NULL,
@@ -264,6 +282,7 @@ TABLES = [
     "reports", "report_recipients", "outbox", "left_out_leads", "companies",
     "semrush_files", "semrush_keywords", "semrush_competitors", "semrush_totals", "search_page_daily",
     "traffic_site_daily", "search_site_daily", "query_site_daily",
+    "competitors", "competitor_sources", "competitor_seen", "competitor_signals",
     "meta_campaigns", "meta_adsets", "meta_ads", "meta_ad_daily", "meta_breakdown_daily", "meta_events", "meta_audiences",
     "accounts", "sessions", "benchmarks", "team_members", "goals", "goal_log", "goal_notes", "team_tasks", "team_notes", "blockers",
 ]

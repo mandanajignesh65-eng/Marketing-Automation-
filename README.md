@@ -239,6 +239,22 @@ views); Meta's three quality rankings per ad; and who saw the ads by placement, 
 
 `python -m meridian.meta status` shows what is set up; `python -m meridian.meta send` sends waiting events.
 
+## Competitor monitoring
+
+`meridian/rivals.py` keeps a dated, sourced list of what each competitor did, from public pages only (no paid
+data, no logged-in LinkedIn). It runs with the sync, twice a day.
+
+- **Press**: Google News for each competitor's name. Only headlines that name the company are kept, each with
+  its publication date. Several outlets running one announcement count as one signal.
+- **Their own site**: newsroom, blog, product updates, customer stories, events, careers and pricing pages. A
+  link that was not there before is a signal, dated by the day it was first seen. The first read of a page only
+  records what is there. A pricing page is compared as a whole.
+- **Weekly watch**: the competitor-watch run's `findings.json`, added on the Sources tab. Its findings show as
+  verified; its unverified leads are kept apart.
+
+The five competitors and their pages are put in on first start from the competitor-watch source registry.
+Competitors and pages can be added on the Sources tab. `python -m meridian.rivals sync` reads everything now.
+
 ## Sign-in
 
 ```bash

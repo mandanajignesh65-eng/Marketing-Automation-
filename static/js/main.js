@@ -12,6 +12,7 @@ import web from './screens/web.js';
 import leads from './screens/leads.js';
 import quality from './screens/quality.js';
 import icp from './screens/icp.js';
+import competitors from './screens/competitors.js';
 import subs from './screens/subs.js';
 import reports from './screens/reports.js';
 import alerts from './screens/alerts.js';
@@ -19,10 +20,10 @@ import targets from './screens/targets.js';
 import people from './screens/people.js';
 import settings from './screens/settings.js';
 
-const SCREENS = { overview, funnel, channels, paid, outbound, web, leads, quality, icp, targets, people, subs, reports, alerts, settings };
+const SCREENS = { overview, funnel, channels, paid, outbound, web, leads, quality, icp, competitors, targets, people, subs, reports, alerts, settings };
 const NAV = [
   { label: null, items: [['overview', 'Overview']] },
-  { label: 'Performance', items: [['funnel', 'Funnel'], ['channels', 'Channels'], ['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic']] },
+  { label: 'Performance', items: [['funnel', 'Funnel'], ['channels', 'Channels'], ['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic'], ['competitors', 'Competitors']] },
   { label: 'Leads', items: [['leads', 'Leads', 'leads'], ['icp', 'ICP'], ['quality', 'Lead quality']] },
   { label: 'Team', items: [['targets', 'Targets'], ['people', 'People']] },
   { label: 'Operations', items: [['subs', 'Subscriptions'], ['reports', 'Reports'], ['alerts', 'Alerts & reminders', 'alerts']] },
@@ -45,6 +46,7 @@ const ICON = {
   settings: '<path d="M4 7h8.800M17.200 7H20M4 12h2.800M11.200 12H20M4 17h10.800M19.200 17H20"/><circle cx="15" cy="7" r="2.200"/><circle cx="9" cy="12" r="2.200"/><circle cx="17" cy="17" r="2.200"/>',
 };
 ICON.icp = '<circle cx="12" cy="12" r="8.500"/><path d="M12 3.500v3M12 17.500v3M3.500 12h3M17.500 12h3"/><circle cx="12" cy="12" r="2.200"/>';
+ICON.competitors = '<path d="M4 20V10M10 20V4M16 20v-8M20.500 20H3.500"/><circle cx="16" cy="7.500" r="1.700"/>';
 ICON.people = '<circle cx="12" cy="8" r="3.400"/><path d="M5.200 19.500c.7-3.700 3.400-5.800 6.800-5.800s6.100 2.100 6.800 5.800"/>';
 // Pages only a leader may open. With sign-in off there is no signed-in person, and everything is open.
 const LEADER_SCREENS = ['people', 'settings'];
