@@ -236,3 +236,5 @@ svg.lines polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linej
   body, .page { background: #fff !important; }
   .card { box-shadow: none !important; break-inside: avoid; }
 }
+
+.btn.off { opacity: 0.45; cursor: default; }

@@ -185,6 +185,11 @@ def sync_meta(conn, now):
                 ad = book.creative(camp, r["ad_id"], r.get("ad_name") or "Untitled ad")
                 book.add(r["date_start"], ad, float(r.get("spend") or 0), number(r.get("impressions")), number(r.get("inline_link_clicks")), leads)
     summary = book.save(start)
+    from . import meta  # the fuller picture: ad sets, creatives, chats started, video views, who saw the ads
+    try:
+        meta.pull(conn, now, start, end)
+    except meta.MetaError as err:
+        raise AdsError(str(err))
     mark(conn, "meta", now)
     return dict(summary, source="meta", days=(end - start).days + 1)
 
@@ -297,8 +302,9 @@ You need to be an admin of the Meta business that owns the ad account.
 2. Open https://business.facebook.com/settings/system-users and click "Add". Name it Meridian, role "Employee".
 3. With that system user selected, click "Assign assets", choose "Ad accounts", tick your ad account and switch
    on "View performance" only. Save.
-4. Click "Generate token", pick the Meridian app, choose "Never" for expiry, tick the permission "ads_read"
-   and nothing else, then Generate.
+4. Click "Generate token", pick the Meridian app, choose "Never" for expiry and tick "ads_read". Tick
+   "ads_management" as well only if Meridian should later keep the leave-out lists up to date in Meta
+   (nothing is sent until you switch sending on). Then Generate.
 5. Copy the token and paste it below.
 """,
     "linkedin": """
@@ -334,7 +340,7 @@ def choose(what, options):
 def cmd_connect(source):
     import getpass
     from . import money, zoho
-    print("Connect {} to Meridian. This only reads reports; nothing in your ad account is changed.".format(NAMES[source]))
+    print("Connect {} to Meridian. This reads reports; nothing in your ad account is changed.".format(NAMES[source]))
     print(STEPS[source])
     key = getpass.getpass("{} access token (hidden as you paste): ".format(NAMES[source])).strip()
     if not key:

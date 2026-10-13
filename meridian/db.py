@@ -201,6 +201,39 @@ CREATE TABLE IF NOT EXISTS query_site_daily (
   date TEXT NOT NULL, site TEXT NOT NULL, query TEXT NOT NULL, clicks INTEGER NOT NULL DEFAULT 0, impressions INTEGER NOT NULL DEFAULT 0,
   position REAL, PRIMARY KEY (date, site, query)
 );
+-- Meta Ads in full: the account's structure, a row per ad per day, who saw the ads, and what Meridian sends back
+CREATE TABLE IF NOT EXISTS meta_campaigns (
+  id TEXT PRIMARY KEY, account TEXT NOT NULL, name TEXT NOT NULL, status TEXT, objective TEXT, buying_type TEXT,
+  daily_budget REAL, lifetime_budget REAL, bid_strategy TEXT, created TEXT, updated TEXT, seen_at TEXT
+);
+CREATE TABLE IF NOT EXISTS meta_adsets (
+  id TEXT PRIMARY KEY, campaign_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT, optimization_goal TEXT, destination_type TEXT,
+  billing_event TEXT, daily_budget REAL, lifetime_budget REAL, bid_strategy TEXT, promoted TEXT, targeting TEXT, learning TEXT,
+  starts TEXT, ends TEXT, seen_at TEXT
+);
+CREATE TABLE IF NOT EXISTS meta_ads (
+  id TEXT PRIMARY KEY, adset_id TEXT, campaign_id TEXT, name TEXT NOT NULL, status TEXT, creative_id TEXT, title TEXT, body TEXT, cta TEXT,
+  image_url TEXT, video_id TEXT, format TEXT, preview TEXT, created TEXT, seen_at TEXT,
+  quality_ranking TEXT, engagement_ranking TEXT, conversion_ranking TEXT
+);
+CREATE TABLE IF NOT EXISTS meta_ad_daily (
+  date TEXT NOT NULL, ad_id TEXT NOT NULL, spend REAL NOT NULL DEFAULT 0, impressions INTEGER NOT NULL DEFAULT 0, reach INTEGER NOT NULL DEFAULT 0,
+  clicks INTEGER NOT NULL DEFAULT 0, link_clicks INTEGER NOT NULL DEFAULT 0, chats INTEGER NOT NULL DEFAULT 0, first_replies INTEGER NOT NULL DEFAULT 0,
+  leads INTEGER NOT NULL DEFAULT 0, video_plays INTEGER NOT NULL DEFAULT 0, video_3s INTEGER NOT NULL DEFAULT 0, thruplays INTEGER NOT NULL DEFAULT 0,
+  video_p25 INTEGER NOT NULL DEFAULT 0, video_p50 INTEGER NOT NULL DEFAULT 0, video_p75 INTEGER NOT NULL DEFAULT 0, video_p100 INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (date, ad_id)
+);
+CREATE TABLE IF NOT EXISTS meta_breakdown_daily (
+  date TEXT NOT NULL, adset_id TEXT NOT NULL, kind TEXT NOT NULL, value TEXT NOT NULL, spend REAL NOT NULL DEFAULT 0,
+  impressions INTEGER NOT NULL DEFAULT 0, link_clicks INTEGER NOT NULL DEFAULT 0, chats INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (date, adset_id, kind, value)
+);
+CREATE TABLE IF NOT EXISTS meta_events (
+  id INTEGER PRIMARY KEY, event_name TEXT NOT NULL, event_time INTEGER NOT NULL, ctwa_clid TEXT NOT NULL, lead_ref TEXT, value REAL, currency TEXT,
+  status TEXT NOT NULL DEFAULT 'queued',  -- queued | tested | sent | failed | expired
+  tries INTEGER NOT NULL DEFAULT 0, response TEXT, created_at TEXT NOT NULL, sent_at TEXT, UNIQUE (event_name, ctwa_clid)
+);
+CREATE TABLE IF NOT EXISTS meta_audiences (key TEXT PRIMARY KEY, ext_id TEXT, name TEXT, people INTEGER, synced_at TEXT);
 CREATE TABLE IF NOT EXISTS semrush_files (file TEXT PRIMARY KEY, read_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS semrush_keywords (
   domain TEXT NOT NULL, country TEXT NOT NULL, day TEXT NOT NULL, keyword TEXT NOT NULL, position INTEGER NOT NULL,
@@ -226,6 +259,7 @@ TABLES = [
     "reports", "report_recipients", "outbox", "left_out_leads", "companies",
     "semrush_files", "semrush_keywords", "semrush_competitors", "search_page_daily",
     "traffic_site_daily", "search_site_daily", "query_site_daily",
+    "meta_campaigns", "meta_adsets", "meta_ads", "meta_ad_daily", "meta_breakdown_daily", "meta_events", "meta_audiences",
     "accounts", "sessions", "benchmarks", "team_members", "goals", "goal_log", "goal_notes", "team_tasks", "team_notes", "blockers",
 ]
 

@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ads, alerts, backup, config, db, google, health, ingest, mailer, metrics, money, narrative, outbound, people, reminders, research, scheduler, scoring, screens, semrush, team, website, zoho
+from . import accounts, ads, alerts, backup, config, db, google, health, ingest, mailer, meta, metrics, money, narrative, outbound, people, reminders, research, scheduler, scoring, screens, semrush, team, website, zoho
 from .periods import Period, iso
 
 app = FastAPI(title="Meridian")
@@ -244,7 +244,33 @@ def get_channels(range: str = "month", start: Optional[str] = None, end: Optiona
 @app.get("/api/paid")
 def get_paid(range: str = "month", start: Optional[str] = None, end: Optional[str] = None):
     with session() as conn:
-        return screens.paid(conn, db.now(conn), period(conn, range, start, end))
+        p = period(conn, range, start, end)
+        data = screens.paid(conn, db.now(conn), p)
+        data["meta"] = meta.view(conn, db.now(conn), p)
+        return data
+
+
+@app.post("/api/meta/audiences/{key}")
+def push_meta_audience(key: str):
+    """Upload one list to Meta (hashed). Leaders only, and only when sending is switched on."""
+    with session() as conn:
+        try:
+            done = meta.push_audience(conn, db.now(conn), key)
+        except meta.MetaError as err:
+            raise HTTPException(400, str(err))
+        return {"ok": True, "message": "{:,} people sent to Meta. Meta takes up to a day to match them.".format(done["people"])}
+
+
+@app.post("/api/meta/events/send")
+def send_meta_events():
+    with session() as conn:
+        try:
+            done = meta.flush(conn, db.now(conn))
+        except meta.MetaError as err:
+            raise HTTPException(400, str(err))
+        if done["mode"] == "off":
+            return {"ok": True, "message": "Sending to Meta is switched off, so nothing was sent."}
+        return {"ok": True, "message": "{} sent{}, {} failed.".format(done["sent"], " to Meta's test tool" if done["mode"] == "test" else "", done["failed"])}
 
 
 @app.get("/api/outbound")

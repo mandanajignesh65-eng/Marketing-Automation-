@@ -220,6 +220,25 @@ searches are also stored per site, and the Website and organic page gets a switc
 them. Zoho records which form a lead filled in but not which site the form is on, so each form is given a site
 once, in "Leads by form" on that page; leads are then counted per site.
 
+## Meta Ads in full
+
+`meridian/meta.py` holds everything exchanged with Meta. It runs with the Meta Ads sync.
+
+**Read from Meta** (permission `ads_read`): campaigns, ad sets and ads with budgets, goal, learning status and each
+ad's creative; one row per ad per day (spend, times shown, taps, WhatsApp chats started, first replies, video
+views); Meta's three quality rankings per ad; and who saw the ads by placement, age and gender, and region.
+
+**Sent to Meta**, controlled by `META_SEND_MODE` (`off` by default, `test`, `live`):
+
+- Conversion events for ads that click to WhatsApp: `LeadSubmitted` and `Purchase`, matched by the click id
+  (`ctwa_clid`) WhatsApp gives with the first message. They wait in the `meta_events` table and are sent with the
+  sync. Needs `META_DATASET_ID` and `META_WABA_ID`; test mode also needs `META_TEST_EVENT_CODE`.
+- Customer lists built from Zoho (customers, not a fit, already talking to us, qualified leads). Emails are
+  SHA-256 hashed before they leave. A list is uploaded only when a leader presses its button on the Paid ads
+  page, and only in live mode. Needs the `ads_management` permission.
+
+`python -m meridian.meta status` shows what is set up; `python -m meridian.meta send` sends waiting events.
+
 ## Sign-in
 
 ```bash

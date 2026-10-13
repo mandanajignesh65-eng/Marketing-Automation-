@@ -1,6 +1,7 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
 import { segmented, pageHead, lines, dot } from '../ui.js';
+import { renderMeta, metaActions } from './meta.js';
 
 const COLS = 'minmax(0,2.3fr) 76px repeat(6,minmax(0,0.8fr))';
 const metrics = r => html`<span class="medium">${f.money(r.spend)}</span><span class="muted">${f.num(r.impressions)}</span><span>${f.num(r.clicks)}</span>
@@ -34,12 +35,12 @@ function pacing(p, month) {
 }
 
 export default {
-  uses: { range: true },
+  uses: { range: true, compare: true },
   load: ctx => ctx.api.get('paid', ctx.rangeParams()),
 
   render(d, ctx) {
     const ui = ctx.ui();
-    const platform = d.platforms.find(p => p.id === ui.tab) || d.platforms.find(p => p.id === 'li') || d.platforms[0];
+    const platform = d.platforms.find(p => p.id === ui.tab) || d.platforms.find(p => p.id === 'meta') || d.platforms[0];
     const camps = platform.campaigns;
     const idx = Math.min(ui.camp || 0, Math.max(0, camps.length - 1));
     const camp = camps[idx];
@@ -49,6 +50,7 @@ export default {
     const best = Math.min(...creatives.filter(c => c.leads).map(c => c.spend / c.leads));
     const tabs = d.platforms.map(p => ({ arg: p.id, label: p.label, on: p.id === platform.id }));
 
+    if (platform.id === 'meta') return html`${pageHead(d.sub, 'Paid ads', segmented(tabs, 'tab', 18))}${renderMeta(d.meta, ctx)}`;
     return html`
     ${pageHead(d.sub, 'Paid ads', segmented(tabs, 'tab', 18))}
     <div class="grid start" style="grid-template-columns:minmax(0,1fr) 336px">
@@ -82,6 +84,7 @@ export default {
   },
 
   actions: {
+    ...metaActions,
     tab(ctx, d) { Object.assign(ctx.ui(), { tab: d.arg, camp: 0 }); ctx.render(); },
     camp(ctx, d) { ctx.ui().camp = Number(d.arg); ctx.render(); },
   },

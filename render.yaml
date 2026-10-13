@@ -43,6 +43,18 @@ services:
         sync: false
       - key: APOLLO_LABEL_2
         sync: false
+      - key: META_ACCESS_TOKEN       # system-user token from Meta Business settings
+        sync: false
+      - key: META_AD_ACCOUNT_IDS     # the ad account number, without "act_"
+        sync: false
+      - key: META_SEND_MODE
+        value: "off"                 # off | test | live: nothing is sent to Meta until this is changed
+      - key: META_DATASET_ID         # from Meta Events Manager, for sending events
+        sync: false
+      - key: META_WABA_ID            # the WhatsApp Business account id
+        sync: false
+      - key: META_TEST_EVENT_CODE    # from Events Manager > Test events, used in test mode
+        sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET

@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from . import ads, alerts, backup, config, db, google, money, outbound, research, semrush, zoho
+from . import ads, alerts, backup, config, db, google, meta, money, outbound, research, semrush, zoho
 
 CHECK_SECONDS = 60
 RESEARCH_PER_PASS = 100
@@ -60,6 +60,11 @@ def tick(force=False):
                     ads.sync(conn, now, source)
                 except ads.AdsError as err:
                     print("Background sync:", err)
+        if meta.mode() != "off" and meta.setup()["can_send"]:  # events waiting to go to Meta (nothing leaves while sending is off)
+            try:
+                meta.flush(conn, now)
+            except meta.MetaError as err:
+                print("Background sync:", err)
         for source in google.SYNCS:  # Google Analytics and Search Console, a few times a day
             if google.configured(source) and (force or google.due(conn, now, source)):
                 did = True
