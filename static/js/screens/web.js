@@ -37,6 +37,10 @@ const TIPS = {
   pagesList: 'Each page, with how many times it was opened. Google clicks is how many came from Google search. Place is where the page usually shows in Google, 1 is the top. Use the buttons to see one kind of page.',
   sides: 'The same numbers for each website, next to each other. Click a row to see the whole page for that website only.',
   forms: 'Every form and chatbot that brought a lead in this period. Zoho tells us the name of the form, but not which website it is on. Pick the website for each form once and Meridian remembers it. After that, leads can be counted for each website.',
+  engaged: 'A visit counts as engaged when the person stayed at least 10 seconds, opened a second page, or did something like filling a form. Visits that are not engaged are mostly people who left at once, and robots.',
+  direct: 'Google Analytics calls a visit "direct" when it cannot tell where the person came from. A little is normal. When most visits are direct and they land on the home page, it usually means robots, customers on their way to log in, or a tracking setup problem, not real new visitors.',
+  parts: 'Google counts clicks for the whole domain, and that includes the app login page, the test copy and other technical addresses. Only the main website is marketing. If your SEO tool shows a different number of clicks, this is usually why.',
+  semrushCount: 'These five numbers are counted the same way Semrush’s own screen counts them, so they should match what you see in Semrush for the same country and date.',
   noRank: 'Rankings come from Semrush. To add them: in Semrush open Organic Research, and on the Positions and Competitors tabs click Export, then CSV. Put the files in the "semrush" folder next to the app.',
 };
 
@@ -86,7 +90,7 @@ function semrushCards(s) {
     [f.num(s.traffic), 'Visits a month, estimated', 'Semrush’s guess of how many visits a month these rankings bring. It is an estimate, not a count.'],
     [f.pct(share), 'From our own name', 'How much of that estimate comes from people searching our name. The rest comes from people who did not know us.']];
   return html`
-    <div class="row" style="gap:10px;margin:6px 0 -2px"><span class="section">${s.domain}</span><span class="muted">Semrush, ${s.country}, export of ${s.day}</span></div>
+    <div class="row" style="gap:10px;margin:6px 0 -2px"><span class="section">${s.domain}</span><span class="muted">Semrush, ${s.country} database, export of ${s.day}</span>${s.as_semrush ? info(TIPS.semrushCount) : ''}</div>
     <div class="grid" style="grid-template-columns:repeat(5,minmax(0,1fr))">${facts.map(([v, l, tip], i) => html`<div class="card kpi" style="padding:14px 16px">
       <span class="kpi-v md" style="font-size:26px">${v}</span><span class="row eyebrow" style="gap:7px">${l}${info(tip, { end: i > 2 })}</span></div>`)}</div>
     <div class="grid start" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
@@ -129,11 +133,14 @@ export default {
         <span><span class="semi">${f.num(d.unplaced)} website lead${d.unplaced === 1 ? ' is' : 's are'} not counted for any website yet.</span> Their forms have no website picked.</span>
         <span style="flex:1"></span><span class="btn xs" data-act="site" data-arg="">Pick websites for the forms</span></div>` : ''}
       <div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
-        ${kpi(f.num(d.visits.value), 'Visits', TIPS.visits, change(d.visits.value, d.visits.prev))}
+        ${kpi(f.num(d.visits.value), 'Visits', TIPS.visits, change(d.visits.value, d.visits.prev), d.visits.engaged ? html`<span title="${TIPS.engaged}">${f.num(d.visits.engaged)} engaged</span>` : '')}
         ${kpi(f.num(d.clicks.value), 'Clicks from Google', TIPS.clicks, change(d.clicks.value, d.clicks.prev), d.visits.value ? `${f.pct(d.clicks.value / d.visits.value * 100)} of visits` : '')}
         ${kpi(f.num(d.leads.value), 'Website leads', TIPS.leads, change(d.leads.value, d.leads.prev), `${f.num(d.leads.qualified)} qualified`)}
         ${kpi(f.orDash(toLead, f.pct), 'Visits that became leads', TIPS.toLead, null, show && toLeadPrev != null ? `was ${f.pct(toLeadPrev)}` : '', { end: true })}
       </div>
+      ${d.visits.value >= 200 && d.visits.direct / d.visits.value >= 0.6 ? html`<div class="row small" style="gap:10px;padding:10px 14px;border-radius:10px;background:color-mix(in oklch, var(--warn) 12%, var(--surface))">
+        <span><span class="semi">${f.pct(d.visits.direct / d.visits.value * 100)} of visits have no known source.</span> That is far above normal, so the visit count is probably inflated.
+          ${d.visits.engaged ? html`Only <span class="semi">${f.num(d.visits.engaged)}</span> visits were engaged.` : ''} Ask whoever looks after Google Analytics to check for robots and the tracking setup.</span>${info(TIPS.direct, { end: true })}</div>` : ''}
       ${!d.site && d.by_site.length ? html`<div class="card clipped" style="--cols:${scols}">
         <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">The websites side by side</span>${info(TIPS.sides)}</div>
         <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Website</span><span>Visits</span><span>Clicks from Google</span><span>Leads</span><span>Visits that became leads</span></div>
@@ -152,7 +159,7 @@ export default {
         <div class="card" style="padding:18px 24px 12px">
           ${cardHead('Where visitors came from', TIPS.sources)}
           ${ranked(d.sources.map(s => ({ name: s.name, value: s.visits, color: SOURCE_COLOR[s.name] || GREY, title: s.top.join(', '),
-            note: `${total ? f.pct(s.visits / total * 100) : ''}${show && s.prev ? ` · ${f.arrowShort(change(s.visits, s.prev))}` : ''}` })))}
+            note: `${s.engaged ? f.num(s.engaged) + ' engaged · ' : ''}${total ? f.pct(s.visits / total * 100) : ''}${show && s.prev ? ` · ${f.arrowShort(change(s.visits, s.prev))}` : ''}` })))}
         </div>
         <div class="card" style="padding:18px 24px 16px">
           ${cardHead(`${METRIC[mm][0]} per month`, TIPS.months, sw('month', Object.entries(METRIC).map(([k, v]) => [k, v[0]]), mm))}
@@ -214,6 +221,11 @@ export default {
         </div>
         ${d.hidden_clicks ? html`<div class="tiny faint" style="margin-top:10px">Google keeps the words private for another ${f.num(d.hidden_clicks)} clicks, so they are not in either group.</div>` : ''}
       </div>
+      ${d.search_parts.length > 1 ? html`<div class="card" style="padding:18px 24px 12px">
+        ${cardHead('Which part of the site got the clicks', TIPS.parts, html`<span class="small muted"><span class="ink semi" style="font-size:15px">${f.num(sum(d.search_parts.filter(x => x.kind === 'main'), 'clicks'))}</span> clicks went to the main website</span>`)}
+        ${ranked(d.search_parts.slice(0, 8).map(x => ({ name: x.host, value: x.clicks, color: x.kind === 'main' ? GREEN : x.kind === 'test' ? 'var(--warn)' : GREY,
+          note: `${x.kind === 'main' ? 'main website' : x.kind === 'test' ? 'test copy' : 'not marketing'} · shown ${f.num(x.impressions)} times` })))}
+      </div>` : ''}
       <div class="grid start" style="grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)">
         <div class="card" style="padding:18px 24px 16px">
           ${cardHead(`${series[which][0]} per month`, TIPS.splitMonths, sw('which', Object.entries(series).map(([k, v]) => [k, v[0], k === 'all' ? null : v[1]]), which))}
@@ -281,8 +293,10 @@ export default {
     };
 
     const ranked_sites = d.semrush ? d.semrush.sites.filter(x => !d.site || x.domain.replace(/^www\./, '') === d.site) : [];
-    const rankings = () => (ranked_sites.length ? ranked_sites.map(semrushCards)
-      : html`<div class="card pad row" style="gap:8px"><span class="muted">${d.site && d.semrush ? `No Semrush export has been added for ${d.site} yet.` : 'No rankings have been added yet.'}</span>${info(TIPS.noRank)}</div>`);
+    const adder = lead => (lead ? html`<label class="row small muted" style="gap:10px;cursor:pointer"><span class="btn">Add a Semrush export</span>
+      <span>Positions or Competitors, as the CSV file Semrush gives you. Keep its file name.</span><input type="file" accept=".csv" multiple data-change="semrushFile" style="display:none"></label>` : '');
+    const rankings = () => html`${adder(!ctx.app.shell.user || ctx.app.shell.user.admin !== false)}${ranked_sites.length ? ranked_sites.map(semrushCards)
+      : html`<div class="card pad row" style="gap:8px"><span class="muted">${d.site && d.semrush ? `No Semrush export has been added for ${d.site} yet.` : 'No rankings have been added yet.'}</span>${info(TIPS.noRank)}</div>`}`;
 
     return html`
     ${pageHead(show ? `${d.period.short} compared with ${d.period.prev_short}` : d.period.short, 'Website and organic', segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))}
@@ -298,6 +312,14 @@ export default {
     set(ctx, d) { const at = d.arg.indexOf('='); ctx.ui()[d.arg.slice(0, at)] = d.arg.slice(at + 1) || null; ctx.render(); },
   },
   changes: {
+    async semrushFile(ctx, value, el) {
+      const notes = [];
+      for (const file of el.files) {
+        try { notes.push((await ctx.api.post('semrush/upload', { name: file.name, text: await file.text() })).message); } catch (err) { notes.push(`${file.name}: ${err.message}`); }
+      }
+      await ctx.reload();
+      ctx.toast(notes.join(' '));
+    },
     formSite: (ctx, value, el) => ctx.save(() => ctx.api.put('web/forms', { source: el.dataset.source, site: value }), value ? `Saved. Leads from this form now count for ${value}.` : 'Saved.'),
   },
 };

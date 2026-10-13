@@ -285,6 +285,24 @@ def get_web(range: str = "month", start: Optional[str] = None, end: Optional[str
         return website.build(conn, db.now(conn), period(conn, range, start, end), site)
 
 
+class SemrushFile(BaseModel):
+    name: str
+    text: str
+
+
+@app.post("/api/semrush/upload")
+def upload_semrush(body: SemrushFile):
+    """A Semrush export added through the app, for a copy of Meridian that has no folder to drop files into."""
+    if len(body.text) > 5_000_000:
+        raise HTTPException(400, "That file is too big to be a Semrush export.")
+    with session() as conn:
+        try:
+            keywords, competitors = semrush.take_text(conn, db.now(conn), body.name, body.text)
+        except ValueError as err:
+            raise HTTPException(400, str(err))
+        return {"ok": True, "message": "Added: {:,} keywords.".format(keywords) if keywords else "Added: {:,} competitor rows.".format(competitors)}
+
+
 class FormSite(BaseModel):
     source: str
     site: str = ""

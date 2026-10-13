@@ -148,7 +148,8 @@ def build(conn, now, p, site=None):
                 (thr, start_dt, end_dt) + lead_args)
         return r["n"], r["q"]
 
-    visits = one("SELECT COALESCE(SUM(sessions), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (s, e) + t_args)[0]
+    visits, engaged = one("SELECT COALESCE(SUM(sessions), 0), COALESCE(SUM(engaged), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (s, e) + t_args)
+    direct = one("SELECT COALESCE(SUM(sessions), 0) FROM {} WHERE source = '(direct)' AND date BETWEEN ? AND ?{}".format(traffic, t_and), (s, e) + t_args)[0]
     visits_prev = one("SELECT COALESCE(SUM(sessions), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (ps, pe) + t_args)[0]
     search, search_prev = search_totals(s, e), search_totals(ps, pe)
     leads, qualified = web_leads(p.start_dt, p.end_dt)
@@ -192,15 +193,16 @@ def build(conn, now, p, site=None):
     # ---- where visitors came from
     def source_groups(a, b):
         out = {}
-        for r in conn.execute("SELECT source, medium, SUM(sessions) AS n FROM {} WHERE date BETWEEN ? AND ?{} GROUP BY 1, 2".format(traffic, t_and), (a, b) + t_args):
+        for r in conn.execute("SELECT source, medium, SUM(sessions) AS n, SUM(engaged) AS g FROM {} WHERE date BETWEEN ? AND ?{} GROUP BY 1, 2".format(traffic, t_and), (a, b) + t_args):
             src, med = (r["source"] or "").lower(), (r["medium"] or "").lower()
             name = next(n for n, test in SOURCES if test(src, med))
-            g = out.setdefault(name, dict(name=name, visits=0, parts={}))
+            g = out.setdefault(name, dict(name=name, visits=0, engaged=0, parts={}))
             g["visits"] += r["n"]
+            g["engaged"] += r["g"] or 0
             g["parts"][r["source"]] = g["parts"].get(r["source"], 0) + r["n"]
         return out
     cur_src, prev_src = source_groups(s, e), source_groups(ps, pe)
-    sources = sorted((dict(name=g["name"], visits=g["visits"], prev=prev_src.get(g["name"], {}).get("visits", 0),
+    sources = sorted((dict(name=g["name"], visits=g["visits"], engaged=g["engaged"], prev=prev_src.get(g["name"], {}).get("visits", 0),
                            top=[k for k, _ in sorted(g["parts"].items(), key=lambda kv: -kv[1])[:3]])
                       for g in cur_src.values()), key=lambda g: -g["visits"])
 
@@ -272,6 +274,18 @@ def build(conn, now, p, site=None):
     stray = sorted((dict(page=k, clicks=r["c"], impressions=r["i"]) for k, r in found.items()
                     if split_page(k, known)[0] is None and TEST_HOST.search(k.split("/")[0]) and r["i"] >= 50), key=lambda r: -r["impressions"])[:8]
 
+    # ---- which part of the site Google's clicks landed on: the main site, or the app login, the test copy and other subdomains
+    parts = {}
+    for r in conn.execute("SELECT substr(page, 1, instr(page, '/') - 1) AS host, SUM(clicks) AS c, SUM(impressions) AS i FROM search_page_daily "
+                          "WHERE date BETWEEN ? AND ? GROUP BY 1", (s, e)):
+        host = r["host"] or ""
+        home = next((k for k in (known or []) if host == k or host.endswith("." + k)), None)
+        if not home or (site and home != site):
+            continue
+        kind = "main" if host == home else "test" if TEST_HOST.search(host) else "other"
+        parts[host] = dict(host=host, clicks=r["c"] or 0, impressions=r["i"] or 0, kind=kind)
+    search_parts = sorted(parts.values(), key=lambda r: -r["clicks"])
+
     # ---- which form or chatbot each website lead came through, and which website that form sits on
     before = {r["k"]: r["n"] for r in conn.execute(
         "SELECT COALESCE(lead_source, '') AS k, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < ? AND channel_id IN ({}) GROUP BY 1".format(marks),
@@ -296,7 +310,7 @@ def build(conn, now, p, site=None):
     return dict(
         period=p.as_json(), company=get_setting(conn, "company", ""), sites=known or [], site=site or "", site_ready=ready,
         forms=forms, by_site=by_site, unplaced=sum(f["leads"] for f in forms if not f["site"]),
-        visits=dict(value=visits, prev=visits_prev), clicks=dict(value=search["clicks"], prev=search_prev["clicks"]),
+        visits=dict(value=visits, prev=visits_prev, engaged=engaged, direct=direct), search_parts=search_parts, clicks=dict(value=search["clicks"], prev=search_prev["clicks"]),
         impressions=dict(value=search["impressions"], prev=search_prev["impressions"]),
         position=dict(value=search["position"], prev=search_prev["position"]),
         leads=dict(value=leads, prev=leads_prev, qualified=qualified),

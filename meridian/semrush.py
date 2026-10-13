@@ -38,51 +38,86 @@ def read(path):
         return list(csv.DictReader(f))
 
 
+def take(conn, now, name, rows):
+    """Record one export. `name` is Semrush's own file name, which says the domain, report, country and date.
+    Returns (keywords, competitor rows) added, or None when the name is not one of Semrush's."""
+    m = NAME.match(name)
+    if not m:
+        return None
+    domain, country = m["domain"].lower(), m["country"].lower()
+    day = "{}-{}-{}".format(m["day"][:4], m["day"][4:6], m["day"][6:])
+    key = (domain, country, day)
+    keywords = competitors = 0
+    if m["report"].lower() == "positions":
+        conn.execute("DELETE FROM semrush_keywords WHERE domain = ? AND country = ? AND day = ?", key)
+        listed = [r for r in rows if r.get("Keyword")]
+        # Semrush's own screen counts every listed position, so the headline figures are kept exactly as it shows them
+        conn.execute("INSERT OR REPLACE INTO semrush_totals (domain, country, day, positions, traffic, top3, top10) VALUES (?,?,?,?,?,?,?)",
+                     key + (len(listed), sum(number(r.get("Traffic")) for r in listed), sum(1 for r in listed if 0 < number(r.get("Position")) <= 3),
+                            sum(1 for r in listed if 0 < number(r.get("Position")) <= 10)))
+        best = {}
+        for r in listed:  # a keyword can be listed again for a map or an AI answer: the lists keep its ordinary result, best position first
+            if (r.get("Position Type") or "Organic") != "Organic":
+                continue
+            pos = number(r.get("Position"))
+            if r["Keyword"] not in best or pos < best[r["Keyword"]][0]:
+                best[r["Keyword"]] = (pos, r)
+        conn.executemany(
+            "INSERT INTO semrush_keywords (domain, country, day, keyword, position, previous, volume, difficulty, url, traffic, intent) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            [key + (k, pos, number(r.get("Previous position")) or None, number(r.get("Search Volume")), number(r.get("Keyword Difficulty")),
+                    r.get("URL"), number(r.get("Traffic")), r.get("Keyword Intents")) for k, (pos, r) in best.items()])
+        keywords = len(best)
+    else:
+        conn.execute("DELETE FROM semrush_competitors WHERE domain = ? AND country = ? AND day = ?", key)
+        conn.executemany(
+            "INSERT OR REPLACE INTO semrush_competitors (domain, country, day, competitor, relevance, common, keywords, traffic) VALUES (?,?,?,?,?,?,?,?)",
+            [key + (r["Domain"].lower(), number(r.get("Competitor Relevance"), float), number(r.get("Common Keywords")),
+                    number(r.get("Organic Keywords")), number(r.get("Organic Traffic"))) for r in rows if r.get("Domain")])
+        competitors = len(rows)
+    conn.execute("INSERT OR REPLACE INTO semrush_files (file, read_at) VALUES (?,?)", (name, iso(now)))
+    latest = conn.execute("SELECT MAX(day) FROM semrush_keywords").fetchone()[0]
+    conn.execute("UPDATE sources SET status = 'connected', last_sync_at = ?, note = ? WHERE key = 'semrush'",
+                 (iso(now), "export of {}".format(latest) if latest else None))
+    return keywords, competitors
+
+
+def take_text(conn, now, name, text):
+    """An export uploaded through the app, as the file's text."""
+    import io
+    name = name.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    rows = list(csv.DictReader(io.StringIO(text.lstrip("\ufeff"))))
+    if not rows or not ({"Keyword", "Position"} <= set(rows[0]) or {"Domain", "Common Keywords"} <= set(rows[0])):
+        raise ValueError("This does not look like a Semrush Positions or Competitors export.")
+    done = take(conn, now, name, rows)
+    if done is None:
+        raise ValueError("Keep the file name Semrush gave it (like chat360.io-organic.Positions-in-20261004-….csv). It says which website, country and date the export is for.")
+    return done
+
+
 def load(conn, now):
     """Read every export in the folder that has not been read yet. Returns what was added."""
     added = dict(files=0, keywords=0, competitors=0, skipped=[])
     if not folder().is_dir():
         return added
     seen = {r["file"] for r in conn.execute("SELECT file FROM semrush_files")}
+    known = {(r["domain"], r["country"], r["day"]) for r in conn.execute("SELECT domain, country, day FROM semrush_totals")}
     for path in sorted(folder().glob("*.csv")):
-        if path.name in seen:
-            continue
         m = NAME.match(path.name)
-        if not m:
+        fresh = path.name not in seen
+        # an export read before the headline figures were kept is read once more to fill them in
+        again = bool(m) and m["report"].lower() == "positions" and (m["domain"].lower(), m["country"].lower(),
+                                                                   "{}-{}-{}".format(m["day"][:4], m["day"][4:6], m["day"][6:])) not in known
+        if not fresh and not again:
+            continue
+        done = take(conn, now, path.name, read(path))
+        if done is None:
             added["skipped"].append(path.name)
             continue
-        domain, country = m["domain"].lower(), m["country"].lower()
-        day = "{}-{}-{}".format(m["day"][:4], m["day"][4:6], m["day"][6:])
-        rows = read(path)
-        key = (domain, country, day)
-        if m["report"].lower() == "positions":
-            conn.execute("DELETE FROM semrush_keywords WHERE domain = ? AND country = ? AND day = ?", key)
-            best = {}
-            for r in rows:  # a keyword can be listed again for a map or an AI answer: keep its ordinary result, best position first
-                if (r.get("Position Type") or "Organic") != "Organic" or not r.get("Keyword"):
-                    continue
-                pos = number(r.get("Position"))
-                if r["Keyword"] not in best or pos < best[r["Keyword"]][0]:
-                    best[r["Keyword"]] = (pos, r)
-            conn.executemany(
-                "INSERT INTO semrush_keywords (domain, country, day, keyword, position, previous, volume, difficulty, url, traffic, intent) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                [key + (k, pos, number(r.get("Previous position")) or None, number(r.get("Search Volume")), number(r.get("Keyword Difficulty")),
-                        r.get("URL"), number(r.get("Traffic")), r.get("Keyword Intents")) for k, (pos, r) in best.items()])
-            added["keywords"] += len(best)
-        else:
-            conn.execute("DELETE FROM semrush_competitors WHERE domain = ? AND country = ? AND day = ?", key)
-            conn.executemany(
-                "INSERT OR REPLACE INTO semrush_competitors (domain, country, day, competitor, relevance, common, keywords, traffic) VALUES (?,?,?,?,?,?,?,?)",
-                [key + (r["Domain"].lower(), number(r.get("Competitor Relevance"), float), number(r.get("Common Keywords")),
-                        number(r.get("Organic Keywords")), number(r.get("Organic Traffic"))) for r in rows if r.get("Domain")])
-            added["competitors"] += len(rows)
-        conn.execute("INSERT INTO semrush_files (file, read_at) VALUES (?,?)", (path.name, iso(now)))
-        added["files"] += 1
-    if added["files"]:
-        latest = conn.execute("SELECT MAX(day) FROM semrush_keywords").fetchone()[0]
-        conn.execute("UPDATE sources SET status = 'connected', last_sync_at = ?, note = ? WHERE key = 'semrush'",
-                     (iso(now), "export of {}".format(latest) if latest else None))
+        if fresh:
+            added["files"] += 1
+            added["keywords"] += done[0]
+            added["competitors"] += done[1]
     conn.commit()
     return added
 
@@ -124,9 +159,13 @@ def view(conn):
             "AND day = (SELECT MAX(day) FROM semrush_competitors WHERE domain = ? AND country = ?) AND keywords < ? AND relevance > 0 "
             "ORDER BY common DESC, relevance DESC LIMIT 10", (domain, country, domain, country, GIANT_KEYWORDS))]
         other = [r for r in rows if not r["brand"]]
+        # the headline figures as Semrush itself shows them, when the export was read with them; else counted from the kept rows
+        total = conn.execute("SELECT * FROM semrush_totals WHERE domain = ? AND country = ? AND day = ?", (domain, country, day)).fetchone()
         sites.append(dict(
-            domain=domain, country=country.upper(), day=day, keywords=len(rows), traffic=traffic,
-            top3=sum(1 for r in rows if r["position"] <= 3), top10=sum(1 for r in rows if r["position"] <= 10),
+            domain=domain, country=country.upper(), day=day, keywords=total["positions"] if total else len(rows),
+            traffic=total["traffic"] if total else traffic, as_semrush=bool(total), organic_keywords=len(rows),
+            top3=total["top3"] if total else sum(1 for r in rows if r["position"] <= 3),
+            top10=total["top10"] if total else sum(1 for r in rows if r["position"] <= 10),
             brand_traffic=sum(r["traffic"] for r in rows if r["brand"]),
             # where the non-brand visits come from, and the searches with real demand that sit just off page one
             earning=other[:8],

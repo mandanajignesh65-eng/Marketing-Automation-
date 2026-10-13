@@ -123,54 +123,69 @@ def mark(conn, source, now, status="connected", note=None):
 # ------------------------------------------------------------------------------- Google Analytics
 
 def ga_report(token, prop, start, end, dimensions, metric):
+    """Rows of (dimension values, number). With several metrics (a list), the number is a tuple in the same order."""
+    names = [metric] if isinstance(metric, str) else list(metric)
     rows, offset = [], 0
     while True:
         data = fetch("POST", "{}/properties/{}:runReport".format(GA_DATA, prop), dict(
             dateRanges=[dict(startDate=start.isoformat(), endDate=end.isoformat())],
-            dimensions=[dict(name=d) for d in dimensions], metrics=[dict(name=metric)], limit=PAGE_ROWS, offset=offset), token)
+            dimensions=[dict(name=d) for d in dimensions], metrics=[dict(name=n) for n in names], limit=PAGE_ROWS, offset=offset), token)
         got = data.get("rows") or []
         for r in got:
             keys = [v.get("value", "") for v in r.get("dimensionValues") or []]
             keys[0] = "{}-{}-{}".format(keys[0][:4], keys[0][4:6], keys[0][6:8])  # 20261005 -> 2026-10-05
-            rows.append((keys, int(float((r.get("metricValues") or [{}])[0].get("value") or 0))))
+            values = tuple(int(float(v.get("value") or 0)) for v in r.get("metricValues") or [{}])
+            rows.append((keys, values[0] if isinstance(metric, str) else values))
         offset += len(got)
         if not got or offset >= int(data.get("rowCount") or 0) or offset >= MAX_ROWS:
             return rows
 
 
+def own_sites():
+    """The company's own sites, as named by the Search Console sites chosen at connect time (empty when none were chosen)."""
+    return {site_name(s) for s in targets()["gsc"] if not site_name(s).startswith("app.")}
+
+
 def sync_ga4(conn, now, token):
     props = targets()["ga4"]
     start, end = window(conn, "ga4", now)
-    traffic, pages = {}, {}
+    pages = {}
     for prop in props:
         for a, b in chunks(start, end):
-            for (day, source, medium), n in ga_report(token, prop, a, b, ["date", "sessionSource", "sessionMedium"], "sessions"):
-                key = (day, source or "(not set)", medium or "(not set)")
-                traffic[key] = traffic.get(key, 0) + n
             for (day, host, path, title), n in ga_report(token, prop, a, b, ["date", "hostName", "pagePath", "pageTitle"], "screenPageViews"):
                 if len(props) > 1:  # several sites: say which one a page belongs to, since each has its own "/"
                     path = host + path
                 views, best, name = pages.get((day, path), (0, 0, ""))  # one row per page: views added up, the commonest title kept
                 pages[(day, path)] = (views + n, max(best, n), title if n > best else name)
-    # the same visits per website; the first time this needs the whole year, like any first sync
-    fresh = not conn.execute("SELECT 1 FROM traffic_site_daily LIMIT 1").fetchone()
+    # Visits are read per website, with how many of them were engaged (stayed 10 seconds, saw two pages or did something).
+    # The first time this needs the whole year, like any first sync; so does the first time engaged visits are read.
+    fresh = not conn.execute("SELECT 1 FROM traffic_site_daily WHERE engaged > 0 LIMIT 1").fetchone()
     site_start = now.date() - timedelta(days=HISTORY_DAYS) if fresh else start
     by_site = {}
     for prop in props:
         for a, b in chunks(site_start, end):
-            for (day, host, source, medium), n in ga_report(token, prop, a, b, ["date", "hostName", "sessionSource", "sessionMedium"], "sessions"):
+            for (day, host, source, medium), (n, engaged) in ga_report(token, prop, a, b, ["date", "hostName", "sessionSource", "sessionMedium"],
+                                                                         ["sessions", "engagedSessions"]):
                 key = (day, site_name(host) or "(not set)", source or "(not set)", medium or "(not set)")
-                by_site[key] = by_site.get(key, 0) + n
+                old = by_site.get(key, (0, 0))
+                by_site[key] = (old[0] + n, old[1] + engaged)
     conn.execute("DELETE FROM traffic_site_daily WHERE date >= ?", (site_start.isoformat(),))
-    conn.executemany("INSERT INTO traffic_site_daily (date, site, source, medium, sessions) VALUES (?,?,?,?,?)", [k + (v,) for k, v in by_site.items() if v])
-    conn.execute("DELETE FROM traffic_daily WHERE date >= ?", (start.isoformat(),))
-    conn.executemany("INSERT INTO traffic_daily (date, source, medium, sessions) VALUES (?,?,?,?)", [k + (v,) for k, v in traffic.items() if v])
+    conn.executemany("INSERT INTO traffic_site_daily (date, site, source, medium, sessions, engaged) VALUES (?,?,?,?,?,?)",
+                     [k + v for k, v in by_site.items() if v[0]])
+    # The all-sites figures count only the company's own sites: test copies, preview addresses and stray hosts are left out.
+    own = own_sites()
+    marks = ",".join("?" for _ in own)
+    conn.execute("DELETE FROM traffic_daily WHERE date >= ?", (site_start.isoformat(),))
+    conn.execute("INSERT INTO traffic_daily (date, source, medium, sessions, engaged) SELECT date, source, medium, SUM(sessions), SUM(engaged) "
+                 "FROM traffic_site_daily WHERE date >= ?{} GROUP BY date, source, medium".format(" AND site IN ({})".format(marks) if own else ""),
+                 [site_start.isoformat()] + sorted(own))
     # Analytics knows views per page, not leads per page, so that column stays empty.
     conn.execute("DELETE FROM page_daily WHERE date >= ?", (start.isoformat(),))
     conn.executemany("INSERT INTO page_daily (date, path, title, views) VALUES (?,?,?,?)",
                      [(d, p, t if t and t != "(not set)" else None, v) for (d, p), (v, _, t) in pages.items() if v])
     mark(conn, "ga4", now)
-    return dict(source="ga4", days=(end - start).days + 1, sessions=sum(traffic.values()), pages=len({p for _, p in pages}))
+    sessions = conn.execute("SELECT COALESCE(SUM(sessions), 0) FROM traffic_daily WHERE date >= ?", (start.isoformat(),)).fetchone()[0]
+    return dict(source="ga4", days=(end - start).days + 1, sessions=sessions, pages=len({p for _, p in pages}))
 
 
 # ------------------------------------------------------------------------------- Search Console

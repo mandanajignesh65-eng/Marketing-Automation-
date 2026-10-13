@@ -234,6 +234,11 @@ CREATE TABLE IF NOT EXISTS meta_events (
   tries INTEGER NOT NULL DEFAULT 0, response TEXT, created_at TEXT NOT NULL, sent_at TEXT, UNIQUE (event_name, ctwa_clid)
 );
 CREATE TABLE IF NOT EXISTS meta_audiences (key TEXT PRIMARY KEY, ext_id TEXT, name TEXT, people INTEGER, synced_at TEXT);
+-- one line per export, counted the way Semrush's own screen counts (every listed position, map and AI results included)
+CREATE TABLE IF NOT EXISTS semrush_totals (
+  domain TEXT NOT NULL, country TEXT NOT NULL, day TEXT NOT NULL, positions INTEGER NOT NULL, traffic INTEGER NOT NULL,
+  top3 INTEGER NOT NULL, top10 INTEGER NOT NULL, PRIMARY KEY (domain, country, day)
+);
 CREATE TABLE IF NOT EXISTS semrush_files (file TEXT PRIMARY KEY, read_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS semrush_keywords (
   domain TEXT NOT NULL, country TEXT NOT NULL, day TEXT NOT NULL, keyword TEXT NOT NULL, position INTEGER NOT NULL,
@@ -257,7 +262,7 @@ TABLES = [
     "outbound_campaigns", "outbound_daily", "traffic_daily", "search_daily", "page_daily", "query_daily",
     "form_daily", "subscriptions", "subscription_history", "targets", "sources", "alert_rules", "alerts",
     "reports", "report_recipients", "outbox", "left_out_leads", "companies",
-    "semrush_files", "semrush_keywords", "semrush_competitors", "search_page_daily",
+    "semrush_files", "semrush_keywords", "semrush_competitors", "semrush_totals", "search_page_daily",
     "traffic_site_daily", "search_site_daily", "query_site_daily",
     "meta_campaigns", "meta_adsets", "meta_ads", "meta_ad_daily", "meta_breakdown_daily", "meta_events", "meta_audiences",
     "accounts", "sessions", "benchmarks", "team_members", "goals", "goal_log", "goal_notes", "team_tasks", "team_notes", "blockers",
@@ -274,7 +279,8 @@ def connect(path=None):
 
 
 # Columns added after the first release: (table, column, type). upgrade() adds any that are missing.
-ADDED_COLUMNS = [("leads", "company_size", "TEXT"), ("deals", "lead_source", "TEXT"),
+ADDED_COLUMNS = [("traffic_daily", "engaged", "INTEGER NOT NULL DEFAULT 0"), ("traffic_site_daily", "engaged", "INTEGER NOT NULL DEFAULT 0"),
+                 ("leads", "company_size", "TEXT"), ("deals", "lead_source", "TEXT"),
                  ("utm_map", "excluded", "INTEGER NOT NULL DEFAULT 0"),
                  ("leads", "industry_via", "TEXT"), ("leads", "size_via", "TEXT"),
                  # the tool's own id for a campaign, and its lifetime counts at the last sync (sent, opened, replied, meetings)
