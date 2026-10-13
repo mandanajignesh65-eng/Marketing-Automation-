@@ -7,14 +7,13 @@ const or = list => (list.length > 1 ? list.slice(0, -1).join(', ') + ' or ' + li
 
 // One list: a name, a bar, and how many of every 100 deals were won. The best row is green, the worst is red.
 function winList(title, rows) {
-  const top = Math.max(...rows.map(r => r.per_100), 1);
   return html`<div class="card" style="padding:18px 20px 10px">
     <div class="title" style="margin-bottom:10px">${title}</div>
     ${rows.map((r, i) => { const color = rows.length > 1 && i === 0 ? GREEN : rows.length > 1 && i === rows.length - 1 ? RED : 'var(--ink)'; return html`
       <div style="display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:4px 10px;align-items:center;padding:9px 0;border-top:${i ? '1px solid var(--line2)' : 'none'}">
         <span class="baseline" style="gap:10px"><span class="medium clip">${r.name}</span><span class="tiny faint nowrap">from ${f.num(r.deals)} deals</span></span>
         <span class="semi right" style="font-size:16px;color:${color};grid-row:span 2">${r.per_100}%</span>
-        <div class="track" style="height:8px;border-radius:4px"><div class="fill" style="width:${r.per_100 ? Math.max(r.per_100 / top * 100, 2) : 0}%;background:${color}"></div></div>
+        <div class="track" style="height:8px;border-radius:4px"><div class="fill" style="width:${r.per_100 ? Math.max(r.per_100, 2) : 0}%;background:${color}"></div></div>
       </div>`; })}
     ${rows.length ? '' : html`<div class="small muted" style="padding:6px 0 12px">Not enough finished deals yet.</div>`}
   </div>`;
@@ -160,7 +159,7 @@ export default {
       </div>
     </div>
 
-    <div class="row" style="gap:10px;margin:6px 0 -4px;flex-wrap:wrap"><span class="section">Where we win and lose</span><span class="muted">Win rate: deals won out of deals finished</span></div>
+    <div class="row" style="gap:10px;margin:6px 0 -4px;flex-wrap:wrap"><span class="section">Where we win and lose</span><span class="muted">Win rate: deals won out of deals finished. The coloured part of each bar is won, the grey part is lost.</span></div>
     <div class="grid start" style="grid-template-columns:repeat(3,minmax(0,1fr))">
       <div class="stack" style="gap:8px">${winList('By industry', d.industry)}
         <div class="tiny muted pretty" style="padding:0 4px">${d.small_industries ? `${f.num(d.small_industries)} other industries have too few deals to judge. ` : ''}${d.no_industry ? `${f.num(d.no_industry)} deals have no industry written down, so they are not in this list.` : ''}</div></div>
