@@ -112,7 +112,8 @@ def view(conn, now, span="all"):
 
     def best(dim, field, floor_field, floor, lowest=False):
         rows = [r for r in named(dim) if r[floor_field] >= floor and r[field] is not None]
-        return (min if lowest else max)(rows, key=lambda r: r[field]) if rows else None
+        # ties go to the group with more won deals behind it
+        return (min if lowest else max)(rows, key=lambda r: (r[field], -r["won"] if lowest else r["won"])) if rows else None
 
     base = total["win_rate"] or 0
     avoid = sorted((r for dim in ("industry", "size", "channel") for r in [dict(x, dim=DIMENSIONS[dim]) for x in named(dim)]
