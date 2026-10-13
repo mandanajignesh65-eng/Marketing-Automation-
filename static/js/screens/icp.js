@@ -119,12 +119,21 @@ export default {
   uses: { range: true },
   async load(ctx) {
     const { view, kind, value } = ctx.app.params;
-    const [summary, compare, seg] = await Promise.all([ctx.api.get('icp', ctx.rangeParams()),
-      view && view !== 'summary' && !(kind && value) ? ctx.api.get('icp/compare') : null, kind && value ? ctx.api.get('icp/profile', { kind, value }) : null]);
-    return { ...summary, compare, seg };
+    // each view asks only for what it shows
+    if (kind && value) return { seg: await ctx.api.get('icp/profile', { kind, value }) };
+    if (view === 'industries' || view === 'personas') return { compare: await ctx.api.get('icp/compare') };
+    return ctx.api.get('icp', ctx.rangeParams());
   },
 
   render(d, ctx) {
+    const view = TABS.some(x => x[0] === ctx.app.params.view) ? ctx.app.params.view : 'summary';
+    const head = pageHead(view === 'summary' ? 'Worked out from every deal in Zoho' : 'Leads are the last 12 months · deals are every deal in Zoho', 'Ideal customer',
+      segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16));
+    if (d.seg) return html`${head}${profile(d.seg, ctx)}`;
+    if (view === 'industries' && d.compare) return html`${head}${compareTable('Every industry side by side', d.compare.industry, 'industry', ctx)}`;
+    if (view === 'personas' && d.compare) return html`${head}
+      ${compareTable('By department', d.compare.department, 'department', ctx)}${compareTable('By seniority', d.compare.seniority, 'seniority', ctx)}`;
+    if (!d.card) return html`${head}`;
     const lead = !ctx.app.shell.user || ctx.app.shell.user.admin !== false;
     const c = d.card, t = d.lead_totals, left = d.customers - d.labelled;
     const known = d.customers ? d.labelled / d.customers * 100 : 0;
@@ -135,13 +144,6 @@ export default {
     const stripes = 'repeating-linear-gradient(135deg, var(--track) 0 5px, var(--surface2) 5px 10px)';
     const key = (bg, text) => html`<span class="row small muted" style="gap:6px"><span style="width:11px;height:11px;border-radius:3px;background:${bg}"></span>${text}</span>`;
 
-    const view = TABS.some(x => x[0] === ctx.app.params.view) ? ctx.app.params.view : 'summary';
-    const head = pageHead(view === 'summary' ? 'Worked out from every deal in Zoho' : 'Leads are the last 12 months · deals are every deal in Zoho', 'Ideal customer',
-      segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16));
-    if (d.seg) return html`${head}${profile(d.seg, ctx)}`;
-    if (view === 'industries' && d.compare) return html`${head}${compareTable('Every industry side by side', d.compare.industry, 'industry', ctx)}`;
-    if (view === 'personas' && d.compare) return html`${head}
-      ${compareTable('By department', d.compare.department, 'department', ctx)}${compareTable('By seniority', d.compare.seniority, 'seniority', ctx)}`;
     return html`
     ${head}
 

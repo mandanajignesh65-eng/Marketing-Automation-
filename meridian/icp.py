@@ -149,15 +149,35 @@ def city(text):
     return CITY.get(first, first.title())
 
 
+_kept = {}  # the labelled leads and deals, kept for a short while so opening one segment after another is quick
+KEEP_SECONDS = 180
+
+
+def forget():
+    _kept.clear()
+
+
 def records(conn, now):
     """Every lead and every deal with the labels used for planning: industry, size, department, seniority, channel, city."""
+    import time
+    from . import config
+    key = str(config.db_path())
+    if key in _kept and time.time() - _kept[key][0] < KEEP_SECONDS:
+        return _kept[key][1]
     profile = scoring.profile(conn)
     names = {c["id"]: c["name"] for c in metrics.channels(conn)}
+    seen = {}  # each industry, title and city is worked out once however many leads carry it
+
+    def once(kind, text, fn):
+        if (kind, text) not in seen:
+            seen[(kind, text)] = fn(text)
+        return seen[(kind, text)]
 
     def tags(row, industry, size_row):
         text = (industry or "").strip()
-        return dict(industry=(scoring.in_segment(text, profile) or text[:1].upper() + text[1:].lower()) if text else None, size=size_band(size_row),
-                    department=department(row["title"]), seniority=seniority(row["title"]), channel=names.get(row["channel"]), city=city(row["hq"]))
+        return dict(industry=once("i", text, lambda t: scoring.in_segment(t, profile) or t[:1].upper() + t[1:].lower()) if text else None,
+                    size=size_band(size_row), department=once("d", row["title"], department), seniority=once("s", row["title"], seniority),
+                    channel=names.get(row["channel"]), city=once("c", row["hq"], city))
     leads = []
     for r in conn.execute("SELECT id, title, hq, industry, company_size, employees, channel_id AS channel, created_at FROM leads"):
         leads.append(dict(tags(r, r["industry"], r), month=r["created_at"][:7], title=(r["title"] or "").strip()))
@@ -178,7 +198,8 @@ def records(conn, now):
         deals.append(row)
     y, m = now.year, now.month
     months = ["{:04d}-{:02d}".format((y * 12 + m - 1 - back) // 12, (y * 12 + m - 1 - back) % 12 + 1) for back in range(11, -1, -1)]
-    return leads, deals, months, set(profile["segments"])
+    _kept[key] = (time.time(), (leads, deals, months, set(profile["segments"])))
+    return _kept[key][1]
 
 
 def figures(leads, deals, months):
@@ -250,5 +271,6 @@ def label(conn, deal_id, industry, size):
         raise IcpError("Pick the industry.")
     if size and size not in SIZES:
         raise IcpError("Pick the company size from the list.")
+    forget()
     if not conn.execute("UPDATE deals SET industry = ?, company_size = COALESCE(NULLIF(?, ''), company_size) WHERE id = ?", (industry, size or "", deal_id)).rowcount:
         raise IcpError("That deal is no longer there.")
