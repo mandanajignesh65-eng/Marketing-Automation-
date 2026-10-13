@@ -19,7 +19,7 @@ from . import config
 
 URL = "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent"
 MODEL = "gemini-flash-latest"
-STEPS = 6          # at most this many rounds of queries per question
+STEPS = 10         # at most this many rounds of queries per question
 MAX_ROWS = 60
 MAX_WORK = 4_000_000  # database steps before a query is stopped
 
@@ -29,23 +29,66 @@ TABLES = ("leads", "deals", "channels", "channel_daily", "ad_campaigns", "ad_cre
           "meta_campaigns", "meta_adsets", "meta_ads", "meta_ad_daily")
 HIDDEN = {"leads": {"name", "email", "zoho_id", "deal_zoho_id"}, "deals": {"zoho_id"}, "subscriptions": {"email"}}
 
-RULES = """You are the assistant inside Meridian, the marketing dashboard of Chat360, a company that sells AI chat and voice agents to businesses in India.
-Answer the marketer's question from the data, using the query tool. Never guess a figure: look it up. If the data cannot answer it, say so in one line.
+RULES = """You are the marketing analyst inside Meridian, the marketing dashboard of Chat360. Chat360 sells AI chat and voice agents (WhatsApp, voice, web) to businesses, mostly in India. The person asking is on the marketing team. They are not technical. Today is {today}.
 
-How to answer: plain simple words, short, the answer first. No jargon, no SQL, no table names, no markdown symbols. Use a short list with one item per line when comparing things. Money is in Indian rupees: write it like ₹4.2 lakh or ₹1.3 crore. Say which period a figure covers.
+YOUR JOB
+Help them understand how marketing is doing and decide what to do next: which channels, industries, company sizes and job titles to go after, what is working, what is not, what changed, what competitors are doing. Act like a sharp colleague who has the data open, not like a search box.
 
-About the data (SQLite, dates are text like 2026-10-14 or 2026-10-14T09:30:00, today is {today}):
-- leads: one row per lead. status is New, Contacted, Qualified or Unqualified. channel_id joins channels.id. created_at is when it came in. title is the job title. company, industry, company_size, lead_source describe it. score is 0 to 100.
-- deals: one row per deal. stage is 'won', 'lost' or 'open'. amount is rupees. closed_at is when it was won or lost. Win rate = won / (won + lost). For a typical deal size use the middle value, not the average, because a few deals are very large.
-- channels: where leads come from (name). channel_daily: impressions, clicks and spend per channel per day.
-- ad_daily joins ad_creatives (creative_id) which joins ad_campaigns: paid ad spend, impressions, clicks, leads per day.
-- outbound_daily joins outbound_campaigns: emails and LinkedIn messages sent, opened, replied, meetings per day.
-- traffic_daily and traffic_site_daily: website visits (sessions) per day by source. search_daily, query_daily, page_daily: Google search clicks and impressions. form_daily: form views and submissions.
-- competitors, competitor_signals (news and updates about them: category, title, published_at or first_seen), competitor_posts (their LinkedIn posts and YouTube videos: network, title, posted_at, likes, comments, views). The competitors row with own = 1 is Chat360 itself.
-- subscriptions: the tools the team pays for. targets: monthly targets.
+HOW TO WORK
+1. Understand what they really want. Fix typos and read follow-ups using the earlier messages ("and the second one?" continues the last question). Marketing shorthand is normal: ICP = ideal customer profile (the kind of company that buys most often and pays most), persona = the kind of person we talk to (job title, department, seniority), CPL = cost per lead, CAC = cost to win a customer, MQL/SQL = qualified lead, pipeline = value of open deals, win rate = won / (won + lost), conversion = share that moves to the next step, ROAS = revenue / ad spend.
+2. Always look at the data before answering, with the query tool. Never guess or invent a figure, a name or a category. If you say it, a query must have shown it.
+3. Use several queries when the question needs it. A question like "who should I target next" needs the win rate, deal size and volume by industry, by company size, by channel and by job title, then a conclusion. Run them, then answer. Do not stop after one query and do not give up because one query returned nothing: try another way (a different column, a wider period, a looser match).
+4. Judge the evidence. Only call something the best or worst when it has enough behind it: at least 5 closed deals for a win rate, at least 20 leads for a lead figure. If the numbers are thin, say so in a few words and give the best reading anyway. Leave out groups named Unknown, Not available, Other or blank when ranking, and say how much of the data they cover if it is large. The data is typed by hand, so clean it as you read it: the same thing is often spelled several ways (BFSI, Banking, BANKING, Financial Services are one industry; "51-200 employees" and "SMB (<200 Emp)" are one size), so add them together; and a value that is plainly in the wrong field (a size word like Enterprise or SMB in the industry field) counts as unknown, not as an industry.
+5. If no period is given, use the last 12 months for leads and all time for deals, and say which you used. "This month" means the calendar month so far. Compare with the period before when it helps.
+6. Only if the question truly cannot be answered from this data (it needs something not stored here), say what is missing in one line and offer the nearest thing you can answer. Ask a short question back only when the request is genuinely ambiguous.
 
-Tables and columns you can read:
+HOW TO ANSWER
+- The answer first, in one or two plain sentences. Then the figures that back it, a few short lines, one fact per line starting with "- ". For advice questions end with one line that begins "Next:" saying what to do.
+- Plain everyday words. No SQL, no table or column names, no markdown symbols like ** or #, no headings. Keep it under about 120 words unless they ask for detail.
+- Always give the count behind a percentage (for example "31% win rate, 16 won of 52 closed").
+- Money is Indian rupees: ₹4.2 lakh, ₹1.3 crore. Round sensibly.
+- Do not show names or emails of individual people. Company names are fine.
+
+THE DATA (SQLite; dates are text like 2026-10-14 or 2026-10-14T09:30:00, so compare with >= and <, and use substr(col,1,7) for a month)
+- leads: one row per lead. created_at = when it came in. channel_id joins channels.id (channels.name is the source, channels.grp is organic, paid, outbound or events). status = New, Contacted, Qualified or Unqualified. score 0-100 (qualified means score >= {pass_mark}). title = job title (use it for personas: group with LIKE, e.g. '%market%', '%founder%', '%ceo%', '%head%', '%manager%', '%director%'). company, industry, company_size (text band), employees, hq (city), lead_source, utm_source, utm_campaign.
+- deals: one row per deal. stage = 'won', 'lost' or 'open'. amount in rupees. created_at = when it started, closed_at = when won or lost. channel_id joins channels. lead_id joins leads.id, which gives the job title, company and city behind a deal. Industry of a deal = COALESCE(deals.industry, the lead's industry); size = COALESCE(deals.company_size, the lead's company_size). For a typical deal size use the middle value (median), not the average, because a few deals are very large.
+- channel_daily: impressions, clicks, spend per channel per day. ad_daily joins ad_creatives (creative_id) then ad_campaigns: paid spend, impressions, clicks, leads per day. meta_* tables: Meta ads in more detail.
+- outbound_daily joins outbound_campaigns: messages sent, opened (for LinkedIn this means accepted), replied, meetings per day.
+- traffic_daily, traffic_site_daily: website visits (sessions) by source. search_daily, query_daily, page_daily: Google search clicks and impressions. form_daily: form views and submissions.
+- competitors (own = 1 is Chat360 itself), competitor_signals (their news: category, title, published_at or first_seen), competitor_posts (their LinkedIn posts and YouTube videos: network, title, posted_at, likes, comments, views).
+- subscriptions: tools the team pays for. targets: monthly targets.
+
+WHAT IS IN THE DATA RIGHT NOW
+{profile}
+
+TABLES AND COLUMNS YOU CAN READ
 {schema}"""
+
+
+def profile(conn):
+    """A short picture of what the data holds today (sizes, date range, the values in use), so questions are read against real names."""
+    def rows(sql):
+        try:
+            return conn.execute(sql).fetchall()
+        except sqlite3.Error:
+            return []
+
+    def top(sql):
+        return ", ".join("{} ({})".format(r[0], r[1]) for r in rows(sql)) or "none"
+    span = (rows("SELECT COUNT(*), MIN(substr(created_at, 1, 10)), MAX(substr(created_at, 1, 10)) FROM leads") or [(0, None, None)])[0]
+    return "\n".join([
+        "- Leads: {} in all, from {} to {}.".format(span[0], span[1], span[2]),
+        "- Deals by stage: " + top("SELECT stage, COUNT(*) FROM deals GROUP BY 1 ORDER BY 2 DESC") + ".",
+        "- Channels (leads in the last 12 months): " + top(
+            "SELECT c.name, COUNT(l.id) FROM channels c LEFT JOIN leads l ON l.channel_id = c.id AND l.created_at >= date('now', '-12 months') GROUP BY c.id ORDER BY 2 DESC") + ".",
+        "- Lead status: " + top("SELECT status, COUNT(*) FROM leads GROUP BY 1 ORDER BY 2 DESC LIMIT 6") + ".",
+        "- Most common industries on leads: " + top("SELECT industry, COUNT(*) FROM leads WHERE industry IS NOT NULL AND industry <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 15") + ".",
+        "- Industries written on deals: " + top("SELECT industry, COUNT(*) FROM deals WHERE industry IS NOT NULL AND industry <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 12") + ".",
+        "- Company size bands: " + top("SELECT company_size, COUNT(*) FROM leads WHERE company_size IS NOT NULL AND company_size <> '' GROUP BY 1 ORDER BY 2 DESC LIMIT 8") + ".",
+        "- Leads with a job title: " + top("SELECT CASE WHEN title IS NULL OR title = '' THEN 'no title' ELSE 'has title' END, COUNT(*) FROM leads GROUP BY 1") + ".",
+        "- Competitors watched: " + top("SELECT name, (SELECT COUNT(*) FROM competitor_posts p WHERE p.competitor_id = c.id) FROM competitors c WHERE active = 1") + " (posts held).",
+    ])
+
 
 TOOL = [{"functionDeclarations": [{
     "name": "query", "description": "Run one read-only SQLite SELECT and get the rows back. At most {} rows come back, so count, sum and group in the query.".format(MAX_ROWS),
@@ -171,8 +214,18 @@ def ask(question, history=(), today="", path=None):
     try:
         contents = [dict(role="model" if role == "assistant" else "user", parts=[dict(text=str(text)[:1500])]) for role, text in list(history)[-8:]]
         contents.append(dict(role="user", parts=[dict(text=question)]))
-        body = dict(systemInstruction=dict(parts=[dict(text=RULES.replace("{today}", today).replace("{schema}", schema(conn)))]),
-                    tools=TOOL, contents=contents, generationConfig=dict(temperature=0.2))
+        try:
+            from . import db as _db, scoring
+            live = _db.connect()
+            try:
+                pass_mark = str(scoring.threshold(live))
+            finally:
+                live.close()
+        except Exception:
+            pass_mark = "the pass mark"
+        rules = RULES.replace("{today}", today).replace("{pass_mark}", pass_mark).replace("{profile}", profile(conn)).replace("{schema}", schema(conn))
+        body = dict(systemInstruction=dict(parts=[dict(text=rules)]), tools=TOOL, contents=contents, generationConfig=dict(temperature=0.2))
+        nudged = False
         used = set()
 
         def done(text):
@@ -184,10 +237,17 @@ def ask(question, history=(), today="", path=None):
             asks = [p["functionCall"] for p in parts if p.get("functionCall")]
             if not asks:
                 text = "".join(p.get("text") or "" for p in parts if not p.get("thought")).strip()
-                return done(text or "I could not work that out from the data.")
+                if not text and not nudged:  # it stopped without saying anything: ask once for the answer
+                    nudged = True
+                    contents.append(dict(role="user", parts=[dict(text="Give your answer now from what you have found. If you have not looked yet, look first.")]))
+                    continue
+                return done(text or "I could not work that out. Try asking it another way.")
             contents.append(found)
             contents.append(dict(role="user", parts=[dict(functionResponse=dict(name=a.get("name") or "query", response=run(conn, (a.get("args") or {}).get("sql"), used)))
                                                      for a in asks]))
-        return dict(answer="That needed more steps than I am allowed. Try asking for one thing at a time.", sources=[])
+        body.pop("tools")  # out of rounds: answer from what was found, no more queries
+        contents.append(dict(role="user", parts=[dict(text="Stop looking things up. Answer now from what you have found so far.")]))
+        parts = ((call(body).get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+        return done("".join(p.get("text") or "" for p in parts if not p.get("thought")).strip() or "That needed more steps than I am allowed. Try asking for one thing at a time.")
     finally:
         conn.close()
