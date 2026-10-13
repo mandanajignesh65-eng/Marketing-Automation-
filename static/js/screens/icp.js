@@ -1,6 +1,6 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
-import { pageHead } from '../ui.js';
+import { pageHead, segmented, switcher } from '../ui.js';
 
 const GREEN = 'var(--pos)', RED = 'var(--neg)';
 const or = list => (list.length > 1 ? list.slice(0, -1).join(', ') + ' or ' + list[list.length - 1] : list[0] || '');
@@ -20,9 +20,109 @@ function winList(title, rows) {
   </div>`;
 }
 
+const TABS = [['summary', 'Summary'], ['industries', 'Industries'], ['personas', 'Personas']];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const COLS = [['leads', 'Leads'], ['deals', 'Deals'], ['per_100', 'Won of 100'], ['typical', 'Typical deal'], ['total_won', 'Total won'], ['days', 'Days to win'], ['open', 'Open now']];
+const dash = html`<span class="faint">—</span>`;
+const show = { leads: f.num, deals: f.num, per_100: v => v, typical: f.moneyShort, total_won: f.moneyShort, days: f.num, open: f.num };
+const cell = (r, k) => (r[k] == null || (k !== 'leads' && k !== 'deals' && k !== 'open' && !r[k] && k !== 'per_100') ? dash : show[k](r[k]));
+
+// Every group side by side. Click a column to sort by it, click a row to open that group.
+function compareTable(title, rows, kind, ctx) {
+  const ui = ctx.ui(), sort = ui['sort_' + kind] || 'leads';
+  const known = rows.filter(r => r.name !== 'Not known').sort((a, b) => (a.name === 'Other') - (b.name === 'Other') || (b[sort] ?? -1) - (a[sort] ?? -1));
+  const unknown = rows.find(r => r.name === 'Not known');
+  const best = Object.fromEntries(COLS.map(([k]) => [k, Math.max(...known.map(r => r[k] || 0))]));
+  const cols = 'minmax(0,1.8fr) repeat(7,minmax(0,0.8fr))';
+  const line = (r, quiet) => html`<div class="trow right" ${quiet ? '' : html`data-act="openSegment" data-arg="${kind}|${r.name}" style="cursor:pointer" title="Open ${r.name}"`}>
+    <span class="row" style="gap:8px;text-align:left;min-width:0"><span class="clip ${quiet ? 'muted' : 'medium'}">${r.name}</span>${r.target ? html`<span class="pill sm" style="flex:none">target</span>` : ''}</span>
+    ${COLS.map(([k]) => html`<span class="${quiet ? 'muted' : ''}" style="${!quiet && r[k] && r[k] === best[k] ? 'font-weight:600;color:var(--pos)' : ''}">${cell(r, k)}</span>`)}</div>`;
+  return html`<div class="card clipped" style="--cols:${cols}">
+    <div class="baseline" style="padding:16px 16px 10px"><span class="title">${title}</span><span class="small muted">Click a row to see everything about it</span></div>
+    <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left"></span>
+      ${COLS.map(([k, label]) => html`<span data-act="sort" data-arg="${kind}|${k}" style="cursor:pointer;${sort === k ? 'color:var(--ink);font-weight:600' : ''}" title="Sort by this">${label}${sort === k ? ' ↓' : ''}</span>`)}</div>
+    ${(ui['all_' + kind] ? known : known.slice(0, 12)).map(r => line(r))}${unknown ? line(unknown, true) : ''}
+    ${known.length > 12 ? html`<div class="small" style="padding:10px 16px;border-top:1px solid var(--line2)"><span class="link" data-act="showAll" data-arg="${kind}">${ui['all_' + kind] ? 'Show fewer' : `Show all ${known.length}`}</span></div>` : ''}
+  </div>`;
+}
+
+// One way of splitting a group: a name, a bar for its share of the leads, and how often it wins.
+function splitCard(title, rows) {
+  const top = Math.max(...rows.map(r => r.leads), 1);
+  return html`<div class="card" style="padding:16px 20px 8px">
+    <div class="baseline" style="margin-bottom:6px"><span class="title">${title}</span><span class="tiny muted">leads · won of 100 deals</span></div>
+    ${rows.map((r, i) => html`<div style="display:grid;grid-template-columns:minmax(0,1fr) 46px 40px;gap:3px 10px;align-items:center;padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'}">
+      <span class="clip ${r.name === 'Not known' ? 'muted' : 'medium'}" title="${r.name}">${r.name}</span>
+      <span class="right" style="grid-row:span 2">${f.num(r.leads)}</span>
+      <span class="right semi" style="grid-row:span 2;color:var(--${r.per_100 == null ? 'ink3' : 'ink'})">${r.per_100 == null ? '—' : r.per_100}</span>
+      <div class="track" style="height:6px;border-radius:3px"><div class="fill" style="width:${r.leads ? Math.max(r.leads / top * 100, 2) : 0}%;background:var(--${r.name === 'Not known' ? 'ink3' : 'ink'})"></div></div>
+    </div>`)}
+  </div>`;
+}
+
+function profile(p, ctx) {
+  const g = p.figures, all = p.all, ui = ctx.ui();
+  const series = ['leads', 'deals', 'won'].includes(ui.flow) ? ui.flow : 'leads';
+  const top = Math.max(...p.flow.map(x => x[series]), 1);
+  const tile = (value, label, sub = '') => html`<div class="card kpi" style="padding:14px 16px"><span class="kpi-v md" style="font-size:24px">${value}</span><span class="eyebrow">${label}</span><span class="kpi-d faint">${sub}</span></div>`;
+  const back = p.kind === 'industry' ? ['industries', 'All industries'] : ['personas', 'All personas'];
+  const splits = Object.entries(p.splits).filter(([, rows]) => rows.some(r => r.name !== 'Not known'));
+  return html`
+    <div class="row" style="gap:12px;margin:2px 0 -2px;flex-wrap:wrap"><span class="link" data-act="closeSegment" data-arg="${back[0]}">← ${back[1]}</span>
+      <span class="section">${p.value}</span>${p.target ? html`<span class="pill sm">target</span>` : ''}<span class="muted">${p.kind_label}</span></div>
+    <div class="grid" style="grid-template-columns:repeat(7,minmax(0,1fr))">
+      ${tile(f.num(g.leads), 'Leads', 'last 12 months')}
+      ${tile(f.num(g.deals), 'Deals', `${f.num(g.won)} won · ${f.num(g.lost)} lost`)}
+      ${tile(g.per_100 == null ? '—' : g.per_100, 'Won of 100', `all deals: ${all.per_100}`)}
+      ${tile(g.typical ? f.moneyShort(g.typical) : '—', 'Typical deal', `all deals: ${f.moneyShort(all.typical || 0)}`)}
+      ${tile(g.total_won ? f.moneyShort(g.total_won) : '—', 'Total won', all.total_won ? `${Math.round(g.total_won / all.total_won * 100)}% of everything won` : '')}
+      ${tile(g.days == null ? '—' : f.num(g.days), 'Days to win', `all deals: ${f.num(all.days || 0)}`)}
+      ${tile(f.num(g.open), 'Open now', g.open_value ? `worth ${f.moneyShort(g.open_value)}` : '')}
+    </div>
+    <div class="grid start" style="grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)">
+      <div class="card" style="padding:18px 22px 16px">
+        <div class="baseline" style="gap:14px;flex-wrap:wrap"><span class="title">Month by month</span>
+          ${switcher([['leads', 'Leads'], ['deals', 'Deals opened'], ['won', 'Deals won']].map(([arg, label]) => ({ arg: `flow=${arg}`, label, on: series === arg })), 'set')}</div>
+        <div style="height:170px;display:flex;align-items:flex-end;gap:10px;margin-top:14px">
+          ${p.flow.map(x => html`<div class="stack" style="flex:1;height:100%;justify-content:flex-end;align-items:center;gap:4px">
+            <span class="small ${x[series] ? 'medium' : 'faint'}">${x[series] || ''}</span><div style="width:100%;height:${x[series] / top * 100}%;min-height:2px;border-radius:5px 5px 1px 1px;background:var(--${x[series] ? 'ink' : 'track'})"></div></div>`)}
+        </div>
+        <div style="display:flex;gap:10px;margin-top:6px">${p.flow.map(x => html`<span class="micro muted" style="flex:1;text-align:center">${MONTHS[Number(x.month.slice(5)) - 1]}</span>`)}</div>
+      </div>
+      <div class="card stack" style="padding:18px 22px;gap:14px">
+        <span class="title">From lead to customer</span>
+        ${[['Leads, ever', g.leads_ever, 100], ['Became a deal', g.deals, g.leads_ever ? g.deals / g.leads_ever * 100 : 0], ['Won', g.won, g.leads_ever ? g.won / g.leads_ever * 100 : 0]].map(([label, n, w], i) => html`
+          <div class="stack" style="gap:5px"><div class="baseline"><span>${label}</span><span class="semi" style="font-size:16px">${f.num(n)}</span></div>
+            <div class="track" style="height:10px;border-radius:5px"><div class="fill" style="width:${n ? Math.max(Math.min(w, 100), 1.5) : 0}%;background:var(--${i === 2 ? 'pos' : 'ink'})"></div></div></div>`)}
+        <span class="small muted">${g.open ? `${f.num(g.open)} deals are still open.` : 'No deals are open right now.'}</span>
+      </div>
+    </div>
+    <div class="grid start" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+      ${splits.map(([k, rows]) => splitCard(p.kinds[k], rows))}
+      ${p.titles.length ? html`<div class="card" style="padding:16px 20px 8px">
+        <div class="baseline" style="margin-bottom:6px"><span class="title">Job titles</span><span class="tiny muted">from ${f.num(p.titled)} leads with a title</span></div>
+        ${p.titles.map((x, i) => html`<div class="baseline" style="padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'};gap:10px"><span class="clip">${x.name}</span><span class="medium">${f.num(x.n)}</span></div>`)}
+      </div>` : ''}
+      ${p.customers.length ? html`<div class="card" style="padding:16px 20px 8px">
+        <div class="baseline" style="margin-bottom:6px"><span class="title">Customers we won</span><span class="tiny muted">${p.customer_count > p.customers.length ? `newest ${p.customers.length} of ${f.num(p.customer_count)}` : `${f.num(p.customer_count)} in all`}</span></div>
+        ${p.customers.map((x, i) => html`<div class="baseline" style="padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'};gap:10px"><span class="clip" title="${x.name}">${x.name}</span>
+          <span class="nowrap small muted">${x.month ? `${MONTHS[Number(x.month.slice(5)) - 1]} ${x.month.slice(0, 4)}` : ''}${x.amount ? html` · <span class="ink medium">${f.moneyShort(x.amount)}</span>` : ''}</span></div>`)}
+      </div>` : ''}
+      ${p.named >= 5 ? html`<div class="card" style="padding:16px 20px 8px">
+        <div class="baseline" style="margin-bottom:6px"><span class="title">What the deals were for</span><span class="tiny muted">from ${f.num(p.named)} deals that say it in their name</span></div>
+        ${p.bought.map((x, i) => html`<div class="baseline" style="padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'};gap:10px"><span>${x.name}</span><span class="small muted"><span class="ink medium">${f.num(x.deals)}</span> deals · ${f.num(x.won)} won</span></div>`)}
+      </div>` : ''}
+    </div>`;
+}
+
 export default {
   uses: { range: true },
-  load: ctx => ctx.api.get('icp', ctx.rangeParams()),
+  async load(ctx) {
+    const { view, kind, value } = ctx.app.params;
+    const [summary, compare, seg] = await Promise.all([ctx.api.get('icp', ctx.rangeParams()),
+      view && view !== 'summary' && !(kind && value) ? ctx.api.get('icp/compare') : null, kind && value ? ctx.api.get('icp/profile', { kind, value }) : null]);
+    return { ...summary, compare, seg };
+  },
 
   render(d, ctx) {
     const lead = !ctx.app.shell.user || ctx.app.shell.user.admin !== false;
@@ -35,8 +135,15 @@ export default {
     const stripes = 'repeating-linear-gradient(135deg, var(--track) 0 5px, var(--surface2) 5px 10px)';
     const key = (bg, text) => html`<span class="row small muted" style="gap:6px"><span style="width:11px;height:11px;border-radius:3px;background:${bg}"></span>${text}</span>`;
 
+    const view = TABS.some(x => x[0] === ctx.app.params.view) ? ctx.app.params.view : 'summary';
+    const head = pageHead(view === 'summary' ? 'Worked out from every deal in Zoho' : 'Leads are the last 12 months · deals are every deal in Zoho', 'Ideal customer',
+      segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16));
+    if (d.seg) return html`${head}${profile(d.seg, ctx)}`;
+    if (view === 'industries' && d.compare) return html`${head}${compareTable('Every industry side by side', d.compare.industry, 'industry', ctx)}`;
+    if (view === 'personas' && d.compare) return html`${head}
+      ${compareTable('By department', d.compare.department, 'department', ctx)}${compareTable('By seniority', d.compare.seniority, 'seniority', ctx)}`;
     return html`
-    ${pageHead('Worked out from every deal in Zoho', 'Ideal customer')}
+    ${head}
 
     <div class="card" style="padding:20px 6px 16px 24px">
       <div class="title" style="margin-bottom:14px">Our best customer</div>
@@ -94,6 +201,12 @@ export default {
   },
 
   actions: {
+    view(ctx, d) { ctx.setParams({ view: d.arg }); ctx.reload(false); },
+    set(ctx, d) { const at = d.arg.indexOf('='); ctx.ui()[d.arg.slice(0, at)] = d.arg.slice(at + 1) || null; ctx.render(); },
+    showAll(ctx, d) { const ui = ctx.ui(); ui['all_' + d.arg] = !ui['all_' + d.arg]; ctx.render(); },
+    sort(ctx, d) { const [kind, key] = d.arg.split('|'); ctx.ui()['sort_' + kind] = key; ctx.render(); },
+    openSegment(ctx, d) { const at = d.arg.indexOf('|'); ctx.setParams({ view: ctx.app.params.view, kind: d.arg.slice(0, at), value: d.arg.slice(at + 1) }); window.scrollTo(0, 0); ctx.reload(false); },
+    closeSegment(ctx, d) { ctx.setParams({ view: d.arg }); ctx.reload(false); },
     label: ctx => ctx.openModal({ label: true }),
     unknownLeads(ctx) { ctx.app.ui.leads = { ...(ctx.app.ui.leads || {}), segment: 'Company not known' }; ctx.go('leads'); },
   },

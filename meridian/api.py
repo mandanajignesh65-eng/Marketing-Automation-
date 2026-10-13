@@ -379,6 +379,21 @@ def get_icp(range: str = "month", start: Optional[str] = None, end: Optional[str
         return icp.view(conn, db.now(conn), period(conn, range, start, end))
 
 
+@app.get("/api/icp/compare")
+def get_icp_compare():
+    with session() as conn:
+        return icp.compare(conn, db.now(conn))
+
+
+@app.get("/api/icp/profile")
+def get_icp_profile(kind: str, value: str):
+    with session() as conn:
+        try:
+            return icp.profile(conn, db.now(conn), kind, value)
+        except icp.IcpError as err:
+            raise HTTPException(404, str(err))
+
+
 class CustomerLabel(BaseModel):
     id: int
     industry: str
