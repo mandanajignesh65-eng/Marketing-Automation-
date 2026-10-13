@@ -54,17 +54,25 @@ function compareTable(title, rows, kind, ctx) {
   </div>`;
 }
 
-// One way of splitting a group: a name, a bar for its share of the leads, and how often it wins.
-function splitCard(title, rows) {
-  const top = Math.max(...rows.map(r => r.leads), 1);
-  return html`<div class="card" style="padding:16px 20px 8px">
-    <div class="baseline" style="margin-bottom:6px"><span class="title">${title}</span><span class="tiny muted">leads · win rate</span></div>
-    ${rows.map((r, i) => html`<div style="display:grid;grid-template-columns:minmax(0,1fr) 46px 46px;gap:3px 10px;align-items:center;padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'}">
-      <span class="clip ${r.name === 'Not known' ? 'muted' : 'medium'}" title="${r.name}">${r.name}</span>
-      <span class="right" style="grid-row:span 2">${f.num(r.leads)}</span>
-      <span class="right semi" style="grid-row:span 2;color:var(--${r.per_100 == null ? 'ink3' : 'ink'})">${r.per_100 == null ? '—' : r.per_100 + '%'}</span>
-      <div class="track" style="height:6px;border-radius:3px"><div class="fill" style="width:${r.leads ? Math.max(r.leads / top * 100, 2) : 0}%;background:var(--${r.name === 'Not known' ? 'ink3' : 'ink'})"></div></div>
-    </div>`)}
+// One group split another way, across the full width: each row with its leads, deals, win rate and money.
+function breakdown(p, ctx) {
+  const kinds = Object.entries(p.splits).filter(([, rows]) => rows.some(r => r.name !== 'Not known'));
+  if (!kinds.length) return '';
+  const pick = ctx.ui().split, kind = kinds.some(([k]) => k === pick) ? pick : kinds[0][0];
+  const rows = p.splits[kind], top = Math.max(...rows.map(r => r.leads), 1);
+  const best = Math.max(...rows.filter(r => r.name !== 'Not known').map(r => r.per_100 ?? -1));
+  const cols = 'minmax(0,1.2fr) minmax(0,1.6fr) 70px 80px 100px 100px';
+  return html`<div class="card clipped" style="--cols:${cols}">
+    <div class="baseline" style="padding:16px 16px 12px;gap:14px;flex-wrap:wrap"><span class="title">${p.value} by ${p.kinds[kind].toLowerCase()}</span>
+      ${switcher(kinds.map(([k]) => ({ arg: `split=${k}`, label: p.kinds[k], on: kind === k })), 'set')}</div>
+    <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">${p.kinds[kind]}</span><span style="text-align:left">Leads</span><span>Deals</span><span>Win rate</span><span>Typical deal</span><span>Total won</span></div>
+    ${rows.map(r => { const quiet = r.name === 'Not known'; return html`<div class="trow right">
+      <span class="clip ${quiet ? 'muted' : 'medium'}" style="text-align:left" title="${r.name}">${r.name}</span>
+      <div class="row" style="gap:10px"><div class="track" style="flex:1;height:8px;border-radius:4px"><div class="fill" style="width:${r.leads ? Math.max(r.leads / top * 100, 1.5) : 0}%;background:var(--${quiet ? 'ink3' : 'ink'})"></div></div>
+        <span class="${quiet ? 'muted' : 'medium'}" style="width:44px;text-align:right">${f.num(r.leads)}</span></div>
+      <span class="${quiet ? 'muted' : ''}">${f.num(r.deals)}</span>
+      <span class="semi" style="${!quiet && r.per_100 != null && r.per_100 === best && best > 0 ? 'color:var(--pos)' : quiet ? 'color:var(--ink2)' : ''}">${r.per_100 == null ? dash : r.per_100 + '%'}</span>
+      <span class="muted">${r.typical ? f.moneyShort(r.typical) : dash}</span><span class="muted">${r.total_won ? f.moneyShort(r.total_won) : dash}</span></div>`; })}
   </div>`;
 }
 
@@ -74,7 +82,14 @@ function profile(p, ctx) {
   const top = Math.max(...p.flow.map(x => x[series]), 1);
   const tile = (value, label, sub = '') => html`<div class="card kpi" style="padding:14px 16px"><span class="kpi-v md" style="font-size:24px">${value}</span><span class="eyebrow">${label}</span><span class="kpi-d faint">${sub}</span></div>`;
   const back = p.kind === 'industry' ? ['industries', 'All industries'] : ['personas', 'All personas'];
-  const splits = Object.entries(p.splits).filter(([, rows]) => rows.some(r => r.name !== 'Not known'));
+  const SHOW = 8;  // the lists at the bottom show the same number of rows, so they line up
+  const when = m => (m ? `${MONTHS[Number(m.slice(5)) - 1]} ${m.slice(0, 4)}` : '');
+  const lists = [
+    p.titles.length ? ['Job titles', `from ${f.num(p.titled)} leads with a title`, p.titles.slice(0, SHOW).map(x => [x.name, html`<span class="medium">${f.num(x.n)}</span>`])] : null,
+    p.customers.length ? ['Deals we won', p.customer_count > SHOW ? `newest ${SHOW} of ${f.num(p.customer_count)}` : `${f.num(p.customer_count)} in all`,
+      p.customers.slice(0, SHOW).map(x => [x.name, html`<span class="small muted">${when(x.month)}${x.amount ? html` · <span class="ink medium">${f.moneyShort(x.amount)}</span>` : ''}</span>`])] : null,
+    p.named >= 5 ? ['What the deals were for', `from ${f.num(p.named)} deals that say it in their name`, p.bought.slice(0, SHOW).map(x => [x.name, html`<span class="small muted"><span class="ink medium">${f.num(x.deals)}</span> deals · ${f.num(x.won)} won</span>`])] : null,
+  ].filter(Boolean);
   return html`
     <div class="row" style="gap:12px;margin:2px 0 -2px;flex-wrap:wrap"><span class="link" data-act="closeSegment" data-arg="${back[0]}">← ${back[1]}</span>
       <span class="section">${p.value}</span>${p.target ? html`<span class="pill sm">target</span>` : ''}<span class="muted">${p.kind_label}</span></div>
@@ -87,7 +102,7 @@ function profile(p, ctx) {
       ${tile(g.days == null ? '—' : f.num(g.days), 'Days to win', `all deals: ${f.num(all.days || 0)}`)}
       ${tile(f.num(g.open), 'Open now', g.open_value ? `worth ${f.moneyShort(g.open_value)}` : '')}
     </div>
-    <div class="grid start" style="grid-template-columns:minmax(0,1.7fr) minmax(0,1fr)">
+    <div class="grid" style="grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);align-items:stretch">
       <div class="card" style="padding:18px 22px 16px">
         <div class="baseline" style="gap:14px;flex-wrap:wrap"><span class="title">Month by month</span>
           ${switcher([['leads', 'Leads'], ['deals', 'Deals opened'], ['won', 'Deals won']].map(([arg, label]) => ({ arg: `flow=${arg}`, label, on: series === arg })), 'set')}</div>
@@ -105,22 +120,13 @@ function profile(p, ctx) {
         <span class="small muted">${g.open ? `${f.num(g.open)} deals are still open.` : 'No deals are open right now.'}</span>
       </div>
     </div>
-    <div class="grid start" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-      ${splits.map(([k, rows]) => splitCard(p.kinds[k], rows))}
-      ${p.titles.length ? html`<div class="card" style="padding:16px 20px 8px">
-        <div class="baseline" style="margin-bottom:6px"><span class="title">Job titles</span><span class="tiny muted">from ${f.num(p.titled)} leads with a title</span></div>
-        ${p.titles.map((x, i) => html`<div class="baseline" style="padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'};gap:10px"><span class="clip">${x.name}</span><span class="medium">${f.num(x.n)}</span></div>`)}
-      </div>` : ''}
-      ${p.customers.length ? html`<div class="card" style="padding:16px 20px 8px">
-        <div class="baseline" style="margin-bottom:6px"><span class="title">Customers we won</span><span class="tiny muted">${p.customer_count > p.customers.length ? `newest ${p.customers.length} of ${f.num(p.customer_count)}` : `${f.num(p.customer_count)} in all`}</span></div>
-        ${p.customers.map((x, i) => html`<div class="baseline" style="padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'};gap:10px"><span class="clip" title="${x.name}">${x.name}</span>
-          <span class="nowrap small muted">${x.month ? `${MONTHS[Number(x.month.slice(5)) - 1]} ${x.month.slice(0, 4)}` : ''}${x.amount ? html` · <span class="ink medium">${f.moneyShort(x.amount)}</span>` : ''}</span></div>`)}
-      </div>` : ''}
-      ${p.named >= 5 ? html`<div class="card" style="padding:16px 20px 8px">
-        <div class="baseline" style="margin-bottom:6px"><span class="title">What the deals were for</span><span class="tiny muted">from ${f.num(p.named)} deals that say it in their name</span></div>
-        ${p.bought.map((x, i) => html`<div class="baseline" style="padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'};gap:10px"><span>${x.name}</span><span class="small muted"><span class="ink medium">${f.num(x.deals)}</span> deals · ${f.num(x.won)} won</span></div>`)}
-      </div>` : ''}
-    </div>`;
+    ${breakdown(p, ctx)}
+    ${lists.length ? html`<div class="grid" style="grid-template-columns:repeat(${lists.length},minmax(0,1fr));align-items:stretch">
+      ${lists.map(([title, note, rows]) => html`<div class="card" style="padding:16px 20px 8px">
+        <div class="baseline" style="margin-bottom:6px;gap:10px"><span class="title">${title}</span><span class="tiny muted">${note}</span></div>
+        ${rows.map(([name, right], i) => html`<div class="baseline" style="padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'};gap:10px"><span class="clip" title="${name}">${name}</span><span class="nowrap">${right}</span></div>`)}
+      </div>`)}
+    </div>` : ''}`;
 }
 
 export default {
