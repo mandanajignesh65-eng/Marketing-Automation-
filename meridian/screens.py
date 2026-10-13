@@ -105,16 +105,6 @@ def overview(conn, now, p, channel):
     cur_by = metrics.channel_stats(conn, p.cur, thr)
     cur, prev = metrics.total(cur_by, ids), metrics.total(metrics.channel_stats(conn, p.prev, thr), ids)
 
-    lead_kpis = []
-    for rng, label in (("day", "Leads today"), ("week", "This week"), ("month", "This month")):
-        if p.rng == rng:
-            c, v = cur, prev
-        else:
-            pp = Period(now, rng)
-            c = metrics.total(metrics.channel_stats(conn, pp.cur, thr), ids)
-            v = metrics.total(metrics.channel_stats(conn, pp.prev, thr), ids)
-        lead_kpis.append(dict(label=label, **delta(c["leads"], v["leads"])))
-
     first = now.date() - timedelta(days=6) if p.rng == "day" else p.s
     clause, args = metrics.in_clause("channel_id", ids)
     counts = {}
@@ -141,6 +131,15 @@ def overview(conn, now, p, channel):
     out_cur, out_prev = outreach(p.cur), outreach(p.prev)
     visits = health._visits(conn, p.cur[2], p.cur[3])
     by_channel = {cid or "unmapped": s["leads"] for cid, s in cur_by.items() if s["leads"] and (ids is None or cid in ids)}
+    # the same results split by the kind of marketing that brought them
+    kinds = {r["id"]: r["grp"] for r in conn.execute("SELECT id, grp FROM channels")}
+    by_kind = {k: dict(key=k, name=n, leads=0, qualified=0, deals=0, won=0, spend=0)
+               for k, n in (("organic", "Inbound"), ("outbound", "Outbound"), ("paid", "Paid ads"), ("events", "Events"), ("none", "Not known"))}
+    for cid, row in cur_by.items():
+        if ids is None or cid in ids:
+            slot = by_kind.get(kinds.get(cid) or "none", by_kind["none"])
+            for key in ("leads", "qualified", "deals", "won", "spend"):
+                slot[key] += row[key]
     return dict(
         visits=delta(visits, health._visits(conn, p.prev[2], p.prev[3])),
         replies=delta(out_cur["linkedin"]["replied"] + out_cur["email"]["replied"], out_prev["linkedin"]["replied"] + out_prev["email"]["replied"]),
@@ -150,13 +149,13 @@ def overview(conn, now, p, channel):
         period=p.as_json(),
         date_line="{}, {} {} · {}".format(WEEKDAYS_LONG[now.weekday()], now.day, MONTHS_LONG[now.month - 1], range_name),
         day_of="Day {} of {}".format(now.day, days_in_month(now.date())),
-        summary=narrative.overview_summary(conn, now, p, cur, prev, ids is not None),
-        lead_kpis=lead_kpis,
+        leads=delta(cur["leads"], prev["leads"]), won=delta(cur["won"], prev["won"]),
         kpis=dict(qualified=delta(cur["qualified"], prev["qualified"]), spend=delta(cur["spend"], prev["spend"]),
                   cpql=delta(metrics.cost_per(cur["spend"], cur["qualified"]), metrics.cost_per(prev["spend"], prev["qualified"])),
                   pipeline=delta(cur["pipeline"], prev["pipeline"])),
         chart=chart, chart_label="Daily · " + span_label(first, p.e),
         by_channel=by_channel,
+        by_kind=[k for k in by_kind.values() if k["key"] in ("organic", "outbound", "paid") or k["leads"] or k["deals"]],
         funnel=cur, alerts=open_alerts(conn, now, 4),
     )
 
