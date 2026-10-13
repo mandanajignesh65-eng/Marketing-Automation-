@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from . import ads, alerts, backup, config, db, google, meta, money, outbound, rivals, research, semrush, zoho
+from . import ads, alerts, backup, config, db, google, icp, meta, money, outbound, rivals, research, semrush, zoho
 
 CHECK_SECONDS = 60
 RESEARCH_PER_PASS = 100
@@ -104,12 +104,28 @@ def sync_now():
     return True
 
 
+def keep_warm():
+    """Work out the ideal-customer tables ahead of time whenever the data has changed, so the pages open at once."""
+    if config.db_path() == config.SAMPLE_DB:
+        return
+    conn = db.connect()
+    try:
+        icp.warm(conn, db.now(conn))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def loop():
     while True:
         try:
             tick()
         except Exception as err:  # a failed sync must not stop later ones; zoho.sync has already recorded why
             print("Background sync:", err)
+        try:
+            keep_warm()
+        except Exception as err:
+            print("Background sync: ideal customer tables:", err)
         time.sleep(CHECK_SECONDS)
 
 

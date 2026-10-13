@@ -150,20 +150,28 @@ def city(text):
     return CITY.get(first, first.title())
 
 
-_kept = {}  # the labelled leads and deals, kept for a short while so opening one segment after another is quick
-KEEP_SECONDS = 180
+_kept = {}  # the labelled leads and deals, kept in memory until the data changes, so opening a segment costs nothing
+COMPARE = "icp_compare"  # setting: the side-by-side tables as last worked out, with the data version they belong to
 
 
 def forget():
     _kept.clear()
 
 
+def version(conn):
+    """A short mark that changes whenever leads or deals change in a way these pages would show. Takes a few milliseconds."""
+    a = conn.execute("SELECT COUNT(*), COALESCE(MAX(id), 0), COALESCE(SUM(LENGTH(industry)), 0), COALESCE(SUM(LENGTH(title)), 0), "
+                     "COALESCE(SUM(LENGTH(company_size)), 0) FROM leads").fetchone()
+    b = conn.execute("SELECT COUNT(*), COALESCE(SUM(stage = 'won'), 0), COALESCE(SUM(stage = 'lost'), 0), COALESCE(SUM(amount), 0), "
+                     "COALESCE(SUM(LENGTH(industry)), 0), COUNT(lead_id) FROM deals").fetchone()
+    return "-".join(str(x) for x in tuple(a) + tuple(b))
+
+
 def records(conn, now):
     """Every lead and every deal with the labels used for planning: industry, size, department, seniority, channel, city."""
-    import time
     from . import config
-    key = str(config.db_path())
-    if key in _kept and time.time() - _kept[key][0] < KEEP_SECONDS:
+    key, mark = str(config.db_path()), (version(conn), now.strftime("%Y-%m"))
+    if key in _kept and _kept[key][0] == mark:
         return _kept[key][1]
     profile = scoring.profile(conn)
     names = {c["id"]: c["name"] for c in metrics.channels(conn)}
@@ -199,7 +207,7 @@ def records(conn, now):
         deals.append(row)
     y, m = now.year, now.month
     months = ["{:04d}-{:02d}".format((y * 12 + m - 1 - back) // 12, (y * 12 + m - 1 - back) % 12 + 1) for back in range(11, -1, -1)]
-    _kept[key] = (time.time(), (leads, deals, months, set(profile["segments"])))
+    _kept[key] = (mark, (leads, deals, months, set(profile["segments"])))
     return _kept[key][1]
 
 
@@ -230,10 +238,27 @@ def split(leads, deals, months, key, targets=()):
 
 
 def compare(conn, now):
+    """The side-by-side tables. Worked out once per change in the data and stored, so opening the tab is a single small read."""
+    import json
+    from .db import get_setting, set_setting
+    mark = "{}|{}".format(version(conn), now.strftime("%Y-%m"))
+    try:
+        stored = json.loads(get_setting(conn, COMPARE) or "{}")
+    except ValueError:
+        stored = {}
+    if stored.get("mark") == mark:
+        return stored["tables"]
     leads, deals, months, targets = records(conn, now)
-    return dict(industry=split(leads, deals, months, "industry", targets), department=split(leads, deals, months, "department"),
-                seniority=split(leads, deals, months, "seniority"), kinds=KINDS,
-                all=figures(leads, deals, months))
+    tables = dict(industry=split(leads, deals, months, "industry", targets), department=split(leads, deals, months, "department"),
+                  seniority=split(leads, deals, months, "seniority"), kinds=KINDS, all=figures(leads, deals, months))
+    set_setting(conn, COMPARE, json.dumps(dict(mark=mark, tables=tables)))
+    return tables
+
+
+def warm(conn, now):
+    """Do the slow part ahead of time, after a sync or a start, so nobody waits for it on screen."""
+    compare(conn, now)
+    records(conn, now)
 
 
 def profile(conn, now, kind, value):
