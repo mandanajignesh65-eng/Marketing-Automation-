@@ -188,10 +188,16 @@ textarea.input { resize: vertical; line-height: 1.5; }
 .editable { cursor: text; border-radius: 5px; padding: 0 4px; margin: 0 -4px; }
 .editable:hover { background: var(--seg); }
 
-/* the assistant */
-.ask-fab { position: fixed; right: 24px; bottom: 24px; z-index: 70; width: 46px; height: 46px; border-radius: 50%; border: 0; cursor: pointer; display: grid; place-items: center; background: var(--ink); color: var(--bg); box-shadow: var(--pop); transition: transform .15s ease; }
-.ask-fab:hover { transform: scale(1.06); }
-.ask-panel { position: fixed; right: 24px; bottom: 24px; z-index: 70; width: 380px; max-width: calc(100vw - 32px); height: 540px; max-height: calc(100vh - 48px); display: flex; flex-direction: column; background: var(--surface); border-radius: 16px; box-shadow: var(--pop); overflow: hidden; }
+/* the assistant: a tab on the right edge that slides out a panel */
+.ask-tab { position: fixed; right: 0; top: 50%; transform: translateY(-50%); z-index: 70; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 14px 7px 14px 9px; border: 1px solid var(--line); border-right: 0; border-radius: 12px 0 0 12px; background: var(--surface); color: var(--ink); cursor: pointer; box-shadow: var(--pop); transition: padding .18s ease, opacity .18s ease, transform .22s ease; }
+.ask-tab span { writing-mode: vertical-rl; font-size: 12px; font-weight: 600; letter-spacing: .04em; }
+.ask-tab svg { color: var(--accent); }
+.ask-tab:hover { padding-right: 12px; }
+.open .ask-tab { opacity: 0; pointer-events: none; transform: translate(100%, -50%); }
+.ask-panel { position: fixed; right: 12px; top: 12px; bottom: 12px; z-index: 71; width: 400px; max-width: calc(100vw - 24px); display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--pop); overflow: hidden; transform: translateX(calc(100% + 24px)); opacity: 0; transition: transform .26s cubic-bezier(.2, .8, .2, 1), opacity .2s ease; }
+.open .ask-panel { transform: none; opacity: 1; }
+.ask-title { display: flex; align-items: center; gap: 8px; }
+.ask-title svg { color: var(--accent); }
 .ask-head { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 14px; }
 .ask-head > :first-child { flex: 1; }
 .ask-x { font-weight: 400; font-size: 12px; color: var(--ink2); cursor: pointer; }

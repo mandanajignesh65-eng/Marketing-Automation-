@@ -11,6 +11,7 @@ phone numbers on leads are never shown to it.
 
 import json
 import sqlite3
+import time
 import urllib.error
 import urllib.request
 
@@ -108,20 +109,34 @@ def run(conn, sql):
         conn.set_progress_handler(None, 0)
 
 
+FALLBACKS = ("gemini-flash-lite-latest", "gemini-2.5-flash")  # tried when the first model is too busy
+
+
 def call(body):
-    req = urllib.request.Request(URL.format(config.setting("GEMINI_MODEL", MODEL)), data=json.dumps(body).encode(),
-                                 headers={"Content-Type": "application/json", "x-goog-api-key": config.setting("GEMINI_API_KEY")})
-    try:
-        with urllib.request.urlopen(req, timeout=60) as res:
-            return json.load(res)
-    except urllib.error.HTTPError as err:
-        if err.code == 429:
-            raise AssistantError("The free limit for today is used up. Try again in a while.")
-        if err.code in (400, 401, 403):
-            raise AssistantError("The assistant's key was not accepted.")
-        raise AssistantError("The assistant could not answer just now (error {}). Try again.".format(err.code))
-    except (urllib.error.URLError, OSError, ValueError):
-        raise AssistantError("The assistant could not be reached. Try again.")
+    """One request to Gemini. A busy model is tried again, then the next model is tried."""
+    models = list(dict.fromkeys((config.setting("GEMINI_MODEL", MODEL),) + FALLBACKS))
+    last = None
+    for model in models:
+        for attempt in range(2):
+            req = urllib.request.Request(URL.format(model), data=json.dumps(body).encode(),
+                                         headers={"Content-Type": "application/json", "x-goog-api-key": config.setting("GEMINI_API_KEY")})
+            try:
+                with urllib.request.urlopen(req, timeout=60) as res:
+                    return json.load(res)
+            except urllib.error.HTTPError as err:
+                last = err.code
+                if err.code in (401, 403) or (err.code == 400 and "API key" in err.read().decode("utf-8", "ignore")):
+                    raise AssistantError("The assistant's key was not accepted.")
+                if err.code in (500, 502, 503, 504) and attempt == 0:
+                    time.sleep(1.5)
+                    continue
+                break  # busy, over its limit or not available: the next model
+            except (urllib.error.URLError, OSError, ValueError):
+                last = None
+                break
+    if last == 429:
+        raise AssistantError("The free limit for today is used up. Try again in a while.")
+    raise AssistantError("The assistant is busy just now. Try again in a minute.")
 
 
 def ask(question, history=(), today="", path=None):
