@@ -11,9 +11,9 @@ function winList(title, rows) {
   return html`<div class="card" style="padding:18px 20px 10px">
     <div class="title" style="margin-bottom:10px">${title}</div>
     ${rows.map((r, i) => { const color = rows.length > 1 && i === 0 ? GREEN : rows.length > 1 && i === rows.length - 1 ? RED : 'var(--ink)'; return html`
-      <div style="display:grid;grid-template-columns:minmax(0,1fr) 34px;gap:4px 10px;align-items:center;padding:9px 0;border-top:${i ? '1px solid var(--line2)' : 'none'}">
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:4px 10px;align-items:center;padding:9px 0;border-top:${i ? '1px solid var(--line2)' : 'none'}">
         <span class="baseline" style="gap:10px"><span class="medium clip">${r.name}</span><span class="tiny faint nowrap">from ${f.num(r.deals)} deals</span></span>
-        <span class="semi right" style="font-size:16px;color:${color};grid-row:span 2">${r.per_100}</span>
+        <span class="semi right" style="font-size:16px;color:${color};grid-row:span 2">${r.per_100}%</span>
         <div class="track" style="height:8px;border-radius:4px"><div class="fill" style="width:${r.per_100 ? Math.max(r.per_100 / top * 100, 2) : 0}%;background:${color}"></div></div>
       </div>`; })}
     ${rows.length ? '' : html`<div class="small muted" style="padding:6px 0 12px">Not enough finished deals yet.</div>`}
@@ -22,9 +22,9 @@ function winList(title, rows) {
 
 const TABS = [['summary', 'Summary'], ['industries', 'Industries'], ['personas', 'Personas']];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const COLS = [['leads', 'Leads'], ['deals', 'Deals'], ['per_100', 'Won of 100'], ['typical', 'Typical deal'], ['total_won', 'Total won'], ['days', 'Days to win'], ['open', 'Open now']];
+const COLS = [['leads', 'Leads'], ['deals', 'Deals'], ['per_100', 'Win rate'], ['typical', 'Typical deal'], ['total_won', 'Total won'], ['days', 'Days to win'], ['open', 'Open now']];
 const dash = html`<span class="faint">—</span>`;
-const show = { leads: f.num, deals: f.num, per_100: v => v, typical: f.moneyShort, total_won: f.moneyShort, days: f.num, open: f.num };
+const show = { leads: f.num, deals: f.num, per_100: v => v + '%', typical: f.moneyShort, total_won: f.moneyShort, days: f.num, open: f.num };
 const cell = (r, k) => (r[k] == null || (k !== 'leads' && k !== 'deals' && k !== 'open' && !r[k] && k !== 'per_100') ? dash : show[k](r[k]));
 
 // Every group side by side. Click a column to sort by it, click a row to open that group.
@@ -50,11 +50,11 @@ function compareTable(title, rows, kind, ctx) {
 function splitCard(title, rows) {
   const top = Math.max(...rows.map(r => r.leads), 1);
   return html`<div class="card" style="padding:16px 20px 8px">
-    <div class="baseline" style="margin-bottom:6px"><span class="title">${title}</span><span class="tiny muted">leads · won of 100 deals</span></div>
-    ${rows.map((r, i) => html`<div style="display:grid;grid-template-columns:minmax(0,1fr) 46px 40px;gap:3px 10px;align-items:center;padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'}">
+    <div class="baseline" style="margin-bottom:6px"><span class="title">${title}</span><span class="tiny muted">leads · win rate</span></div>
+    ${rows.map((r, i) => html`<div style="display:grid;grid-template-columns:minmax(0,1fr) 46px 46px;gap:3px 10px;align-items:center;padding:8px 0;border-top:${i ? '1px solid var(--line2)' : 'none'}">
       <span class="clip ${r.name === 'Not known' ? 'muted' : 'medium'}" title="${r.name}">${r.name}</span>
       <span class="right" style="grid-row:span 2">${f.num(r.leads)}</span>
-      <span class="right semi" style="grid-row:span 2;color:var(--${r.per_100 == null ? 'ink3' : 'ink'})">${r.per_100 == null ? '—' : r.per_100}</span>
+      <span class="right semi" style="grid-row:span 2;color:var(--${r.per_100 == null ? 'ink3' : 'ink'})">${r.per_100 == null ? '—' : r.per_100 + '%'}</span>
       <div class="track" style="height:6px;border-radius:3px"><div class="fill" style="width:${r.leads ? Math.max(r.leads / top * 100, 2) : 0}%;background:var(--${r.name === 'Not known' ? 'ink3' : 'ink'})"></div></div>
     </div>`)}
   </div>`;
@@ -73,7 +73,7 @@ function profile(p, ctx) {
     <div class="grid" style="grid-template-columns:repeat(7,minmax(0,1fr))">
       ${tile(f.num(g.leads), 'Leads', 'last 12 months')}
       ${tile(f.num(g.deals), 'Deals', `${f.num(g.won)} won · ${f.num(g.lost)} lost`)}
-      ${tile(g.per_100 == null ? '—' : g.per_100, 'Won of 100', `all deals: ${all.per_100}`)}
+      ${tile(g.per_100 == null ? '—' : g.per_100 + '%', 'Win rate', `all deals: ${all.per_100}%`)}
       ${tile(g.typical ? f.moneyShort(g.typical) : '—', 'Typical deal', `all deals: ${f.moneyShort(all.typical || 0)}`)}
       ${tile(g.total_won ? f.moneyShort(g.total_won) : '—', 'Total won', all.total_won ? `${Math.round(g.total_won / all.total_won * 100)}% of everything won` : '')}
       ${tile(g.days == null ? '—' : f.num(g.days), 'Days to win', `all deals: ${f.num(all.days || 0)}`)}
@@ -158,7 +158,7 @@ export default {
       </div>
     </div>
 
-    <div class="row" style="gap:10px;margin:6px 0 -4px;flex-wrap:wrap"><span class="section">Where we win and lose</span><span class="muted">Out of every 100 finished deals, how many we win</span></div>
+    <div class="row" style="gap:10px;margin:6px 0 -4px;flex-wrap:wrap"><span class="section">Where we win and lose</span><span class="muted">Win rate: deals won out of deals finished</span></div>
     <div class="grid start" style="grid-template-columns:repeat(3,minmax(0,1fr))">
       <div class="stack" style="gap:8px">${winList('By industry', d.industry)}
         <div class="tiny muted pretty" style="padding:0 4px">${d.small_industries ? `${f.num(d.small_industries)} other industries have too few deals to judge. ` : ''}${d.no_industry ? `${f.num(d.no_industry)} deals have no industry written down, so they are not in this list.` : ''}</div></div>
