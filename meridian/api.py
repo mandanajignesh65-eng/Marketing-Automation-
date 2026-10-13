@@ -33,6 +33,7 @@ def start_up():
             rivals.seed(conn)  # the known competitors and their pages, the first time
             rivals.seed_social(conn)
             rivals.seed_linkedin(conn)
+            rivals.seed_own(conn)
             conn.commit()
             conn.close()
     scheduler.start()
@@ -350,7 +351,7 @@ def change_competitors(b: RivalChange):
         try:
             if b.what == "sync":
                 done = rivals.sync(conn, now)
-                return {"ok": True, "message": "Read {} pages. {} new signals{}.".format(
+                return {"ok": True, "message": "Read {} pages. {} new updates{}.".format(
                     done["pages"], done["signals"], ", {} could not be read".format(done["failed"]) if done["failed"] else "")}
             if b.what == "competitor":
                 rivals.add_competitor(conn, b.name, b.domain, b.linkedin)
