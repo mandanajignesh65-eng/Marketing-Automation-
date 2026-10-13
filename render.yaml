@@ -43,6 +43,8 @@ services:
         sync: false
       - key: MERIDIAN_MAIL_TEST_TO   # in test mode every email goes only to this address
         sync: false
+      - key: BREVO_API_KEY           # the simple way to send email; from Brevo > SMTP & API
+        sync: false
       - key: MS_TENANT_ID            # the app registered in Microsoft Entra, with the Mail.Send permission
         sync: false
       - key: MS_CLIENT_ID

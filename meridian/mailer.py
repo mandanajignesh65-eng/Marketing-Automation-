@@ -1,4 +1,6 @@
-"""Outgoing email. Messages are queued in the outbox table and sent from a Microsoft 365 mailbox.
+"""Outgoing email. Messages are queued in the outbox table and sent through Brevo or a Microsoft 365 mailbox.
+
+The simple way is Brevo: BREVO_API_KEY and MERIDIAN_MAIL_FROM (an address confirmed in Brevo). The Microsoft way follows.
 
 Sending goes through Microsoft Graph over the web, because the host does not allow ordinary mail ports. It needs an
 app registered in Microsoft Entra with the "Mail.Send" application permission, and these settings:
@@ -39,8 +41,12 @@ def graph_ready():
     return all(config.setting(k) for k in GRAPH)
 
 
+def brevo_ready():
+    return bool(config.setting("BREVO_API_KEY") and config.setting("MERIDIAN_MAIL_FROM"))
+
+
 def ready():
-    return graph_ready() or bool(config.SMTP_HOST)
+    return brevo_ready() or graph_ready() or bool(config.SMTP_HOST)
 
 
 def status():
@@ -53,11 +59,13 @@ def queue(conn, now, kind, to_addr, subject, body):
                  (iso(now), kind, to_addr, subject, body))
 
 
-def post(url, token=None, form=None, body=None):
+def post(url, token=None, form=None, body=None, key=None, who="Microsoft"):
     data = urllib.parse.urlencode(form).encode() if form else json.dumps(body).encode()
-    headers = {"Content-Type": "application/x-www-form-urlencoded" if form else "application/json"}
+    headers = {"Content-Type": "application/x-www-form-urlencoded" if form else "application/json", "Accept": "application/json"}
     if token:
         headers["Authorization"] = "Bearer " + token
+    if key:
+        headers["api-key"] = key
     try:
         with urllib.request.urlopen(urllib.request.Request(url, data=data, headers=headers), timeout=30) as res:
             text = res.read().decode("utf-8", "ignore")
@@ -65,12 +73,12 @@ def post(url, token=None, form=None, body=None):
     except urllib.error.HTTPError as err:
         try:
             detail = json.loads(err.read().decode("utf-8", "ignore"))
-            detail = detail.get("error_description") or (detail.get("error") or {}).get("message") or ""
+            detail = detail.get("error_description") or detail.get("message") or (detail.get("error") or {}).get("message") or ""
         except (ValueError, AttributeError):
             detail = ""
-        raise MailError("Microsoft answered with error {}{}".format(err.code, ": " + detail.splitlines()[0][:200] if detail else ""))
+        raise MailError("{} answered with error {}{}".format(who, err.code, ": " + detail.splitlines()[0][:200] if detail else ""))
     except (urllib.error.URLError, OSError) as err:
-        raise MailError("Microsoft could not be reached ({})".format(getattr(err, "reason", err)))
+        raise MailError("{} could not be reached ({})".format(who, getattr(err, "reason", err)))
 
 
 def graph_sender():
@@ -82,6 +90,15 @@ def graph_sender():
     def send(to, subject, body):
         post(url, token=token, body=dict(saveToSentItems=True, message=dict(
             subject=subject, body=dict(contentType="Text", content=body), toRecipients=[dict(emailAddress=dict(address=a)) for a in to])))
+    return send, lambda: None
+
+
+def brevo_sender():
+    key, sender = config.setting("BREVO_API_KEY"), dict(email=config.setting("MERIDIAN_MAIL_FROM"), name="Meridian")
+
+    def send(to, subject, body):
+        post("https://api.brevo.com/v3/smtp/email", key=key, who="Brevo",
+             body=dict(sender=sender, to=[dict(email=a) for a in to], subject=subject or "Meridian", textContent=body or " "))
     return send, lambda: None
 
 
@@ -108,7 +125,7 @@ def flush(conn, now):
     rows = conn.execute("SELECT * FROM outbox WHERE sent_at IS NULL AND to_addr IS NOT NULL ORDER BY id LIMIT 50").fetchall()
     if not rows:
         return 0
-    send, close = graph_sender() if graph_ready() else smtp_sender()
+    send, close = brevo_sender() if brevo_ready() else graph_sender() if graph_ready() else smtp_sender()
     sent = 0
     try:
         for r in rows:
