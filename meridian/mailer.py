@@ -116,6 +116,21 @@ def smtp_sender():
     return send, smtp.quit
 
 
+def sender():
+    return brevo_sender() if brevo_ready() else graph_sender() if graph_ready() else smtp_sender()
+
+
+def send_now(to, subject, body):
+    """Send one email straight away to the addresses someone typed on the screen. Works whatever the mode: it was asked for by hand."""
+    if not ready():
+        raise MailError("Email is not set up yet")
+    send, close = sender()
+    try:
+        send(to, subject, body)
+    finally:
+        close()
+
+
 def flush(conn, now):
     """Send queued messages. Returns how many were sent; nothing is sent while the mode is off or no mailbox is set up."""
     conn.execute("UPDATE outbox SET sent_at = 'dropped' WHERE sent_at IS NULL AND created_at < ?", (iso(now - timedelta(days=STALE_DAYS)),))
@@ -125,7 +140,7 @@ def flush(conn, now):
     rows = conn.execute("SELECT * FROM outbox WHERE sent_at IS NULL AND to_addr IS NOT NULL ORDER BY id LIMIT 50").fetchall()
     if not rows:
         return 0
-    send, close = brevo_sender() if brevo_ready() else graph_sender() if graph_ready() else smtp_sender()
+    send, close = sender()
     sent = 0
     try:
         for r in rows:

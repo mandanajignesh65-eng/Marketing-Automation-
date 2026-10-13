@@ -769,22 +769,25 @@ def redraft_report():
         return {"ok": True}
 
 
+class TestEmail(BaseModel):
+    to: str
+
+
 @app.post("/api/reports/current/test")
-def send_test_report():
+def send_test_report(b: TestEmail):
+    """Send this week's report now to the addresses typed on the screen."""
+    import re as _re
+    to = list(dict.fromkeys(a.strip().lower() for a in _re.split(r"[,;\s]+", b.to or "") if a.strip()))
+    if not to or len(to) > 10 or not all(_re.match(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", a) for a in to):
+        raise HTTPException(400, "Type one to ten email addresses, separated by commas.")
     with session() as conn:
-        now = db.now(conn)
-        row = narrative.ensure_draft(conn, now)
-        user = conn.execute("SELECT * FROM users WHERE name = ?", (db.get_setting(conn, "current_user"),)).fetchone()
-        to = user["email"] if user else None
-        mailer.queue(conn, now, "report_test", to, "[Test] " + (row["headline"] or "Weekly marketing report"),
-                     (row["body"] or "") + ("\n\nNext week\n" + row["next_steps"] if row["next_steps"] else ""))
+        row = narrative.ensure_draft(conn, db.now(conn))
         try:
-            sent = mailer.flush(conn, now)
+            mailer.send_now(to, "[Test] " + (row["headline"] or "Weekly marketing report"),
+                            (row["body"] or "") + ("\n\nNext week\n" + row["next_steps"] if row["next_steps"] else ""))
         except mailer.MailError as err:
-            return {"ok": False, "message": "Not sent. {}.".format(err)}
-        if sent:
-            return {"ok": True, "message": "Test sent to " + ((mailer.status()["test_to"] if mailer.mode() == "test" else to) or "the outbox")}
-        return {"ok": False, "message": "Saved to the outbox. Email is not set up yet, so nothing was sent."}
+            raise HTTPException(400, "Not sent. {}.".format(err))
+        return {"ok": True, "message": "Test sent to " + ", ".join(to)}
 
 
 @app.post("/api/reports/recipients")

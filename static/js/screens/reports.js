@@ -20,7 +20,7 @@ export default {
     const steps = lines(r.next_steps);
 
     return html`
-    ${pageHead('Weekly leadership report', 'Reports', html`<div class="row" style="gap:8px"><div class="btn" data-act="test">Send test to me</div><div class="btn primary" data-act="edit">Edit summary</div></div>`)}
+    ${pageHead('Weekly leadership report', 'Reports', html`<div class="row" style="gap:8px"><div class="btn" data-act="test">Send a test</div><div class="btn primary" data-act="edit">Edit summary</div></div>`)}
     <div class="grid start" style="grid-template-columns:minmax(0,1fr) 320px">
       <div style="background:var(--surface2);border:1px solid var(--line);border-radius:14px;padding:28px;display:flex;justify-content:center">
         <div class="stack" style="width:100%;max-width:640px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:32px 36px;gap:22px">
@@ -64,6 +64,11 @@ export default {
   },
 
   modal(m, ctx) {
+    if (m.kind === 'test') {
+      return html`<form class="modal" data-submit="sendTest"><span class="section">Send a test</span>
+        <label class="field">Send this report to<input class="input" name="to" required data-autofocus placeholder="name@company.com, another@company.com" value="${m.to || ''}"></label>
+        <div class="row" style="gap:8px;justify-content:flex-end"><button type="button" class="btn" data-act="cancelModal">Cancel</button><button class="btn primary" type="submit">Send</button></div></form>`;
+    }
     if (m.kind === 'recipient') {
       return html`<form class="modal" data-submit="saveRecipient"><span class="section">Add a recipient</span>
         <label class="field">Name or email<input class="input" name="name" required data-autofocus></label>
@@ -89,15 +94,17 @@ export default {
       ctx.app.modal = null;
       await ctx.save(() => ctx.api.post('reports/current/redraft'), 'Summary rewritten from the current figures.');
     },
-    async test(ctx) {
-      try { ctx.toast((await ctx.api.post('reports/current/test')).message); } catch (err) { ctx.toast(err.message); }
-    },
+    test: ctx => ctx.openModal({ kind: 'test', to: ctx.app.data.recipients.map(x => x.email).filter(Boolean).join(', ') }),
   },
 
   submits: {
     async saveSummary(ctx, v) {
       ctx.app.modal = null;
       await ctx.save(() => ctx.api.put('reports/current', v), 'Summary saved.');
+    },
+    async sendTest(ctx, v) {
+      ctx.toast('Sending…');
+      try { const r = await ctx.api.post('reports/current/test', { to: v.to }); ctx.closeModal(); ctx.toast(r.message); } catch (err) { ctx.toast(err.message); }
     },
     async saveRecipient(ctx, v) {
       ctx.app.modal = null;
