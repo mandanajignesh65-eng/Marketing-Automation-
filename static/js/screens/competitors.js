@@ -19,7 +19,7 @@ const TIPS = {
   evidence: 'How sure we can be. Press items carry the publication date. Items from a competitor’s own site carry the day we first saw them. Verified items were checked by hand in the weekly watch.',
   seo: 'From the Semrush competitors export, India database. Shared keywords are searches where both we and they appear in Google.',
   sources: 'The pages Meridian reads for each competitor, twice a day. A link that was not there before becomes a signal. A pricing page is compared as a whole.',
-  notRead: 'These cannot be read by a program without breaking the site’s rules or paying for data. LinkedIn blocks automatic reading of company posts. Google reviews need a paid Google key. The weekly watch covers what it can of these by search.',
+  notRead: 'These cannot be read by a program without breaking the site’s rules or paying for data. Google reviews need a paid Google key. The weekly watch covers what it can of these by search.',
 };
 const day = iso => { const d = new Date(String(iso).slice(0, 10) + 'T00:00:00'); return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); };
 const ago = iso => { if (!iso) return 'never'; const h = (Date.now() - new Date(iso).getTime()) / 36e5; return h < 1 ? 'just now' : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`; };
@@ -102,28 +102,36 @@ export default {
 
     // ------------------------------------------------------------ social
     const social = () => {
-      const so = d.social, posts = so.posts.filter(p => !comp || p.competitor_id === comp.id);
-      const top = Math.max(...so.rows.map(r => r.posts), 1), best = Math.max(...so.rows.map(r => r.views), 0);
-      const cols = 'minmax(0,1fr) minmax(0,1.4fr) 110px 100px 120px', pcols = '74px 130px minmax(0,1fr) 90px 80px';
-      if (!so.rows.length) return html`<div class="card pad small muted">No social pages are being read yet. Add a YouTube channel from the Sources tab.</div>`;
+      const so = d.social, nets = Object.keys(so.networks).filter(n => so.rows.some(r => r.network === n));
+      if (!nets.length) return html`<div class="card pad small muted">No social pages are being read yet. Add a LinkedIn page or a YouTube channel from the Sources tab.</div>`;
+      const net = nets.includes(ui.net) ? ui.net : nets[0], li = net === 'linkedin', word = li ? 'post' : 'video';
+      const rows = so.rows.filter(r => r.network === net), second = li ? 'comments' : 'views';
+      const all = so.posts.filter(p => p.network === net && (!comp || p.competitor_id === comp.id));
+      const posts = ui.top ? all.slice().sort((a, b) => (b.likes || 0) - (a.likes || 0)) : all;
+      const top = Math.max(...rows.map(r => r.posts), 1), best = k => Math.max(...rows.map(r => r[k] || 0), 0);
+      const num = (r, k) => { const v = r[k] || 0, on = v && v === best(k) && rows.length > 1; return html`<span class="right ${on ? 'semi' : ''}" style="${on ? 'color:var(--pos)' : ''}">${k !== 'followers' && !r.posts ? html`<span class="faint">—</span>` : v || k !== 'followers' ? f.num(v) : html`<span class="faint">—</span>`}</span>`; };
+      const cols = `minmax(0,1fr) ${li ? '110px ' : ''}minmax(0,1.4fr) 100px 100px 120px`, pcols = '74px 130px minmax(0,1fr) 80px 90px';
       return html`
+      ${nets.length > 1 ? html`<div class="row">${switcher(nets.map(n => ({ arg: `net=${n}`, label: so.networks[n], on: n === net })), 'set')}</div>` : ''}
       <div class="card clipped" style="--cols:${cols}">
-        <div class="baseline" style="padding:16px 16px 12px"><span class="title">YouTube</span><span class="small muted">last ${d.days} days</span></div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span>Competitor</span><span>Videos posted</span><span class="right">Views</span><span class="right">Likes</span><span class="right">Last video</span></div>
-        ${so.rows.map(r => html`<div class="trow"><a class="medium" href="${r.url}" target="_blank" rel="noopener" style="color:var(--ink);text-decoration:none">${r.name}</a>
+        <div class="baseline" style="padding:16px 16px 12px"><span class="title">${so.networks[net]}</span><span class="small muted">last ${d.days} days</span></div>
+        <div class="thead" style="border-top:1px solid var(--line)"><span>Competitor</span>${li ? html`<span class="right">Followers</span>` : ''}<span>${li ? 'Posts' : 'Videos posted'}</span>
+          <span class="right">${li ? 'Likes' : 'Views'}</span><span class="right">${li ? 'Comments' : 'Likes'}</span><span class="right">Last ${word}</span></div>
+        ${rows.map(r => html`<div class="trow"><a class="medium" href="${r.url}" target="_blank" rel="noopener" style="color:var(--ink);text-decoration:none">${r.name}</a>
+          ${li ? num(r, 'followers') : ''}
           <span class="row" style="gap:10px"><span style="flex:1;height:8px;border-radius:4px;background:var(--track);overflow:hidden"><span style="display:block;height:100%;width:${r.posts / top * 100}%;background:var(--ink);border-radius:4px"></span></span><span class="medium" style="width:24px;text-align:right">${f.num(r.posts)}</span></span>
-          <span class="right ${r.views && r.views === best ? 'semi' : ''}" style="${r.views && r.views === best ? 'color:var(--pos)' : ''}">${r.posts ? f.num(r.views) : html`<span class="faint">—</span>`}</span>
-          <span class="right">${r.posts ? f.num(r.likes) : html`<span class="faint">—</span>`}</span>
-          <span class="right muted">${r.note ? html`<span style="color:var(--warn)">Not read</span>` : r.last ? day(r.last) : '—'}</span></div>`)}
+          ${num(r, li ? 'likes' : 'views')}${num(r, li ? 'comments' : 'likes')}
+          <span class="right muted">${r.note ? html`<span style="color:var(--warn)" title="${r.note}">Not read</span>` : r.last ? day(r.last) : '—'}</span></div>`)}
       </div>
       <div class="card clipped" style="--cols:${pcols}">
-        <div class="baseline" style="padding:16px 16px 12px;gap:14px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">Videos</span><span class="small muted">${f.num(posts.length)} in the last ${d.days} days</span></span>
-          ${switcher([{ arg: 'comp=', label: 'All competitors', on: !comp }, ...d.competitors.filter(c => so.rows.some(r => r.competitor_id === c.id)).map(c => ({ arg: `comp=${c.id}`, label: c.name, on: comp && comp.id === c.id }))], 'set')}</div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span>Date</span><span>Competitor</span><span>Video</span><span class="right">Views</span><span class="right">Likes</span></div>
+        <div class="baseline" style="padding:16px 16px 12px;gap:14px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">${li ? 'Posts' : 'Videos'}</span><span class="small muted">${f.num(posts.length)} in the last ${d.days} days</span></span>
+          <div class="row" style="gap:10px;flex-wrap:wrap">${switcher([{ arg: 'top=', label: 'Newest', on: !ui.top }, { arg: 'top=1', label: 'Most liked', on: !!ui.top }], 'set')}
+          ${switcher([{ arg: 'comp=', label: 'All competitors', on: !comp }, ...d.competitors.filter(c => rows.some(r => r.competitor_id === c.id)).map(c => ({ arg: `comp=${c.id}`, label: c.name, on: comp && comp.id === c.id }))], 'set')}</div></div>
+        <div class="thead" style="border-top:1px solid var(--line)"><span>Date</span><span>Competitor</span><span>${li ? 'Post' : 'Video'}</span><span class="right">${li ? 'Likes' : 'Views'}</span><span class="right">${li ? 'Comments' : 'Likes'}</span></div>
         ${posts.slice(0, 60).map(p => html`<div class="trow"><span class="muted nowrap">${day(p.posted_at)}</span><span class="medium">${name(p.competitor_id)}</span>
-          <span class="row" style="gap:8px;min-width:0"><a href="${p.url}" target="_blank" rel="noopener" class="medium clip" style="color:var(--ink);text-decoration:none" title="${p.title}">${p.title}</a>${p.kind === 'Short' ? html`<span class="pill sm" style="flex:none">Short</span>` : ''}</span>
-          <span class="right">${f.num(p.views || 0)}</span><span class="right">${f.num(p.likes || 0)}</span></div>`)}
-        ${posts.length ? '' : html`<div class="small muted" style="padding:16px">No videos posted in this period.</div>`}
+          <span class="row" style="gap:8px;min-width:0"><a href="${p.url}" target="_blank" rel="noopener" class="medium clip" style="color:var(--ink);text-decoration:none" title="${p.title}">${p.title}</a>${p.kind && !['Video', 'Text'].includes(p.kind) || (li && p.kind === 'Video') ? html`<span class="pill sm" style="flex:none">${p.kind}</span>` : ''}</span>
+          <span class="right">${f.num((li ? p.likes : p.views) || 0)}</span><span class="right">${f.num((li ? p.comments : p.likes) || 0)}</span></div>`)}
+        ${posts.length ? '' : html`<div class="small muted" style="padding:16px">Nothing posted in this period.</div>`}
       </div>`;
     };
 
@@ -176,13 +184,13 @@ export default {
           <span class="muted">${ago(s.checked_at)}</span><span class="small" style="color:var(--${s.note ? 'warn' : 'ink2'})">${s.note ? 'Not read: ' + s.note : s.kind === 'pricing' ? 'Watching for changes' : s.baseline_at ? 'Watching for new links' : 'Waiting for the first read'}</span>
           <span class="right">${lead ? html`<span class="tiny faint" data-act="removeSource" data-arg="${s.id}" style="cursor:pointer" title="Stop reading this page">Remove</span>` : ''}</span></div>`)}
         ${d.social.accounts.filter(a => a.competitor_id === c.id).map(a => html`<div class="trow"><span class="medium">${d.social.networks[a.network] || a.network}</span><a class="link clip" href="${a.url}" target="_blank" rel="noopener" style="text-decoration:none" title="${a.url}">${a.url.replace(/^https?:\/\/(www\.)?/, '')}</a>
-          <span class="muted">${ago(a.checked_at)}</span><span class="small" style="color:var(--${a.note ? 'warn' : 'ink2'})">${a.note ? 'Not read: ' + a.note : a.checked_at ? 'Reading new videos' : 'Waiting for the first read'}</span>
+          <span class="muted">${ago(a.checked_at)}</span><span class="small" style="color:var(--${a.note ? 'warn' : 'ink2'})">${a.note ? 'Not read: ' + a.note : a.checked_at ? (a.network === 'linkedin' ? 'Reading new posts, once a day' : 'Reading new videos') : 'Waiting for the first read'}</span>
           <span class="right">${lead ? html`<span class="tiny faint" data-act="removeAccount" data-arg="${a.id}" style="cursor:pointer" title="Stop reading this page">Remove</span>` : ''}</span></div>`)}
       </div>`)}
       <div class="card pad stack" style="gap:8px">
         <div class="row" style="gap:8px"><span class="title">Not read automatically</span>${info(TIPS.notRead)}</div>
         <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:18px">
-          ${[['LinkedIn posts', 'LinkedIn blocks programs from reading company posts. Open each page from the Compare tab, or add the weekly watch findings.'],
+          ${[['Instagram, Facebook and X', 'These show nothing without signing in. Instagram can be added once the Meta account is connected.'],
             ['Google reviews', 'Needs a Google Places key, which is billed by Google. Can be added if you want it.'],
             ['Website traffic', 'Only what the Semrush export gives. Add a fresh competitors export on the Website page to update it.']]
             .map(([t, x]) => html`<div class="stack" style="gap:3px"><span class="medium">${t}</span><span class="small muted pretty">${x}</span></div>`)}
@@ -212,7 +220,7 @@ export default {
         <label class="field">What the page is<select class="input" name="kind">${Object.entries(d.kinds).map(([k, label]) => html`<option value="${k}">${label}</option>`)}</select></label>
       </div>
       <label class="field">Full address of the page<input class="input" name="url" type="url" required data-autofocus placeholder="https://…"></label>
-      <span class="small muted">The first read records what is already on the page. After that, anything new becomes a signal. For a YouTube channel, paste the channel’s address.</span>
+      <span class="small muted">The first read records what is already on the page. After that, anything new becomes a signal. For a LinkedIn page or a YouTube channel, paste its address.</span>
       <div class="row" style="gap:8px;justify-content:flex-end"><button type="button" class="btn" data-act="cancelModal">Cancel</button><button class="btn primary" type="submit">Add</button></div></form>`;
   },
 

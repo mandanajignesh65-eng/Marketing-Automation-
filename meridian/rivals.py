@@ -29,7 +29,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from email.utils import parsedate_to_datetime
 
-from . import db
+from . import config, db
 from .periods import iso
 
 EVERY_HOURS = 12
@@ -91,7 +91,7 @@ SEED = [
     dict(name="Yellow.ai", youtube="https://www.youtube.com/@yellowdotai", domain="yellow.ai", linkedin="https://www.linkedin.com/company/yellowdotai", sources=[
         ("product", "https://docs.yellow.ai/whats-new"), ("blog", "https://yellow.ai/blog/"), ("news", "https://yellow.ai/newsroom/"),
         ("pricing", "https://yellow.ai/pricing/")]),
-    dict(name="Kore.ai", youtube="https://www.youtube.com/@koreai", domain="kore.ai", linkedin="https://www.linkedin.com/company/koredotai", sources=[
+    dict(name="Kore.ai", youtube="https://www.youtube.com/@koreai", domain="kore.ai", linkedin="https://www.linkedin.com/company/kore-inc", sources=[
         ("news", "https://www.kore.ai/news"), ("customers", "https://www.kore.ai/customer-stories"), ("events", "https://www.kore.ai/webinar"),
         ("careers", "https://www.kore.ai/careers")]),
     dict(name="Gupshup", domain="gupshup.ai", linkedin="https://www.linkedin.com/company/gupshup", context=True, sources=[
@@ -127,6 +127,16 @@ def seed_social(conn):
         if row and c.get("youtube"):
             conn.execute("INSERT OR IGNORE INTO competitor_accounts (competitor_id, network, url) VALUES (?,?,?)", (row["id"], "youtube", c["youtube"]))
     db.set_setting(conn, "competitor_social_seeded", "1")
+
+
+def seed_linkedin(conn):
+    """Start reading the LinkedIn page already written on each competitor, once."""
+    if db.is_demo(conn) or db.get_setting(conn, "competitor_linkedin_seeded"):
+        return
+    conn.execute("UPDATE competitors SET linkedin = 'https://www.linkedin.com/company/kore-inc' WHERE linkedin LIKE '%/company/koredotai%'")  # their page's real address
+    for c in conn.execute("SELECT id, linkedin FROM competitors WHERE active = 1 AND linkedin LIKE '%linkedin.com/company/%'").fetchall():
+        conn.execute("INSERT OR IGNORE INTO competitor_accounts (competitor_id, network, url) VALUES (?,?,?)", (c["id"], "linkedin", c["linkedin"].rstrip("/")))
+    db.set_setting(conn, "competitor_linkedin_seeded", "1")
 
 
 def classify(title, fallback="news"):
@@ -251,7 +261,9 @@ def read_page(conn, now, comp, src):
 
 # ------------------------------------------------------------------------------- social pages
 
-NETWORKS = {"youtube": "YouTube"}
+NETWORKS = {"linkedin": "LinkedIn", "youtube": "YouTube"}
+APIFY_RUN = "https://api.apify.com/v2/acts/harvestapi~linkedin-company-posts/run-sync-get-dataset-items"
+LINKEDIN_HOURS = 20  # LinkedIn is read once a day: every post read is paid for
 YT_FEED = "https://www.youtube.com/feeds/videos.xml?channel_id={}"
 ATOM = {"a": "http://www.w3.org/2005/Atom", "m": "http://search.yahoo.com/mrss/"}
 
@@ -280,12 +292,83 @@ def read_youtube(conn, now, acc):
     return added
 
 
+def slug(url):
+    found = re.search(r"linkedin\.com/company/([^/?#]+)", url or "", re.I)
+    return found.group(1).lower() if found else None
+
+
+def post_kind(p):
+    return next((label for key, label in (("postVideo", "Video"), ("document", "Document"), ("article", "Article"), ("poll", "Poll"), ("repost", "Repost")) if p.get(key)),
+                "Image" if p.get("postImages") else "Text")
+
+
+def linkedin_posts(token, urls, first):
+    body = dict(targetUrls=urls, maxPosts=30 if first else 10, postedLimit="month" if first else "week")
+    req = urllib.request.Request(APIFY_RUN, data=json.dumps(body).encode(), headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=280) as res:
+            items = json.load(res)
+    except urllib.error.HTTPError as err:
+        raise RivalError("Apify answered with error {}{}".format(err.code, ": the key was not accepted" if err.code == 401 else ""))
+    except (urllib.error.URLError, OSError, ValueError) as err:
+        raise RivalError("Apify could not be reached ({})".format(getattr(err, "reason", err)))
+    return [p for p in items if isinstance(p, dict)] if isinstance(items, list) else []
+
+
+def read_linkedin(conn, now, force=False):
+    """Every competitor's LinkedIn page in one paid read through Apify: the week's posts with their likes and comments.
+
+    A page read for the first time goes back a month. Posts already held get their numbers refreshed.
+    """
+    accounts = conn.execute("SELECT a.* FROM competitor_accounts a JOIN competitors c ON c.id = a.competitor_id WHERE c.active = 1 AND a.network = 'linkedin'").fetchall()
+    fresh = iso(now - timedelta(hours=LINKEDIN_HOURS))
+    if not accounts or (not force and all(a["checked_at"] and a["checked_at"] > fresh for a in accounts)):
+        return dict(posts=0, failed=0)
+    token = config.setting("APIFY_TOKEN")
+    try:
+        if not token:
+            raise RivalError("the Apify key has not been added")
+        added, got = 0, set()
+        for first in (True, False):  # new pages need a longer look back than the daily read
+            batch = [a for a in accounts if (not a["checked_at"] or not conn.execute(
+                "SELECT 1 FROM competitor_posts WHERE competitor_id = ? AND network = 'linkedin' LIMIT 1", (a["competitor_id"],)).fetchone()) == first]
+            if not batch:
+                continue
+            by = {slug(a["url"]): a for a in batch}
+            items = linkedin_posts(token, [a["url"] for a in batch], first)
+            for missed in set(by) - {slug((p.get("query") or {}).get("targetUrl")) for p in items}:  # a page sometimes drops out of a shared read
+                items += linkedin_posts(token, [by[missed]["url"]], first)
+            for p in items:
+                acc = by.get(slug((p.get("query") or {}).get("targetUrl")))
+                url, text, when = p.get("linkedinUrl"), (p.get("content") or "").strip(), (p.get("postedAt") or {}).get("date")
+                if not acc or not url or not when:
+                    continue
+                got.add(acc["id"])
+                eng, author = p.get("engagement") or {}, p.get("author") or {}
+                title = re.sub(r"\s+", " ", text)[:300] or "({})".format(post_kind(p))
+                added += conn.execute(
+                    "INSERT OR IGNORE INTO competitor_posts (competitor_id, network, url, title, kind, posted_at, first_seen) VALUES (?,?,?,?,?,?,?)",
+                    (acc["competitor_id"], "linkedin", url, title, post_kind(p), when[:19], iso(now))).rowcount
+                conn.execute("UPDATE competitor_posts SET likes = ?, comments = ? WHERE competitor_id = ? AND url = ?",
+                             (eng.get("likes"), eng.get("comments"), acc["competitor_id"], url))
+                followers = re.match(r"([\d,]+) followers", author.get("info") or "")
+                if followers and (author.get("universalName") or "").lower() == slug(acc["url"]):
+                    conn.execute("UPDATE competitor_accounts SET followers = ? WHERE id = ?", (int(followers.group(1).replace(",", "")), acc["id"]))
+        conn.execute("UPDATE competitor_accounts SET checked_at = ?, note = NULL WHERE network = 'linkedin'", (iso(now),))
+        conn.commit()
+        return dict(posts=added, failed=0)
+    except RivalError as err:
+        conn.execute("UPDATE competitor_accounts SET checked_at = ?, note = ? WHERE network = 'linkedin'", (iso(now), str(err)[:200]))
+        conn.commit()
+        return dict(posts=0, failed=len(accounts))
+
+
 READERS = {"youtube": read_youtube}
 
 
-def read_social(conn, now):
-    done = dict(posts=0, failed=0)
-    for acc in conn.execute("SELECT a.* FROM competitor_accounts a JOIN competitors c ON c.id = a.competitor_id WHERE c.active = 1 ORDER BY a.id").fetchall():
+def read_social(conn, now, force=False):
+    done = read_linkedin(conn, now, force)
+    for acc in conn.execute("SELECT a.* FROM competitor_accounts a JOIN competitors c ON c.id = a.competitor_id WHERE c.active = 1 AND a.network <> 'linkedin' ORDER BY a.id").fetchall():
         try:
             done["posts"] += READERS[acc["network"]](conn, now, acc)
             conn.execute("UPDATE competitor_accounts SET checked_at = ?, note = NULL WHERE id = ?", (iso(now), acc["id"]))
@@ -298,7 +381,7 @@ def read_social(conn, now):
 
 def social(conn, comps, since):
     """Per competitor and network: the page, how much was posted in the period, and the posts themselves."""
-    accounts = [dict(r) for r in conn.execute("SELECT id, competitor_id, network, url, checked_at, note FROM competitor_accounts ORDER BY id")]
+    accounts = [dict(r) for r in conn.execute("SELECT id, competitor_id, network, url, checked_at, note, followers FROM competitor_accounts ORDER BY id")]
     posts = [dict(r) for r in conn.execute(
         "SELECT p.* FROM competitor_posts p JOIN competitors c ON c.id = p.competitor_id WHERE c.active = 1 AND p.posted_at >= ? ORDER BY p.posted_at DESC LIMIT 400", (since,))]
     last = {(r["competitor_id"], r["network"]): r["at"] for r in conn.execute("SELECT competitor_id, network, MAX(posted_at) AS at FROM competitor_posts GROUP BY 1, 2")}
@@ -307,14 +390,18 @@ def social(conn, comps, since):
         for a in (a for a in accounts if a["competitor_id"] == c["id"]):
             mine = [p for p in posts if p["competitor_id"] == c["id"] and p["network"] == a["network"]]
             rows.append(dict(competitor_id=c["id"], name=c["name"], network=a["network"], url=a["url"], posts=len(mine),
-                             views=sum(p["views"] or 0 for p in mine), likes=sum(p["likes"] or 0 for p in mine), last=last.get((c["id"], a["network"])), note=a["note"]))
+                             views=sum(p["views"] or 0 for p in mine), likes=sum(p["likes"] or 0 for p in mine),
+                             comments=sum(p["comments"] or 0 for p in mine), followers=a["followers"], last=last.get((c["id"], a["network"])), note=a["note"]))
     return dict(networks=NETWORKS, accounts=accounts, rows=rows, posts=posts)
 
 
 def add_account(conn, competitor_id, url):
-    network = "youtube" if re.match(r"^https?://(www\.)?youtube\.com/(@|channel/)[\w.-]+", url) else None
+    network = "youtube" if re.match(r"^https?://(www\.)?youtube\.com/(@|channel/)[\w.-]+", url) else "linkedin" if slug(url) else None
     if not network:
-        raise RivalError("Give the address of the YouTube channel, like https://www.youtube.com/@name.")
+        raise RivalError("Give the address of the YouTube channel or the LinkedIn company page, like https://www.linkedin.com/company/name.")
+    if network == "linkedin":
+        url = "https://www.linkedin.com/company/" + slug(url)
+        conn.execute("UPDATE competitors SET linkedin = ? WHERE id = ?", (url, competitor_id))
     if not conn.execute("SELECT 1 FROM competitors WHERE id = ? AND active = 1", (competitor_id,)).fetchone():
         raise RivalError("Choose which competitor the page belongs to.")
     conn.execute("INSERT INTO competitor_accounts (competitor_id, network, url) VALUES (?,?,?) "
@@ -448,14 +535,16 @@ def add_competitor(conn, name, domain, linkedin=None):
         raise RivalError("{} is already on the list.".format(name))
     conn.execute("INSERT INTO competitors (name, domain, linkedin, sort) VALUES (?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM competitors))",
                  (name, domain, (linkedin or "").strip() or None))
+    if slug(linkedin):
+        add_account(conn, conn.execute("SELECT MAX(id) FROM competitors").fetchone()[0], linkedin.strip())
 
 
 def add_source(conn, competitor_id, kind, url):
     url = (url or "").strip()
-    if "youtube.com" in url.lower():
+    if "youtube.com" in url.lower() or "linkedin.com" in url.lower():
         return add_account(conn, competitor_id, url)
-    if kind not in KINDS or not re.match(r"^https?://[^\s]+\.[^\s]+$", url) or "linkedin.com" in url.lower():
-        raise RivalError("Choose what kind of page it is and give its full address. LinkedIn pages cannot be read automatically.")
+    if kind not in KINDS or not re.match(r"^https?://[^\s]+\.[^\s]+$", url):
+        raise RivalError("Choose what kind of page it is and give its full address.")
     if not conn.execute("SELECT 1 FROM competitors WHERE id = ? AND active = 1", (competitor_id,)).fetchone():
         raise RivalError("Choose which competitor the page belongs to.")
     conn.execute("INSERT INTO competitor_sources (competitor_id, kind, url) VALUES (?,?,?)", (competitor_id, kind, url))
@@ -478,6 +567,7 @@ def main(argv):
     conn = zoho.live_database()
     seed(conn)
     seed_social(conn)
+    seed_linkedin(conn)
     conn.commit()
     if command == "sync":
         done = sync(conn, datetime.now().replace(microsecond=0))

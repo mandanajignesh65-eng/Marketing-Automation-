@@ -32,6 +32,7 @@ def start_up():
             db.upgrade(conn)
             rivals.seed(conn)  # the known competitors and their pages, the first time
             rivals.seed_social(conn)
+            rivals.seed_linkedin(conn)
             conn.commit()
             conn.close()
     scheduler.start()

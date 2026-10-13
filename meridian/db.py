@@ -316,6 +316,7 @@ ADDED_COLUMNS = [("deals", "industry", "TEXT"), ("deals", "company_size", "TEXT"
                  # the tool's own id for a campaign, and its lifetime counts at the last sync (sent, opened, replied, meetings)
                  ("outbound_campaigns", "ext_id", "TEXT"), ("outbound_campaigns", "lifetime", "TEXT"),
                  ("ad_campaigns", "ext_id", "TEXT"), ("ad_creatives", "ext_id", "TEXT"),
+                 ("competitor_posts", "comments", "INTEGER"), ("competitor_accounts", "followers", "INTEGER"),
                  ("subscriptions", "email", "TEXT")]  # who to email when the renewal is near
 
 
