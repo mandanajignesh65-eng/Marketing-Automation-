@@ -10,7 +10,7 @@ const day = iso => { const d = new Date(String(iso).slice(0, 10) + 'T00:00:00');
 const ago = iso => { if (!iso) return 'never'; const h = (Date.now() - new Date(iso).getTime()) / 36e5; return h < 1 ? 'just now' : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`; };
 const host = url => { try { return new URL(url).hostname.replace('www.', ''); } catch (e) { return url; } };
 const none = html`<span class="faint">—</span>`;
-const bar = (n, top) => html`<span class="row" style="gap:10px"><span style="flex:1;height:8px;border-radius:4px;background:var(--track);overflow:hidden"><span style="display:block;height:100%;width:${n / top * 100}%;background:var(--ink);border-radius:4px"></span></span><span class="medium" style="width:26px;text-align:right">${f.num(n)}</span></span>`;
+const count = n => html`<span class="right medium">${f.num(n)}</span>`;
 
 export default {
   uses: {},
@@ -34,14 +34,14 @@ export default {
       const leads = d.signals.filter(s => s.verification === 'lead' && (!comp || s.competitor_id === comp.id));
       const list = ui.leads ? leads : real.filter(s => (!comp || s.competitor_id === comp.id) && (!cat || s.category === cat));
       const n = (c, ...keys) => { const v = keys.reduce((a, k) => a + (c.counts[k] || 0), 0); return html`<span class="right">${v ? f.num(v) : none}</span>`; };
-      const cols = 'minmax(0,0.9fr) minmax(0,1.3fr) 80px 110px 90px 80px minmax(0,2fr)', lcols = '74px 120px 150px minmax(0,1fr) 150px 28px';
+      const cols = 'minmax(0,0.9fr) 80px 80px 110px 90px 80px minmax(0,2.4fr)', lcols = '74px 120px 150px minmax(0,1fr) 150px 28px';
       return html`
       <div class="card clipped" style="--cols:${cols}">
         <div class="baseline" style="padding:16px 16px 12px"><span class="title">What each competitor did</span><span class="small muted">last ${d.days} days</span></div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span>Competitor</span><span>Updates</span><span class="right">Product</span><span class="right">Customers</span><span class="right">Funding</span><span class="right">People</span><span>Latest</span></div>
+        <div class="thead" style="border-top:1px solid var(--line)"><span>Competitor</span><span class="right">Updates</span><span class="right">Product</span><span class="right">Customers</span><span class="right">Funding</span><span class="right">People</span><span style="padding-left:14px">Latest</span></div>
         ${d.competitors.map(c => { const l = latest(c), on = comp && comp.id === c.id; return html`<div class="trow" data-act="set" data-arg="comp=${on ? '' : c.id}" style="cursor:pointer;${on ? 'background:var(--surface2)' : ''}">
-          <span class="medium">${c.name}</span>${bar(c.total, top)}${n(c, 'product')}${n(c, 'customers', 'partnership')}${n(c, 'funding')}${n(c, 'hiring')}
-          <span class="row" style="gap:8px;min-width:0">${l ? html`<span class="muted nowrap">${day(l.at)}</span><span class="clip" title="${l.title}">${l.title}</span>` : html`<span class="faint">Nothing in this period</span>`}</span></div>`; })}
+          <span class="medium">${c.name}</span>${count(c.total)}${n(c, 'product')}${n(c, 'customers', 'partnership')}${n(c, 'funding')}${n(c, 'hiring')}
+          <span class="row" style="gap:8px;min-width:0;padding-left:14px">${l ? html`<span class="muted nowrap">${day(l.at)}</span><span class="clip" title="${l.title}">${l.title}</span>` : html`<span class="faint">Nothing in this period</span>`}</span></div>`; })}
       </div>
       <div class="card clipped" style="--cols:${lcols}">
         <div class="baseline" style="padding:16px 16px 10px;gap:14px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">${comp ? comp.name : 'All updates'}</span><span class="small muted">${f.num(list.length)}</span></span>${who()}</div>
@@ -70,15 +70,15 @@ export default {
       const posts = ui.top ? all.slice().sort((a, b) => (b.likes || 0) - (a.likes || 0)) : all;
       const top = Math.max(...rows.map(r => r.posts), 1), best = k => Math.max(...rows.map(r => r[k] || 0), 0);
       const num = (r, k) => { const v = r[k] || 0, on = v && v === best(k) && rows.length > 1; return html`<span class="right ${on ? 'semi' : ''}" style="${on ? 'color:var(--pos)' : ''}">${v && (r.posts || k === 'followers') ? f.num(v) : none}</span>`; };
-      const cols = `minmax(0,1fr) ${li ? '110px ' : ''}minmax(0,1.4fr) 100px 100px 120px`, pcols = '74px 130px minmax(0,1fr) 80px 90px';
+      const cols = `minmax(0,1.6fr) ${li ? '120px ' : ''}100px 100px 110px 120px`, pcols = '74px 130px minmax(0,1fr) 80px 90px';
       return html`
       ${nets.length > 1 ? html`<div class="row">${switcher(nets.map(n => ({ arg: `net=${n}`, label: so.networks[n], on: n === net })), 'set')}</div>` : ''}
       <div class="card clipped" style="--cols:${cols}">
         <div class="baseline" style="padding:16px 16px 12px"><span class="title">${so.networks[net]}</span><span class="small muted">last ${d.days} days</span></div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span>Page</span>${li ? html`<span class="right">Followers</span>` : ''}<span>${li ? 'Posts' : 'Videos'}</span>
+        <div class="thead" style="border-top:1px solid var(--line)"><span>Page</span>${li ? html`<span class="right">Followers</span>` : ''}<span class="right">${li ? 'Posts' : 'Videos'}</span>
           <span class="right">${li ? 'Likes' : 'Views'}</span><span class="right">${li ? 'Comments' : 'Likes'}</span><span class="right">Last ${word}</span></div>
         ${rows.map(r => html`<div class="trow" style="${r.own ? 'background:var(--surface2)' : ''}"><span class="row" style="gap:8px;min-width:0"><a class="medium clip" href="${r.url}" target="_blank" rel="noopener" style="color:var(--ink);text-decoration:none">${r.name}</a>${r.own ? html`<span class="pill sm" style="flex:none">Us</span>` : ''}</span>
-          ${li ? num(r, 'followers') : ''}${bar(r.posts, top)}${num(r, li ? 'likes' : 'views')}${num(r, li ? 'comments' : 'likes')}
+          ${li ? num(r, 'followers') : ''}${count(r.posts)}${num(r, li ? 'likes' : 'views')}${num(r, li ? 'comments' : 'likes')}
           <span class="right muted">${r.note ? html`<span style="color:var(--warn)" title="${r.note}">Not read</span>` : r.last ? day(r.last) : '—'}</span></div>`)}
       </div>
       <div class="card clipped" style="--cols:${pcols}">

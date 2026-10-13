@@ -53,8 +53,8 @@ export default {
     // The daily chart shows every channel stacked, or just the one picked with the buttons above it.
     const present = Object.keys(d.by_channel).filter(id => id !== 'unmapped').map(id => ctx.channel(id)).sort((a, b) => d.by_channel[b.id] - d.by_channel[a.id]);
     const only = present.some(c => c.id === ctx.ui().only) ? ctx.ui().only : null;
-    const top = Math.max(...d.by_kind.map(r => r.leads), 1), TO = { organic: 'web', outbound: 'outbound', paid: 'paid' };
-    const cols = '84px minmax(60px,1fr) 72px 56px 56px 72px';
+    const TO = { organic: 'web', outbound: 'outbound', paid: 'paid' };
+    const cols = 'minmax(0,1fr) 72px 80px 64px 64px 80px';
     const n = v => (v ? f.num(v) : html`<span class="faint">—</span>`);
     return html`
     <div class="page-head"><div class="stack" style="gap:6px"><div class="eyebrow">${d.date_line}</div><h1 class="h1">Overview</h1></div></div>
@@ -85,9 +85,9 @@ export default {
     <div class="grid start" style="grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)">
       <div class="card clipped" style="--cols:${cols}">
         <div class="baseline" style="padding:16px 16px 12px"><span class="title">Where the results came from</span></div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span></span><span>Leads</span><span class="right">Qualified</span><span class="right">Deals</span><span class="right">Won</span><span class="right">Spend</span></div>
+        <div class="thead" style="border-top:1px solid var(--line)"><span></span><span class="right">Leads</span><span class="right">Qualified</span><span class="right">Deals</span><span class="right">Won</span><span class="right">Spend</span></div>
         ${d.by_kind.map(r => html`<a class="trow" ${TO[r.key] ? html`href="#/${TO[r.key]}"` : ''} style="color:inherit;text-decoration:none"><span class="medium">${r.name}</span>
-          <span class="row" style="gap:10px"><span style="flex:1;height:8px;border-radius:4px;background:var(--track);overflow:hidden"><span style="display:block;height:100%;width:${r.leads / top * 100}%;background:var(--ink);border-radius:4px"></span></span><span class="medium" style="width:30px;text-align:right">${f.num(r.leads)}</span></span>
+          <span class="right medium">${f.num(r.leads)}</span>
           <span class="right">${n(r.qualified)}</span><span class="right">${n(r.deals)}</span><span class="right">${n(r.won)}</span><span class="right">${r.spend ? f.moneyShort(r.spend) : html`<span class="faint">—</span>`}</span></a>`)}
       </div>
       <div class="card stack" style="padding:18px 20px 8px">
