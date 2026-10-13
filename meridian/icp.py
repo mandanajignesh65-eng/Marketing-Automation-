@@ -108,7 +108,7 @@ def view(conn, now, p):
 # ------------------------------------------------------------------------------- planning: every segment in detail
 
 NOT_KNOWN = "Not known"
-KINDS = {"industry": "Industry", "size": "Company size", "department": "Department", "seniority": "Seniority", "channel": "How they found us", "city": "City"}
+KINDS = {"industry": "Industry", "size": "Company size", "department": "Department", "seniority": "Seniority", "channel": "Source", "city": "City"}
 SENIORITY = [("Owner or C-level", r"\b(ceo|cfo|coo|cmo|cto|cio|cbo|cxo|chief|founder|co-founder|cofounder|owner|president|chairman|managing director|md|proprietor|partner)\b"),
              ("Head, VP or director", r"\b(head|vp|vice president|director|gm|general manager|avp|svp|evp)\b"),
              ("Manager", r"\b(manager|lead|mgr|supervisor)\b")]

@@ -149,7 +149,7 @@ export default {
     <div class="card" style="padding:20px 6px 16px 24px">
       <div class="title" style="margin-bottom:14px">Our best customer</div>
       <div style="display:grid;grid-template-columns:1.3fr 1.1fr 1fr 0.8fr 0.8fr;margin-left:-18px">
-        ${fact('Industry', or(c.industry))}${fact('Company size', c.size)}${fact('Found us through', c.channel)}
+        ${fact('Industry', or(c.industry))}${fact('Company size', c.size)}${fact('Source', c.channel)}
         ${fact('Typical deal', c.deal ? f.moneyShort(c.deal) : '')}${fact('Time to win', c.days != null ? `${f.num(c.days)} days` : '')}
       </div>
       <div class="row" style="gap:14px;margin-top:18px;padding:14px 18px 0 0;border-top:1px solid var(--line2);flex-wrap:wrap">
@@ -164,7 +164,7 @@ export default {
       <div class="stack" style="gap:8px">${winList('By industry', d.industry)}
         <div class="tiny muted pretty" style="padding:0 4px">${d.small_industries ? `${f.num(d.small_industries)} other industries have too few deals to judge. ` : ''}${d.no_industry ? `${f.num(d.no_industry)} deals have no industry written down, so they are not in this list.` : ''}</div></div>
       ${winList('By company size', d.size)}
-      ${winList('By how they found us', d.channel)}
+      ${winList('By source', d.channel)}
     </div>
 
     <div class="card" style="padding:20px 24px 18px">
