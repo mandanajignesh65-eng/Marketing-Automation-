@@ -3,6 +3,7 @@ import { html, raw } from './html.js';
 import { api } from './api.js';
 import { segmented, toggle, avatar, menu } from './ui.js';
 import { setCurrency } from './format.js';
+import { mountAssistant } from './assistant.js';
 import overview from './screens/overview.js';
 import funnel from './screens/funnel.js';
 import channels from './screens/channels.js';
@@ -420,4 +421,5 @@ window.addEventListener('hashchange', onRoute);
   }
   if (!leader() && !location.hash) history.replaceState(null, '', '#/targets?view=today');  // a team member starts on their own day
   onRoute();
+  mountAssistant();
 })();
