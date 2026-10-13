@@ -372,9 +372,8 @@ def change_competitors(b: RivalChange):
         now = datetime.now().replace(microsecond=0)
         try:
             if b.what == "sync":
-                done = rivals.sync(conn, now, force=True)
-                return {"ok": True, "message": "Read {} pages. {} new updates, {} new posts{}.".format(
-                    done["pages"], done["signals"], done.get("posts", 0), ", {} could not be read".format(done["failed"]) if done["failed"] else "")}
+                started = rivals.sync_in_background()
+                return {"ok": True, "message": "Reading every page now. Refresh in about two minutes." if started else "A read is already running. Refresh in a minute."}
             if b.what == "competitor":
                 rivals.add_competitor(conn, b.name, b.domain, b.linkedin)
             elif b.what == "source":

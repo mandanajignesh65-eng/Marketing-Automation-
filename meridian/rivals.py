@@ -22,6 +22,7 @@ import html as htmllib
 import json
 import re
 import sys
+import threading
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -427,6 +428,8 @@ def remove_account(conn, account_id):
 
 def due(conn, now):
     last = db.get_setting(conn, "competitors_synced_at")
+    if conn.execute("SELECT 1 FROM competitor_accounts WHERE checked_at IS NULL AND note IS NULL LIMIT 1").fetchone():
+        return True  # a social page that has never been read is read straight away
     return bool(conn.execute("SELECT 1 FROM competitors WHERE active = 1 AND own = 0 LIMIT 1").fetchone()) and (
         not last or now - datetime.fromisoformat(last) >= timedelta(hours=EVERY_HOURS))
 
@@ -457,6 +460,33 @@ def sync(conn, now, force=False):
     db.set_setting(conn, "competitors_synced_at", iso(now))
     conn.commit()
     return done
+
+
+_reading = threading.Lock()
+
+
+def sync_in_background():
+    """Start a full read without making the screen wait for it. False when one is already running."""
+    if not _reading.acquire(blocking=False):
+        return False
+
+    def run():
+        conn = db.connect()
+        try:
+            sync(conn, datetime.now().replace(microsecond=0), force=True)
+        except Exception as err:
+            conn.rollback()
+            print("Competitor read:", err)
+        finally:
+            conn.close()
+            _reading.release()
+            try:
+                from . import backup
+                backup.changed()
+            except Exception:
+                pass
+    threading.Thread(target=run, name="meridian-competitors", daemon=True).start()
+    return True
 
 
 # ------------------------------------------------------------------------------- the weekly watch's findings

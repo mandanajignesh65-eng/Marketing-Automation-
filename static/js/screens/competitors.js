@@ -208,7 +208,7 @@ export default {
     addSource: ctx => ctx.openModal({ kind: 'source' }),
     removeAccount: (ctx, d) => ctx.save(() => ctx.api.post('competitors', { what: 'remove_account', id: Number(d.arg) }), 'No longer read.'),
     removeSource: (ctx, d) => ctx.save(() => ctx.api.post('competitors', { what: 'remove_source', id: Number(d.arg) }), 'No longer read.'),
-    async sync(ctx) { ctx.toast('Reading every page. This takes a minute or two…'); try { const r = await ctx.api.post('competitors', { what: 'sync' }); await ctx.reload(); ctx.toast(r.message); } catch (err) { ctx.toast(err.message); } },
+    async sync(ctx) { try { ctx.toast((await ctx.api.post('competitors', { what: 'sync' })).message); } catch (err) { ctx.toast(err.message); } },
   },
 
   changes: {
