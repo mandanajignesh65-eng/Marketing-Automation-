@@ -155,8 +155,8 @@ export default {
       </div>
       <div class="row" style="gap:14px;margin-top:18px;padding:14px 18px 0 0;border-top:1px solid var(--line2);flex-wrap:wrap">
         <div class="track" style="width:160px;height:8px;border-radius:4px;flex:none"><div class="fill" style="width:${known}%;background:var(--${known >= 70 ? 'pos' : 'warn'})"></div></div>
-        <span class="small">Built from <span class="semi">${f.num(d.labelled)}</span> of our ${f.num(d.customers)} customers.${left ? html` <span class="muted">The other ${f.num(left)} have no industry written down.</span>` : ''}</span>
-        <span style="flex:1"></span>${lead && left ? html`<span class="btn primary" data-act="label">Label customers</span>` : ''}
+        <span class="small">Built from <span class="semi">${f.num(d.labelled)}</span> of our ${f.num(d.customers)} won deals.${left ? html` <span class="muted">The other ${f.num(left)} have no industry written down.</span>` : ''}</span>
+        <span style="flex:1"></span>${lead && left ? html`<span class="btn primary" data-act="label">Add the industry</span>` : ''}
       </div>
     </div>
 
@@ -188,15 +188,15 @@ export default {
   modal(m, ctx) {
     const d = ctx.app.data;
     return html`<div class="modal wide" style="gap:12px">
-      <div class="baseline"><span class="section">Label customers</span><span class="small muted">${f.num(d.to_label.length)} left</span></div>
-      <span class="small muted">Pick the industry for each customer. It saves as you pick.</span>
+      <div class="baseline"><span class="section">Won deals with no industry</span><span class="small muted">${f.num(d.to_label.length)} left</span></div>
+      <span class="small muted">Pick the industry for each deal. It saves as you pick.</span>
       <div data-scroll="label" style="overflow-y:auto;max-height:58vh;margin:0 -8px;padding:0 8px">
         ${d.to_label.map(x => html`<div style="display:grid;grid-template-columns:minmax(0,1fr) 170px 180px;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line2)">
           <span class="medium clip" title="${x.name}">${x.name}</span>
           <select class="input" id="ind-${x.id}" data-change="industry" data-deal="${x.id}"><option value="">Industry</option>${d.industries.map(i => html`<option>${i}</option>`)}</select>
           <select class="input" id="size-${x.id}"><option value="">Company size</option>${d.sizes.map(s => html`<option ${x.size === s ? 'selected' : ''}>${s}</option>`)}</select>
         </div>`)}
-        ${d.to_label.length ? '' : html`<div class="small muted" style="padding:14px 0">Every customer has an industry now.</div>`}
+        ${d.to_label.length ? '' : html`<div class="small muted" style="padding:14px 0">Every won deal has an industry now.</div>`}
       </div>
       <div class="row" style="justify-content:flex-end"><button type="button" class="btn primary" data-act="cancelModal">Done</button></div>
     </div>`;
