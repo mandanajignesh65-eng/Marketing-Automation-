@@ -126,7 +126,30 @@ def view(conn, now, span="all"):
         if (l["industry"] or "").strip() and scoring.in_segment(l["industry"], profile):
             in_industry += 1
             in_both += size_band(l) in SIZES[:2]
+    # industry against company size: where the two together win
+    rows_i = [r["name"] for r in named("industry") if r["deals"] >= 15][:7]
+    matrix = []
+    for name in rows_i:
+        cells = []
+        for band in SIZES:
+            cell = summarise([d for d in deals if d["keys"]["industry"] == name and d["keys"]["size"] == band], band)
+            cells.append(dict(size=band, closed=cell["closed"], won=cell["won"], deals=cell["deals"], win_rate=cell["win_rate"]))
+        matrix.append(dict(name=name, target=any(r["target"] for r in tables["industry"] if r["name"] == name), cells=cells))
+    # the year each deal was opened, to see whether we are getting better at picking them
+    years = []
+    for y in sorted({d["created_at"][:4] for d in deals}):
+        row = summarise([d for d in deals if d["created_at"][:4] == y], y)
+        years.append(row)
+    # the best group on each dimension, as one line of the profile
+    fit = []
+    for dim, label in DIMENSIONS.items():
+        if dim == "source":  # the channel row already says where they come from, and sources include existing-customer upsells
+            continue
+        top = best(dim, "win_rate", "closed", MIN_CLOSED)
+        if top:
+            fit.append(dict(dim=dim, label=label, **top))
     return dict(span=span, total=total, tables=tables, dimensions=DIMENSIONS, recorded=recorded, won=len(won),
+                matrix=matrix, sizes=SIZES, years=years, fit=fit,
                 segments=list(profile["segments"]), min_closed=MIN_CLOSED, min_won=MIN_WON,
                 answers=dict(
                     buys=best("industry", "win_rate", "closed", MIN_CLOSED), buys_size=best("size", "win_rate", "closed", MIN_CLOSED),
