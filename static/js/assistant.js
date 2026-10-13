@@ -2,6 +2,8 @@
 // It keeps its own corner of the page, so a conversation stays open while the screens behind it change.
 const IDEAS = ['How many leads came in this month?', 'Which channel has the best win rate?', 'What did competitors post on LinkedIn this week?'];
 const SPARK = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.500l1.700 4.800 4.800 1.700-4.800 1.700L12 16.500l-1.700-4.800-4.800-1.700 4.800-1.700L12 3.500z"/><path d="M18.500 15.500l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z"/></svg>';
+const WAITING = ['Reading your question', 'Looking at the data', 'Counting it up', 'Checking the numbers', 'Writing the answer', 'Almost there'];
+let waiting;
 const state = { open: false, ready: false, busy: false, turns: [] };
 const esc = text => String(text).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let root, panel;
@@ -14,7 +16,7 @@ function draw() {
       ${!state.ready ? '<div class="ask-note">The assistant is not set up yet.</div>'
         : empty ? `<div class="ask-note">Ask anything about leads, deals, channels, the website or competitors.</div>${IDEAS.map(q => `<div class="ask-idea" data-ask="idea">${esc(q)}</div>`).join('')}` : ''}
       ${state.turns.map(t => `<div class="ask-msg ${t.role}${t.error ? ' error' : ''}">${esc(t.text)}</div>`).join('')}
-      ${state.busy ? '<div class="ask-msg assistant muted">Looking at the data…</div>' : ''}
+      ${state.busy ? `<div class="ask-msg assistant ask-wait"><span class="ask-dots"><i></i><i></i><i></i></span><span class="ask-step" id="ask-step">${WAITING[0]}</span></div>` : ''}
     </div>
     <form class="ask-form"><input class="input" id="ask-input" placeholder="Type a question" autocomplete="off" maxlength="600" ${state.ready ? '' : 'disabled'}>
       <button class="btn primary" type="submit" ${state.busy || !state.ready ? 'disabled' : ''}>Ask</button></form>`;
@@ -36,6 +38,17 @@ async function ask(question) {
   state.turns.push({ role: 'user', text: question });
   state.busy = true;
   draw();
+  let step = 0;
+  clearInterval(waiting);
+  waiting = setInterval(() => {  // the line under the dots moves on every couple of seconds while the answer is worked out
+    const el = document.getElementById('ask-step');
+    if (!el) return;
+    step = Math.min(step + 1, WAITING.length - 1);
+    el.classList.remove('in');
+    void el.offsetWidth;
+    el.textContent = WAITING[step];
+    el.classList.add('in');
+  }, 2200);
   try {
     const res = await fetch('/api/assistant', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ question, history }) });
     const data = await res.json().catch(() => ({}));
@@ -43,6 +56,7 @@ async function ask(question) {
   } catch (err) {
     state.turns.push({ role: 'assistant', text: 'The assistant could not be reached. Try again.', error: true });
   }
+  clearInterval(waiting);
   state.busy = false;
   draw();
 }
