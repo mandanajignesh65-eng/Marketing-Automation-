@@ -23,7 +23,7 @@ export default {
     const kpi = (value, label, extra = '', color = '') => html`<div class="card kpi" style="padding:18px"><span class="kpi-v md" style="${color ? 'color:' + color : ''}">${value}</span><span class="eyebrow">${label}</span>${extra}</div>`;
 
     return html`
-    ${pageHead('Every marketing tool we pay for', 'Subscriptions', html`<div class="btn primary" data-act="add">Add tool</div>`)}
+    ${pageHead('Marketing tools and renewals', 'Subscriptions', html`<div class="btn primary" data-act="add">Add tool</div>`)}
     <div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
       ${kpi(f.money(monthly), 'Per month', last ? deltaLine({ value: monthly, prev: last, pct: (monthly - last) / last * 100 }, { mode: 'neutral', fmt: f.money, show: ctx.app.compare }) : '')}
       ${kpi(f.money(monthly * 12), 'Per year at current run rate')}

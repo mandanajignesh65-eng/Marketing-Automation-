@@ -4,7 +4,7 @@ import { sq, pageHead, stepper, bar, info, segmented, switcher } from '../ui.js'
 
 let previewTimer;
 
-const TABS = [['picture', 'How good are our leads'], ['rules', 'Scoring rules']];
+const TABS = [['picture', 'Summary'], ['rules', 'Scoring rules']];
 const BLURB = { picture: 'How many leads we can judge, and what stops us judging the rest', rules: 'How the score is worked out, and where the bar is set' };
 // One colour per answer: green fits, grey does not, and three shades of amber for "we cannot tell", each for a different reason.
 const VERDICT = {
@@ -24,7 +24,7 @@ const TIPS = {
   actions: 'The steps that would let us judge more leads, biggest first. The number is how many of this period\u2019s leads each step could sort.',
   hist: 'How many leads got each score. Leads at or to the right of the line are qualified. A tall bar at 0 means many leads could not be scored at all.',
   best: 'Which channels bring leads with the best scores. Average score is out of 100. Qualified rate is how many of every 100 leads from that channel qualify.',
-  rules: 'How points are given. The numbers must add up to 100. Use + and \u2212 to change how much each thing counts, then save. Every lead is scored again.',
+  rules: 'Scoring rules. The numbers must add up to 100. Use + and \u2212 to change how much each thing counts, then save. Every lead is scored again.',
   bar: 'A lead needs at least this many points out of 100 to count as qualified.',
 };
 
@@ -73,7 +73,7 @@ export default {
     const rules = () => html`
     <div class="grid start" style="grid-template-columns:minmax(0,1.25fr) minmax(0,1fr)">
       <div class="card stack" style="padding:18px 20px 16px;gap:14px">
-        <div class="baseline"><span class="row" style="gap:8px"><span class="title">How leads scored</span>${info(TIPS.hist)}</span>
+        <div class="baseline"><span class="row" style="gap:8px"><span class="title">Score distribution</span>${info(TIPS.hist)}</span>
           <span class="small muted"><span class="ink medium">${est == null ? '…' : f.num(est)}</span> of ${f.num(d.total)} at ${t} or above</span></div>
         <div style="position:relative;height:200px;margin-top:22px">
           <div style="position:absolute;inset:0;display:flex;align-items:flex-end;gap:6px">
@@ -96,7 +96,7 @@ export default {
       </div>
     </div>
     <div class="card stack" style="padding:18px 20px 20px;gap:16px">
-      <div class="baseline"><span class="row" style="gap:8px"><span class="title">How points are given</span>${info(TIPS.rules)}</span><span class="small faint">${d.changed}</span></div>
+      <div class="baseline"><span class="row" style="gap:8px"><span class="title">Scoring rules</span>${info(TIPS.rules)}</span><span class="small faint">${d.changed}</span></div>
       <div class="grid start" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr) 260px;gap:24px">
         ${groups.map(g => html`<div class="stack">
           <div class="between tiny medium faint" style="padding-bottom:6px"><span>${g.g}</span><span>${g.items.reduce((a, c) => a + weights[c.key], 0)} points</span></div>
@@ -153,20 +153,20 @@ export default {
         ${kpi(blind, 'Leads we cannot judge', TIPS.blind, `${share(blind, k.leads)} of leads`, true)}
       </div>
       <div class="card" style="padding:18px 24px 18px">
-        <div class="baseline" style="gap:16px;flex-wrap:wrap;margin-bottom:14px"><span class="row" style="gap:8px"><span class="title">Can we judge each lead?</span>${info(TIPS.verdicts)}
+        <div class="baseline" style="gap:16px;flex-wrap:wrap;margin-bottom:14px"><span class="row" style="gap:8px"><span class="title">Data coverage</span>${info(TIPS.verdicts)}
             <span class="small muted">${chan ? ctx.channel(chan).name : 'all channels'} · ${f.num(rowTotal)} leads</span></span>
           ${switcher([{ arg: '', label: 'All channels', on: !chan }, ...c.by_channel.map(r => ({ arg: r.id, label: ctx.channel(r.id).name, color: ctx.channel(r.id).color, on: chan === r.id }))], 'chan')}</div>
         ${upright(c.verdicts.map((v, i) => ({ label: v.label, value: row[v.id], top: f.num(row[v.id]), sub: `${share(row[v.id], rowTotal)} of leads`, color: VERDICT[v.id][0], tip: VERDICT[v.id][2], end: i > 2 })))}
       </div>
       <div class="grid start" style="grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)">
         <div class="card" style="padding:18px 24px 12px">
-          <div class="row" style="gap:8px;margin-bottom:10px"><span class="title">What we know about each lead</span>${info(TIPS.known)}</div>
+          <div class="row" style="gap:8px;margin-bottom:10px"><span class="title">Field coverage</span>${info(TIPS.known)}</div>
           ${upright(facts.map(([label, v]) => { const pc = k.leads ? v / k.leads * 100 : 0; return { label, value: pc, top: f.pct(pc), sub: `${f.num(v)} of ${f.num(k.leads)}`,
             color: pc >= 60 ? 'var(--pos)' : pc >= 30 ? 'oklch(0.70 0.14 65)' : 'var(--neg)' }; }), { height: 200, pct: true })}
           <div class="small muted" style="padding:12px 0 6px;margin-top:10px;border-top:1px solid var(--line2)">Of the ${f.num(k.industry)} leads with a known industry, <span class="ink medium">${f.num(k.from_lookup)}</span> came from looking the company up and <span class="ink medium">${f.num(k.from_crm)}</span> were typed into Zoho.</div>
         </div>
         <div class="card" style="padding:18px 24px 14px">
-          <div class="row" style="gap:8px;margin-bottom:10px"><span class="title">How to judge more leads</span>${info(TIPS.actions)}</div>
+          <div class="row" style="gap:8px;margin-bottom:10px"><span class="title">Improve coverage</span>${info(TIPS.actions)}</div>
           ${steps.length ? steps.map(([count, title, text], i) => html`<div style="display:grid;grid-template-columns:64px minmax(0,1fr);gap:14px;padding:11px 0;border-top:${i ? '1px solid var(--line2)' : 'none'}">
             <div class="stack" style="align-items:flex-start"><span style="font-size:22px;font-weight:600;letter-spacing:-0.02em">${f.num(count)}</span><span class="tiny faint">leads</span></div>
             <div class="stack" style="gap:2px"><span class="semi">${i + 1}. ${title}</span><span class="small muted pretty">${text}</span></div></div>`)
@@ -178,7 +178,7 @@ export default {
     const view = TABS.some(x => x[0] === ctx.app.params.view) ? ctx.app.params.view : 'picture';
     return html`
     ${pageHead(`${f.num(d.total)} leads · ${d.period.short}`, 'Lead quality', segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))}
-    <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(x => x[0] === view)[1]}</span><span class="muted">${BLURB[view]}</span></div>
+    <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(x => x[0] === view)[1]}</span></div>
     ${view === 'rules' ? rules() : picture()}`;
   },
 

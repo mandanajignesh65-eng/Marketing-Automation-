@@ -41,9 +41,8 @@ export function deltaLine(d, { mode = 'up', fmt = f.num, show = true, short = fa
   return html`<div class="kpi-d" style="color:${f.tone(d.pct, mode)}">${(short ? f.arrowShort : f.arrow)(d.pct)} <span class="faint">vs ${fmt(d.prev)}</span></div>`;
 }
 
-// A small "i" that explains a figure when hovered or focused. `end` opens the note leftwards, for use near the right edge.
-export const info = (text, { end = false, up = false } = {}) =>
-  html`<span class="info ${end ? 'end' : ''} ${up ? 'up' : ''}" tabindex="0" role="note" aria-label="${text}" data-tip="${text}">i</span>`;
+// Screens used to hang a small "i" with an explanation on most figures. They are gone: a figure that needs explaining gets a clearer name instead.
+export const info = () => '';
 
 export const pageHead = (eyebrow, title, right = '') => html`<div class="page-head">
   <div class="stack" style="gap:6px"><div class="eyebrow">${eyebrow}</div><h1 class="h1">${title}</h1></div>${right}</div>`;

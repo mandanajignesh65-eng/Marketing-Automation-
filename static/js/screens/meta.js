@@ -3,7 +3,7 @@ import { html } from '../html.js';
 import * as f from '../format.js';
 import { info, segmented, switcher, sq, dot } from '../ui.js';
 
-const TABS = [['results', 'Results'], ['creatives', 'Ads and creatives'], ['people', 'Who saw the ads'], ['sending', 'Sent to Meta']];
+const TABS = [['results', 'Results'], ['creatives', 'Ads and creatives'], ['people', 'Audience'], ['sending', 'Sent to Meta']];
 const BLURB = {
   results: 'What we spent and what came back, by campaign, ad set and ad',
   creatives: 'Each ad with its picture or video, how people reacted, and how Meta rates it',
@@ -71,7 +71,7 @@ export function renderMeta(m, ctx) {
   const kpi = (value, label, tip, sub = '', end = false) => html`<div class="card kpi" style="padding:16px 18px"><span class="kpi-v md">${value}</span>
     <span class="row eyebrow" style="gap:7px">${label}${info(tip, { end })}</span><span class="kpi-d faint">${sub}</span></div>`;
   const delta = (a, b, mode = 'up') => { const c = change(a, b); return c == null ? '' : html`<span style="color:${f.tone(c, mode)}">${f.arrowShort(c)}</span> vs ${m.period.prev_short}`; };
-  const head = html`<div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span><span class="muted">${BLURB[view]}</span>
+  const head = html`<div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span>
     <span style="flex:1"></span>${segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 14)}</div>`;
   const empty = !m.ads.length;
   const notYet = html`<div class="card pad stack" style="gap:8px"><span class="title">${m.connected ? 'No ads have run yet' : 'Meta Ads is not connected yet'}</span>
@@ -169,7 +169,7 @@ export function renderMeta(m, ctx) {
     return html`
     <div class="row" style="gap:12px"><span class="row muted" style="gap:7px">Count by${info(TIPS.breakdown)}</span>${switcher([['spend', 'Spend'], ['chats', 'Chats started'], ['impressions', 'Times shown']].map(([arg, label]) => ({ arg: `by=${arg}`, label, on: metric === arg })), 'set')}</div>
     <div class="grid start" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-      ${block('Where the ad was shown', m.breakdowns.placement)}${block('Age and gender', m.breakdowns.age_gender)}${block('State or region', m.breakdowns.region)}
+      ${block('Placement', m.breakdowns.placement)}${block('Age and gender', m.breakdowns.age_gender)}${block('State or region', m.breakdowns.region)}
     </div>`;
   };
 
@@ -188,7 +188,7 @@ export function renderMeta(m, ctx) {
         <span class="small muted">${MODE[2]} The switch is the setting META_SEND_MODE, changed where the other keys are kept.</span>
       </div>
       <div class="card pad stack" style="gap:6px">
-        <span class="title" style="margin-bottom:4px">What needs to be in place</span>
+        <span class="title" style="margin-bottom:4px">Setup checklist</span>
         ${check(s.setup.reading, 'Meta Ads connected, so campaigns and spend can be read')}
         ${check(s.setup.dataset, 'The dataset id from Meta Events Manager (META_DATASET_ID)')}
         ${check(s.setup.whatsapp, 'The WhatsApp Business account id (META_WABA_ID)')}
@@ -197,7 +197,7 @@ export function renderMeta(m, ctx) {
       </div>
     </div>
     <div class="card clipped" style="--cols:${ecol}">
-      <div class="baseline" style="padding:16px 16px 10px;gap:16px"><span class="row" style="gap:8px"><span class="title">Events for Meta</span>${info(TIPS.events)}</span>
+      <div class="baseline" style="padding:16px 16px 10px;gap:16px"><span class="row" style="gap:8px"><span class="title">Conversion events</span>${info(TIPS.events)}</span>
         ${lead && on !== 'off' ? html`<span class="btn xs" data-act="sendEvents">Send waiting events now</span>` : ''}</div>
       <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Event</span><span>Waiting</span><span>Sent</span><span>Tested</span><span>Failed</span></div>
       ${s.events.map(name => html`<div class="trow right"><div class="stack" style="text-align:left"><span class="medium">${name}</span><span class="tiny muted">${WHAT[name] || ''}</span></div>
@@ -211,7 +211,7 @@ export function renderMeta(m, ctx) {
         <span style="color:var(--${e.status === 'sent' ? 'pos' : e.status === 'failed' || e.status === 'expired' ? 'neg' : 'ink2'})">${e.status}</span><span class="tiny muted clip" title="${e.response || ''}">${e.response || ''}</span></div>`)}
     </div>` : ''}
     <div class="card clipped" style="--cols:${lcol}">
-      <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">Lists for Meta</span>${info(TIPS.lists)}</div>
+      <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">Custom audiences</span>${info(TIPS.lists)}</div>
       <div class="thead" style="border-top:1px solid var(--line)"><span>List</span><span>Used to</span><span class="right">People now</span><span>In Meta</span><span></span></div>
       ${s.audiences.map(a => html`<div class="trow">
         <div class="stack" style="min-width:0"><span class="medium">${a.name.replace('Meridian · ', '')}</span><span class="tiny muted pretty">${a.why}</span></div>

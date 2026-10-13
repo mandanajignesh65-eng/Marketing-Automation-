@@ -142,7 +142,7 @@ export default {
         <span><span class="semi">${f.pct(d.visits.direct / d.visits.value * 100)} of visits have no known source.</span> That is far above normal, so the visit count is probably inflated.
           ${d.visits.engaged ? html`Only <span class="semi">${f.num(d.visits.engaged)}</span> visits were engaged.` : ''} Ask whoever looks after Google Analytics to check for robots and the tracking setup.</span>${info(TIPS.direct, { end: true })}</div>` : ''}
       ${!d.site && d.by_site.length ? html`<div class="card clipped" style="--cols:${scols}">
-        <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">The websites side by side</span>${info(TIPS.sides)}</div>
+        <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">Site comparison</span>${info(TIPS.sides)}</div>
         <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Website</span><span>Visits</span><span>Clicks from Google</span><span>Leads</span><span>Visits that became leads</span></div>
         ${d.by_site.map(x => html`<div class="trow right" data-act="site" data-arg="${x.site}" title="See only ${x.site}" style="cursor:pointer">
           <span class="medium" style="text-align:left">${x.site}</span>
@@ -238,12 +238,12 @@ export default {
         </div>
       </div>
       <div class="card clipped">
-        <div class="baseline" style="padding:16px 16px 10px;gap:16px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">What people searched</span>${info(TIPS.queries)}<span class="small muted">top 15 of ${f.num(d.query_count)}</span></span>
+        <div class="baseline" style="padding:16px 16px 10px;gap:16px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">Search queries</span>${info(TIPS.queries)}<span class="small muted">top 15 of ${f.num(d.query_count)}</span></span>
           ${sw('kind', [['other', 'Without our name', GREEN], ['brand', 'With our name', GREY], ['all', 'All']], kind)}</div>
         ${qhead}${list.length ? list.map(qrow) : html`<div class="small muted" style="padding:14px 16px">No searches of this kind in the period.</div>`}
       </div>
       ${d.near.length ? html`<div class="card clipped">
-        <div class="baseline" style="padding:16px 16px 10px;gap:16px"><span class="row" style="gap:8px"><span class="title">Easiest wins</span>${info(TIPS.near)}</span>
+        <div class="baseline" style="padding:16px 16px 10px;gap:16px"><span class="row" style="gap:8px"><span class="title">Keyword opportunities</span>${info(TIPS.near)}</span>
           <span class="small muted">Shown often, not yet near the top</span></div>
         ${qhead}${d.near.map(qrow)}
       </div>` : ''}
@@ -300,7 +300,7 @@ export default {
 
     return html`
     ${pageHead(show ? `${d.period.short} compared with ${d.period.prev_short}` : d.period.short, 'Website and organic', segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))}
-    <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span><span class="muted">${BLURB[view]}</span>
+    <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span>
       <span style="flex:1"></span>${d.sites.length > 1 ? switcher([{ arg: '', label: 'All websites', on: !d.site }, ...d.sites.map(x => ({ arg: x, label: x, on: d.site === x }))], 'site') : ''}</div>
     ${{ summary, search, pages, rankings }[view]()}`;
   },

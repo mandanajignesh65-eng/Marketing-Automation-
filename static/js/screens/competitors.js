@@ -37,17 +37,17 @@ export default {
       const cols = 'minmax(0,0.9fr) 80px 80px 110px 90px 80px minmax(0,2.4fr)', lcols = '74px 120px 150px minmax(0,1fr) 150px 28px';
       return html`
       <div class="card clipped" style="--cols:${cols}">
-        <div class="baseline" style="padding:16px 16px 12px"><span class="title">What each competitor did</span><span class="small muted">last ${d.days} days</span></div>
+        <div class="baseline" style="padding:16px 16px 12px"><span class="title">Activity by competitor</span><span class="small muted">last ${d.days} days</span></div>
         <div class="thead" style="border-top:1px solid var(--line)"><span>Competitor</span><span class="right">Updates</span><span class="right">Product</span><span class="right">Customers</span><span class="right">Funding</span><span class="right">People</span><span style="padding-left:14px">Latest</span></div>
         ${d.competitors.map(c => { const l = latest(c), on = comp && comp.id === c.id; return html`<div class="trow" data-act="set" data-arg="comp=${on ? '' : c.id}" style="cursor:pointer;${on ? 'background:var(--surface2)' : ''}">
           <span class="medium">${c.name}</span>${count(c.total)}${n(c, 'product')}${n(c, 'customers', 'partnership')}${n(c, 'funding')}${n(c, 'hiring')}
           <span class="row" style="gap:8px;min-width:0;padding-left:14px">${l ? html`<span class="muted nowrap">${day(l.at)}</span><span class="clip" title="${l.title}">${l.title}</span>` : html`<span class="faint">Nothing in this period</span>`}</span></div>`; })}
       </div>
       <div class="card clipped" style="--cols:${lcols}">
-        <div class="baseline" style="padding:16px 16px 10px;gap:14px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">${comp ? comp.name : 'All updates'}</span><span class="small muted">${f.num(list.length)}</span></span>${who()}</div>
+        <div class="baseline" style="padding:16px 16px 10px;gap:14px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">${comp ? comp.name : 'Updates'}</span><span class="small muted">${f.num(list.length)}</span></span>${who()}</div>
         <div class="row" style="padding:0 16px 12px;gap:10px;flex-wrap:wrap">${switcher([{ arg: 'cat=', label: 'All types', on: !cat && !ui.leads }, ...Object.entries(d.categories).filter(([k]) => real.some(s => s.category === k)).map(([k, label]) => ({ arg: `cat=${k}`, label, color: COLOR[k], on: cat === k && !ui.leads }))], 'cat')}
           ${leads.length ? switcher([{ arg: '1', label: `Not confirmed · ${leads.length}`, on: !!ui.leads }], 'leads') : ''}</div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span>Date</span><span>Competitor</span><span>Type</span><span>What happened</span><span>Source</span><span></span></div>
+        <div class="thead" style="border-top:1px solid var(--line)"><span>Date</span><span>Competitor</span><span>Type</span><span>Update</span><span>Source</span><span></span></div>
         ${list.slice(0, 80).map(s => html`<div class="trow" style="align-items:flex-start">
           <span class="muted nowrap">${day(s.at)}</span><span class="medium">${names[s.competitor_id] || '—'}</span><span>${pill(s.category)}</span>
           <div class="stack" style="gap:2px;min-width:0"><a href="${s.url}" target="_blank" rel="noopener" class="medium pretty" style="color:var(--ink);text-decoration:none">${s.title}</a>
@@ -82,7 +82,7 @@ export default {
           <span class="right muted">${r.note ? html`<span style="color:var(--warn)" title="${r.note}">Not read</span>` : r.last ? day(r.last) : '—'}</span></div>`)}
       </div>
       <div class="card clipped" style="--cols:${pcols}">
-        <div class="baseline" style="padding:16px 16px 12px;gap:14px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">${picked ? picked.name : li ? 'Competitor posts' : 'Competitor videos'}</span><span class="small muted">${f.num(posts.length)}</span></span>
+        <div class="baseline" style="padding:16px 16px 12px;gap:14px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">${picked ? picked.name : li ? 'Posts' : 'Videos'}</span><span class="small muted">${f.num(posts.length)}</span></span>
           <div class="row" style="gap:10px;flex-wrap:wrap">${switcher([{ arg: 'top=', label: 'Newest', on: !ui.top }, { arg: 'top=1', label: 'Most liked', on: !!ui.top }], 'set')}
           ${switcher([{ arg: 'comp=', label: 'All competitors', on: !picked }, ...rows.map(r => ({ arg: `comp=${r.competitor_id}`, label: r.name, on: picked === r }))], 'set')}</div></div>
         <div class="thead" style="border-top:1px solid var(--line)"><span>Date</span><span>Page</span><span>${li ? 'Post' : 'Video'}</span><span class="right">${li ? 'Likes' : 'Views'}</span><span class="right">${li ? 'Comments' : 'Likes'}</span></div>
@@ -112,22 +112,22 @@ export default {
         ${row('Videos', c => val((soc(c, 'youtube') || {}).posts))}
         ${row('Views', c => val((soc(c, 'youtube') || {}).views))}
         ${part('Updates')}
-        ${row('All updates', c => html`<span class="semi">${val(c.total)}</span>`)}
+        ${row('Updates', c => html`<span class="semi">${val(c.total)}</span>`)}
         ${row('Product', c => val(c.counts.product))}
         ${row('Customers and partners', c => val(c.counts.customers + c.counts.partnership))}
         ${row('Funding and deals', c => val(c.counts.funding))}
         ${row('People and hiring', c => val(c.counts.hiring))}
         ${row('Events', c => val(c.counts.events))}
-        ${part('Last time they had')}
-        ${row('A product launch', c => when(c.last.product))}
-        ${row('A new customer or partner', c => when([c.last.customers, c.last.partnership].filter(Boolean).sort().pop()))}
-        ${row('Funding or a deal', c => when(c.last.funding))}
-        ${row('A pricing change', c => when(c.last.pricing))}
+        ${part('Most recent')}
+        ${row('Product launch', c => when(c.last.product))}
+        ${row('Customer or partner', c => when([c.last.customers, c.last.partnership].filter(Boolean).sort().pop()))}
+        ${row('Funding or deal', c => when(c.last.funding))}
+        ${row('Pricing change', c => when(c.last.pricing))}
         ${d.competitors.some(c => c.seo) ? html`${part('Google search, India')}
         ${row('Keywords they rank for', c => val(c.seo && c.seo.keywords))}
         ${row('Visits a month, estimated', c => val(c.seo && c.seo.traffic))}
         ${row('Keywords shared with us', c => val(c.seo && c.seo.common))}` : ''}
-        ${part('Open')}
+        ${part('Links')}
         ${row('Website', c => link(`https://${c.domain}`, c.domain))}
         ${row('LinkedIn page', c => (c.linkedin ? link(c.linkedin, 'Open') : none))}
         ${row('Ads on Meta', c => link(`https://www.facebook.com/ads/library/?active_status=active&ad_type=all&country=IN&q=${encodeURIComponent(c.name)}`, 'Open'))}
@@ -158,10 +158,10 @@ export default {
         ${acc(c.id)}
       </div>`)}
       ${ours.length ? html`<div class="card clipped" style="--cols:${cols}">
-        <div class="baseline" style="padding:14px 16px 10px"><span class="row" style="gap:10px"><span class="title">Chat360</span><span class="small muted">our own pages, for comparison</span></span></div>
+        <div class="baseline" style="padding:14px 16px 10px"><span class="row" style="gap:10px"><span class="title">Chat360</span><span class="small muted">our own pages</span></span></div>
         <div class="thead" style="border-top:1px solid var(--line)"><span>Page</span><span>Address</span><span>Last read</span><span>Status</span><span></span></div>${ours.map(acc)}</div>` : ''}
       <div class="card pad stack" style="gap:8px">
-        <span class="title">Not read</span>
+        <span class="title">Not covered</span>
         <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));gap:18px">
           ${[['Instagram, Facebook and X', 'These show nothing without signing in. Instagram can be added once the Meta account is connected.'],
             ['Google reviews', 'Needs a Google Places key, which is billed by Google.'],
@@ -187,7 +187,7 @@ export default {
         <span class="small muted">Press coverage starts with the next read. Add their newsroom, blog and pricing pages afterwards with “Add a page”.</span>
         <div class="row" style="gap:8px;justify-content:flex-end"><button type="button" class="btn" data-act="cancelModal">Cancel</button><button class="btn primary" type="submit">Add</button></div></form>`;
     }
-    return html`<form class="modal" data-submit="saveSource"><span class="section">Add a page to read</span>
+    return html`<form class="modal" data-submit="saveSource"><span class="section">Add a source</span>
       <div class="grid" style="grid-template-columns:1fr 1fr">
         <label class="field">Competitor<select class="input" name="id">${d.competitors.map(c => html`<option value="${c.id}">${c.name}</option>`)}</select></label>
         <label class="field">What the page is<select class="input" name="kind">${Object.entries(d.kinds).map(([k, label]) => html`<option value="${k}">${label}</option>`)}</select></label>

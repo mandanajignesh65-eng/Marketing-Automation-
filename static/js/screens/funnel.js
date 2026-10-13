@@ -119,13 +119,13 @@ export default {
       </div>`)}
     </div>
     <div class="card" style="padding:20px 24px 24px">
-      <div class="baseline" style="margin-bottom:16px"><span class="row" style="gap:8px"><span class="title">${d.top === 'all' ? 'From first touch to won deal' : d.top === 'web' ? 'From website visit to won deal' : d.top === 'outreach' ? 'From first message to won deal' : 'From lead to won deal'}</span>
+      <div class="baseline" style="margin-bottom:16px"><span class="row" style="gap:8px"><span class="title">${'Funnel stages'}</span>
           ${info('Read it from top to bottom. Each coloured band is one step. The number inside is how many reached that step. The % on the right is how many moved on from the step above. The shape is just a picture, the widths are not exact.')}</span>
         <span class="small muted">${show ? `Changes are against ${d.period.prev_short}` : d.period.label}</span></div>
       ${rows}
     </div>
     <div class="card" style="padding:18px 24px 20px">
-      <div class="baseline" style="gap:16px;flex-wrap:wrap;margin-bottom:14px"><span class="row" style="gap:8px"><span class="title">Which channels fill each step</span>
+      <div class="baseline" style="gap:16px;flex-wrap:wrap;margin-bottom:14px"><span class="row" style="gap:8px"><span class="title">Channel mix by stage</span>
         ${info('Each bar shows where the leads or deals came from. Each colour is one channel. A big colour under Leads but a small one under Won means that channel brings many people, but few become customers.')}</span>
         ${d.mix.length ? switcher([{ arg: '', label: 'All together', on: !oneCh }, ...legend.map(ch => ({ arg: ch.id, label: ch.name, color: ch.color, on: oneCh === ch.id }))], 'mixOnly') : ''}</div>
       ${d.mix.length ? html`
@@ -139,7 +139,7 @@ export default {
         : html`<div class="small muted">No leads or deals in this period.</div>`}
     </div>
     ${d.mix.length ? html`<div class="card" style="padding:18px 24px 20px">
-      <div class="row" style="gap:8px;margin-bottom:14px"><span class="title">How each channel converts</span>
+      <div class="row" style="gap:8px;margin-bottom:14px"><span class="title">Conversion by channel</span>
         ${info('One small box for each channel. It shows how many leads it brought, how many were the right kind, and how many became deals and wins. Pipeline is the money value of the deals it opened.')}</div>
       <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px">
         ${d.mix.map(m => { const ch = ctx.channel(m.id), top = Math.max(m.leads, m.qualified, m.deals, m.won, 1), q = rate(m.qualified, m.leads); return html`
@@ -155,7 +155,7 @@ export default {
       </div>
     </div>` : ''}
     ${audTotal ? html`<div class="card" style="padding:18px 24px 20px">
-      <div class="baseline" style="margin-bottom:12px"><span class="row" style="gap:8px"><span class="title">Who we are attracting</span>
+      <div class="baseline" style="margin-bottom:12px"><span class="row" style="gap:8px"><span class="title">Audience</span>
           ${info('This shows what kind of companies our leads are from. Each colour is one type of company we want. Grey means another type. Light grey means we do not know the company. More colour is better.')}</span>
         <span class="small muted"><span class="ink semi">${f.pct(inTarget / audTotal * 100)}</span> in target segments · <span class="ink semi">${f.pct(unknown / audTotal * 100)}</span> company not known</span></div>
       <div class="row" style="justify-content:flex-end;margin-bottom:10px">${switcher([{ arg: '', label: 'All together', on: oneSeg == null },
@@ -166,7 +166,7 @@ export default {
         <div class="baseline" style="gap:8px"><span class="clip">${ctx.channel(r.id).name}</span><span class="muted">${f.num(r.leads)}</span></div>${segBar(aud.names.map(n => r.parts[n]), r.leads)}</div>`)}
     </div>` : ''}
     <div class="card" style="padding:18px 24px 20px">
-      <div class="row" style="gap:8px;margin-bottom:${c.spend ? 12 : 6}px"><span class="title">Cost per step</span>
+      <div class="row" style="gap:8px;margin-bottom:${c.spend ? 12 : 6}px"><span class="title">Cost per stage</span>
         ${info('How much money we spent to get one of each. Example: money spent divided by number of leads gives the cost of one lead.')}</div>
       ${c.spend ? html`<div class="grid" style="grid-template-columns:repeat(6,minmax(0,1fr));gap:20px">
           ${costs.map(([label, value]) => html`<div class="stack" style="gap:3px"><span style="font-size:19px;font-weight:600;letter-spacing:-0.015em">${value}</span><span class="small muted">${label}</span></div>`)}</div>

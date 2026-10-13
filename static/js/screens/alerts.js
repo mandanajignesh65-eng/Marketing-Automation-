@@ -2,7 +2,7 @@ import { html } from '../html.js';
 import * as f from '../format.js';
 import { pageHead, toggle, info, segmented, switcher } from '../ui.js';
 
-const TABS = [['open', 'Needs attention'], ['health', 'Health check'], ['rules', 'Reminders and rules']];
+const TABS = [['open', 'Open alerts'], ['health', 'Health check'], ['rules', 'Rules']];
 const BLURB = {
   open: 'Everything that is off right now, most serious first',
   health: 'Each important number, set against its benchmark and against the 30 days before',
@@ -101,7 +101,7 @@ export default {
             : html`<span class="semi">Emails are not being sent yet.</span> Reminders show on the dashboard${d.queued ? ` and ${f.num(d.queued)} email${d.queued === 1 ? ' is' : 's are'} waiting` : ''}. To send them, the app needs a mailbox to send from.`}</div>
       </div>
       <div class="card clipped" style="--cols:44px minmax(0,2.4fr) 130px">
-        <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">Alerts that are switched on</span>${info(TIPS.rules)}</div>
+        <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">Active alerts</span>${info(TIPS.rules)}</div>
         <div class="thead" style="gap:14px;border-top:1px solid var(--line)"><span></span><span>Alert</span><span>Last came up</span></div>
         ${[...d.alert_rules, ...d.reminder_rules.map(r => ({ ...r, title: r.title + ' (for sales lead owners)', last: '' }))].map(r => html`<div class="trow" style="gap:14px;padding:13px 16px">
           ${toggle(r.enabled, 'rule', r.key)}
@@ -111,7 +111,7 @@ export default {
 
     return html`
     ${pageHead(`${d.open.length} open · last 30 days against the 30 before`, 'Alerts and reminders', segmented(TABS.map(([arg, label]) => ({ arg, label: arg === 'open' && d.open.length ? `${label} · ${d.open.length}` : label, on: view === arg })), 'view', 16))}
-    <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span><span class="muted">${BLURB[view]}</span></div>
+    <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span></div>
     ${{ open, health, rules }[view]()}`;
   },
 

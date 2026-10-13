@@ -91,7 +91,7 @@ export default {
     const view = SIDES[params.view] || params.view === 'compare' ? params.view : 'inbound';
     const all = d.rows.map(r => ({ ...r, ...ctx.channel(r.id) }));
     const live = r => r.leads || r.deals || r.won;
-    const tabs = [['inbound', 'Inbound'], ['outbound', 'Outbound'], ['compare', 'Compare all']].map(([arg, label]) => ({ arg, label, on: view === arg }));
+    const tabs = [['inbound', 'Inbound'], ['outbound', 'Outbound'], ['compare', 'Compare']].map(([arg, label]) => ({ arg, label, on: view === arg }));
     const side = SIDES[view];
     const rows = side ? all.filter(r => side.groups.includes(r.grp)) : all;
     const cur = k => sum(rows, k), prev = k => rows.reduce((a, r) => a + r.prev[k], 0);
@@ -166,7 +166,7 @@ export default {
 
     return html`
     ${pageHead(`${d.range_name} · ${d.period.short}`, 'Channels', segmented(tabs, 'view', 16))}
-    <div class="row" style="gap:10px;margin:2px 0 -2px"><span class="section">${side ? side.label : 'All channels side by side'}</span><span class="muted">${side ? side.blurb : 'Inbound and outbound together'}</span></div>
+    <div class="row" style="gap:10px;margin:2px 0 -2px"><span class="section">${side ? side.label : 'Channel comparison'}</span><span class="muted">${side ? side.blurb : 'Inbound and outbound together'}</span></div>
     <div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
       ${kpi(f.num(cur('leads')), 'Leads', TIPS.leads, change(cur('leads'), prev('leads')))}
       ${kpi(f.num(cur('qualified')), 'Qualified leads', TIPS.qualified(d), change(cur('qualified'), prev('qualified')), qRate != null ? `${f.pct(qRate)} of leads` : '')}
@@ -176,7 +176,7 @@ export default {
     ${side ? html`
       ${view === 'outbound' ? rows.filter(r => OUTREACH[r.id] || live(r)).map(outreachBox) : side.groups.map(part)}
       ${order.length ? html`<div class="card" style="padding:18px 24px 18px">
-        <div class="baseline" style="gap:16px;flex-wrap:wrap;margin-bottom:10px"><span class="row" style="gap:8px"><span class="title">${one ? ctx.channel(one).name : side.label} over the last six months</span>${info(TIPS.trendPick)}</span>
+        <div class="baseline" style="gap:16px;flex-wrap:wrap;margin-bottom:10px"><span class="row" style="gap:8px"><span class="title">${one ? ctx.channel(one).name : side.label} · last 6 months</span>${info(TIPS.trendPick)}</span>
           ${switcher([{ arg: '', label: 'All together', on: !one }, ...order.map(id => ({ arg: id, label: ctx.channel(id).name, color: ctx.channel(id).color, on: one === id }))], 'trend')}</div>
         <div class="grid" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:36px">
           <div><div class="row small muted" style="gap:7px">Leads per month${info(TIPS.months)}</div>${monthly(d.months, 'leads', shown, ctx.channel)}</div>
@@ -186,7 +186,7 @@ export default {
     : active.length ? html`
       ${leaders(active, d)}
       <div class="card clipped">
-        <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">Channels ranked</span>${info(TIPS.ranked)}</div>
+        <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">Channel ranking</span>${info(TIPS.ranked)}</div>
         ${headRow}
         ${active.map(r => html`<div class="trow right" style="--cols:${cols}">
           <span class="row" style="gap:8px;text-align:left;min-width:0"><span style="width:10px"></span>${sq(r.color, 10, 3)}<span class="clip medium">${r.name}</span></span>

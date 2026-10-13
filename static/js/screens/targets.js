@@ -189,7 +189,7 @@ export default {
     ${d.demo ? html`<div class="row small" style="gap:12px;padding:9px 14px;border-radius:10px;background:color-mix(in oklch, var(--warn) 12%, var(--surface))">
       <span><span class="semi">Example data.</span> The hand-counted numbers, notes, tasks and blockers on this page are made up to show how it works.</span>
       <span style="flex:1"></span><span class="btn xs" data-act="clearDemo">Remove example data</span></div>` : ''}
-    <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span><span class="muted">${BLURB[view]}</span></div>
+    <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span></div>
     ${{ progress, today, report, blockers }[view]()}`;
   },
 

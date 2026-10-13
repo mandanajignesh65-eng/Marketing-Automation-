@@ -17,7 +17,7 @@ export default {
   render(d) {
     const logins = d.people.filter(p => p.account_id).length;
     return html`
-    ${pageHead('Who can sign in, and who has targets', 'People', html`<div class="btn primary" data-act="add">Add person</div>`)}
+    ${pageHead('Team access', 'People', html`<div class="btn primary" data-act="add">Add person</div>`)}
     <div class="card clipped" style="--cols:${COLS}">
       <div class="thead"><span>Name</span><span>Email</span><span class="row" style="gap:7px">Can do${info(TIPS.role)}</span><span class="row" style="gap:7px">Targets${info(TIPS.targets)}</span><span></span></div>
       ${d.people.map((p, i) => html`<div class="trow ${i ? '' : 'first'}" data-act="edit" data-arg="${i}" title="Change ${p.name}">

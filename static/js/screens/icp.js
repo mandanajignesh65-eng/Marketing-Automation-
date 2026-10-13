@@ -104,7 +104,7 @@ function profile(p, ctx) {
     </div>
     <div class="grid" style="grid-template-columns:minmax(0,1.7fr) minmax(0,1fr);align-items:stretch">
       <div class="card" style="padding:18px 22px 16px">
-        <div class="baseline" style="gap:14px;flex-wrap:wrap"><span class="title">Month by month</span>
+        <div class="baseline" style="gap:14px;flex-wrap:wrap"><span class="title">Monthly trend</span>
           ${switcher([['leads', 'Leads'], ['deals', 'Deals opened'], ['won', 'Deals won']].map(([arg, label]) => ({ arg: `flow=${arg}`, label, on: series === arg })), 'set')}</div>
         <div style="height:170px;display:flex;align-items:flex-end;gap:10px;margin-top:14px">
           ${p.flow.map(x => html`<div class="stack" style="flex:1;height:100%;justify-content:flex-end;align-items:center;gap:4px">
@@ -113,7 +113,7 @@ function profile(p, ctx) {
         <div style="display:flex;gap:10px;margin-top:6px">${p.flow.map(x => html`<span class="micro muted" style="flex:1;text-align:center">${MONTHS[Number(x.month.slice(5)) - 1]}</span>`)}</div>
       </div>
       <div class="card stack" style="padding:18px 22px;gap:14px">
-        <span class="title">From lead to customer</span>
+        <span class="title">Lead to customer</span>
         ${[['Leads, ever', g.leads_ever, 100], ['Became a deal', g.deals, g.leads_ever ? g.deals / g.leads_ever * 100 : 0], ['Won', g.won, g.leads_ever ? g.won / g.leads_ever * 100 : 0]].map(([label, n, w], i) => html`
           <div class="stack" style="gap:5px"><div class="baseline"><span>${label}</span><span class="semi" style="font-size:16px">${f.num(n)}</span></div>
             <div class="track" style="height:10px;border-radius:5px"><div class="fill" style="width:${n ? Math.max(Math.min(w, 100), 1.5) : 0}%;background:var(--${i === 2 ? 'pos' : 'ink'})"></div></div></div>`)}
@@ -141,10 +141,10 @@ export default {
 
   render(d, ctx) {
     const view = TABS.some(x => x[0] === ctx.app.params.view) ? ctx.app.params.view : 'summary';
-    const head = pageHead(view === 'summary' ? 'Worked out from every deal in Zoho' : 'Leads are the last 12 months · deals are every deal in Zoho', 'Ideal customer',
+    const head = pageHead(view === 'summary' ? 'Based on all deals in Zoho' : 'Leads are the last 12 months · deals are every deal in Zoho', 'Ideal customer',
       segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16));
     if (d.seg) return html`${head}${profile(d.seg, ctx)}`;
-    if (view === 'industries' && d.compare) return html`${head}${compareTable('Every industry side by side', d.compare.industry, 'industry', ctx)}`;
+    if (view === 'industries' && d.compare) return html`${head}${compareTable('Industries', d.compare.industry, 'industry', ctx)}`;
     if (view === 'personas' && d.compare) return html`${head}
       ${compareTable('By department', d.compare.department, 'department', ctx)}${compareTable('By seniority', d.compare.seniority, 'seniority', ctx)}`;
     if (!d.card) return html`${head}`;
@@ -162,7 +162,7 @@ export default {
     ${head}
 
     <div class="card" style="padding:20px 6px 16px 24px">
-      <div class="title" style="margin-bottom:14px">Our best customer</div>
+      <div class="title" style="margin-bottom:14px">Ideal customer profile</div>
       <div style="display:grid;grid-template-columns:1.3fr 1.1fr 1fr 0.8fr 0.8fr;margin-left:-18px">
         ${fact('Industry', or(c.industry))}${fact('Company size', c.size)}${fact('Source', c.channel)}
         ${fact('Typical deal', c.deal ? f.moneyShort(c.deal) : '')}${fact('Time to win', c.days != null ? `${f.num(c.days)} days` : '')}
@@ -174,7 +174,7 @@ export default {
       </div>
     </div>
 
-    <div class="row" style="gap:10px;margin:6px 0 -4px;flex-wrap:wrap"><span class="section">Where we win and lose</span><span class="muted">Win rate: deals won out of deals finished. The coloured part of each bar is won, the grey part is lost.</span></div>
+    <div class="row" style="gap:10px;margin:6px 0 -4px;flex-wrap:wrap"><span class="section">Win rate</span><span class="muted">Win rate: deals won out of deals finished. The coloured part of each bar is won, the grey part is lost.</span></div>
     <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch">
       ${winList('By industry', d.industry, `${d.small_industries ? `${f.num(d.small_industries)} other industries have too few deals to judge. ` : ''}${d.no_industry ? `${f.num(d.no_industry)} deals have no industry written down.` : ''}`, 'w_industry', ctx)}
       ${winList('By company size', d.size, d.no_size ? `${f.num(d.no_size)} deals have no company size written down.` : '', 'w_size', ctx)}
@@ -182,7 +182,7 @@ export default {
     </div>
 
     <div class="card" style="padding:20px 24px 18px">
-      <div class="baseline" style="gap:16px;flex-wrap:wrap"><span class="title">Leads that match · ${d.period.short}</span>
+      <div class="baseline" style="gap:16px;flex-wrap:wrap"><span class="title">Leads matching the profile · ${d.period.short}</span>
         <div class="row" style="gap:16px">${key(GREEN, 'Match')}${key('var(--ink3)', 'Do not match')}${key(stripes, 'Cannot tell')}</div></div>
       <div style="font-size:22px;font-weight:600;letter-spacing:-0.02em;margin:10px 0 14px"><span style="color:${GREEN}">${f.num(t.match)}</span> of ${f.num(t.total)} leads match${t.unknown ? html`<span class="muted" style="font-weight:500">. We cannot tell for ${f.num(t.unknown)}.</span>` : '.'}</div>
       ${d.leads.map(r => html`<div style="display:grid;grid-template-columns:150px minmax(0,1fr) 50px;gap:14px;align-items:center;padding:6px 0">
@@ -201,7 +201,7 @@ export default {
   modal(m, ctx) {
     const d = ctx.app.data;
     return html`<div class="modal wide" style="gap:12px">
-      <div class="baseline"><span class="section">Won deals with no industry</span><span class="small muted">${f.num(d.to_label.length)} left</span></div>
+      <div class="baseline"><span class="section">Won deals without an industry</span><span class="small muted">${f.num(d.to_label.length)} left</span></div>
       <span class="small muted">Pick the industry for each deal. It saves as you pick.</span>
       <div data-scroll="label" style="overflow-y:auto;max-height:58vh;margin:0 -8px;padding:0 8px">
         ${d.to_label.map(x => html`<div style="display:grid;grid-template-columns:minmax(0,1fr) 170px 180px;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line2)">

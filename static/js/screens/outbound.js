@@ -146,7 +146,7 @@ export default {
     </div>
     ${sent || second || replied || g.leads ? html`
     <div class="card" style="padding:18px 24px 18px">
-      <div class="row" style="gap:8px;margin-bottom:12px"><span class="title">From first message to lead</span>${info(TIPS.path)}</div>
+      <div class="row" style="gap:8px;margin-bottom:12px"><span class="title">Outreach funnel</span>${info(TIPS.path)}</div>
       ${path.map(([label, n], i) => { const raw = i ? rate(n, path[i - 1][1]) : null, r = raw != null && raw > 100 ? null : raw, last = !filtered && i === path.length - 1; return html`
         <div style="display:grid;grid-template-columns:150px minmax(0,1fr) 70px 130px;gap:14px;align-items:center;padding:6px 0">
           <span class="medium">${label}</span>
@@ -171,7 +171,7 @@ export default {
         bestRate.length ? Math.max(bestRate[0].steps[2] / bestRate[0].steps[0] * 100, 1) : 1, true)}
     </div>
     <div class="card clipped" style="--cols:${cols}">
-      <div class="baseline" style="padding:16px 16px 10px"><span class="row" style="gap:8px"><span class="title">${filtered ? 'The campaigns you chose' : 'All campaigns in this period'}</span>${info(TIPS.all)}</span>
+      <div class="baseline" style="padding:16px 16px 10px"><span class="row" style="gap:8px"><span class="title">${filtered ? 'Selected campaigns' : 'All campaigns'}</span>${info(TIPS.all)}</span>
         <span class="small muted">${f.num(active.length)} active · newest first</span></div>
       <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Campaign</span><span>Started</span><span style="text-align:left">Sent (dark part = replied)</span>
         <span>Sent</span><span style="text-transform:capitalize">${kind.second}</span><span>Replied</span><span>Replies</span></div>
@@ -185,7 +185,7 @@ export default {
       ${active.length > 25 ? html`<div class="small faint" style="padding:10px 16px;border-top:1px solid var(--line2)">and ${f.num(active.length - 25)} smaller campaigns</div>` : ''}
     </div>` : ''}
     ${life.length ? html`<div class="card clipped" style="--cols:minmax(160px,1.6fr) 90px 90px 90px">
-      <div class="baseline" style="padding:16px 16px 10px"><span class="row" style="gap:8px"><span class="title">All-time by sequence</span>${info(TIPS.life)}</span>
+      <div class="baseline" style="padding:16px 16px 10px"><span class="row" style="gap:8px"><span class="title">Sequences, all time</span>${info(TIPS.life)}</span>
         <span class="small muted">${f.num(life.length)} sequences with emails sent</span></div>
       <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Sequence</span><span>Sent</span><span>Opened</span><span>Replied</span></div>
       ${life.slice(0, 12).map(c => html`<div class="trow right"><div class="stack" style="text-align:left;min-width:0"><span class="medium clip" title="${c.name}">${c.name}</span>${c.detail ? html`<span class="tiny faint clip">${c.detail}</span>` : ''}</div>
