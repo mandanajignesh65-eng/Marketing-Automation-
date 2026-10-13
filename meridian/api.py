@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ads, alerts, backup, config, db, google, health, ingest, mailer, meta, metrics, money, narrative, outbound, people, reminders, research, scheduler, scoring, screens, semrush, team, website, zoho
+from . import accounts, ads, icp, alerts, backup, config, db, google, health, ingest, mailer, meta, metrics, money, narrative, outbound, people, reminders, research, scheduler, scoring, screens, semrush, team, website, zoho
 from .periods import Period, iso
 
 app = FastAPI(title="Meridian")
@@ -317,6 +317,12 @@ def put_form_site(body: FormSite):
         except ValueError as err:
             raise HTTPException(400, str(err))
         return {"ok": True}
+
+
+@app.get("/api/icp")
+def get_icp(span: str = "all"):
+    with session() as conn:
+        return icp.view(conn, db.now(conn), span)
 
 
 @app.get("/api/quality")

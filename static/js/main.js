@@ -11,6 +11,7 @@ import outbound from './screens/outbound.js';
 import web from './screens/web.js';
 import leads from './screens/leads.js';
 import quality from './screens/quality.js';
+import icp from './screens/icp.js';
 import subs from './screens/subs.js';
 import reports from './screens/reports.js';
 import alerts from './screens/alerts.js';
@@ -18,11 +19,11 @@ import targets from './screens/targets.js';
 import people from './screens/people.js';
 import settings from './screens/settings.js';
 
-const SCREENS = { overview, funnel, channels, paid, outbound, web, leads, quality, targets, people, subs, reports, alerts, settings };
+const SCREENS = { overview, funnel, channels, paid, outbound, web, leads, quality, icp, targets, people, subs, reports, alerts, settings };
 const NAV = [
   { label: null, items: [['overview', 'Overview']] },
   { label: 'Performance', items: [['funnel', 'Funnel'], ['channels', 'Channels'], ['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic']] },
-  { label: 'Leads', items: [['leads', 'Leads', 'leads'], ['quality', 'Lead quality']] },
+  { label: 'Leads', items: [['leads', 'Leads', 'leads'], ['icp', 'Ideal customer'], ['quality', 'Lead quality']] },
   { label: 'Team', items: [['targets', 'Targets'], ['people', 'People']] },
   { label: 'Operations', items: [['subs', 'Subscriptions'], ['reports', 'Reports'], ['alerts', 'Alerts & reminders', 'alerts']] },
 ];
@@ -43,6 +44,7 @@ const ICON = {
   alerts: '<path d="M6.500 16.500V11a5.500 5.500 0 0111 0v5.500l1.500 2.200h-14l1.500-2.200z"/><path d="M10.300 20.800a2 2 0 003.400 0"/>',
   settings: '<path d="M4 7h8.800M17.200 7H20M4 12h2.800M11.200 12H20M4 17h10.800M19.200 17H20"/><circle cx="15" cy="7" r="2.200"/><circle cx="9" cy="12" r="2.200"/><circle cx="17" cy="17" r="2.200"/>',
 };
+ICON.icp = '<circle cx="12" cy="12" r="8.500"/><path d="M12 3.500v3M12 17.500v3M3.500 12h3M17.500 12h3"/><circle cx="12" cy="12" r="2.200"/>';
 ICON.people = '<circle cx="12" cy="8" r="3.400"/><path d="M5.200 19.500c.7-3.700 3.400-5.800 6.800-5.800s6.100 2.100 6.800 5.800"/>';
 // Pages only a leader may open. With sign-in off there is no signed-in person, and everything is open.
 const LEADER_SCREENS = ['people', 'settings'];
