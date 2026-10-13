@@ -99,6 +99,7 @@ def view(conn, now, p):
 
     return dict(period=p.as_json(), card=card, industry=industry, size=size, channel=channel, small_industries=small_industries,
                 no_industry=sum(1 for d in deals if d["stage"] in ("won", "lost") and not d["group"]["industry"]),
+                no_size=sum(1 for d in deals if d["stage"] in ("won", "lost") and not d["group"]["size"]),
                 customers=len(won), labelled=len(labelled), targets=list(profile["segments"]),
                 to_label=[dict(id=d["id"], name=d["name"] or "Deal with no name", size=d["group"]["size"] or "") for d in
                           sorted(won, key=lambda d: d["closed_at"] or "", reverse=True) if not d["group"]["industry"]],

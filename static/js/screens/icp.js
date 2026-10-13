@@ -5,17 +5,26 @@ import { pageHead, segmented, switcher } from '../ui.js';
 const GREEN = 'var(--pos)', RED = 'var(--neg)';
 const or = list => (list.length > 1 ? list.slice(0, -1).join(', ') + ' or ' + list[list.length - 1] : list[0] || '');
 
-// One list: a name, a bar, and how many of every 100 deals were won. The best row is green, the worst is red.
-function winList(title, rows) {
-  return html`<div class="card" style="padding:18px 20px 10px">
-    <div class="title" style="margin-bottom:10px">${title}</div>
-    ${rows.map((r, i) => { const color = rows.length > 1 && i === 0 ? GREEN : rows.length > 1 && i === rows.length - 1 ? RED : 'var(--ink)'; return html`
-      <div style="display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:4px 10px;align-items:center;padding:9px 0;border-top:${i ? '1px solid var(--line2)' : 'none'}">
+// One list: a name, a bar, and the win rate. The best row is green, the worst is red.
+// The three lists sit side by side at one height: rows spread to fill the card, and a long list shows its best and worst until opened.
+const SHORT = 5;
+function winList(title, rows, foot, key, ctx) {
+  const open = ctx.ui()['all_' + key];
+  const shown = rows.length > SHORT && !open ? [...rows.slice(0, SHORT - 2), ...rows.slice(-2)] : rows;
+  const cut = rows.length > SHORT && !open ? SHORT - 2 : -1;  // where the hidden middle rows are
+  return html`<div class="card" style="padding:18px 20px 12px;display:flex;flex-direction:column">
+    <div class="title" style="margin-bottom:6px">${title}</div>
+    <div style="flex:1;display:flex;flex-direction:column">
+    ${shown.map((r, i) => { const color = rows.length > 1 && r === rows[0] ? GREEN : rows.length > 1 && r === rows[rows.length - 1] ? RED : 'var(--ink)'; return html`
+      <div style="flex:1;display:grid;grid-template-columns:minmax(0,1fr) 44px;gap:5px 10px;align-content:center;align-items:center;padding:10px 0;border-top:${i ? `1px ${i === cut ? 'dashed var(--line)' : 'solid var(--line2)'}` : 'none'}">
         <span class="baseline" style="gap:10px"><span class="medium clip">${r.name}</span><span class="tiny faint nowrap">from ${f.num(r.deals)} deals</span></span>
         <span class="semi right" style="font-size:16px;color:${color};grid-row:span 2">${r.per_100}%</span>
         <div class="track" style="height:8px;border-radius:4px"><div class="fill" style="width:${r.per_100 ? Math.max(r.per_100, 2) : 0}%;background:${color}"></div></div>
       </div>`; })}
     ${rows.length ? '' : html`<div class="small muted" style="padding:6px 0 12px">Not enough finished deals yet.</div>`}
+    </div>
+    <div class="tiny muted pretty" style="padding-top:10px;border-top:1px solid var(--line2);min-height:38px">
+      ${rows.length > SHORT ? html`<span class="link" data-act="showAll" data-arg="${key}" style="font-size:11px">${open ? 'Show fewer' : `Show all ${rows.length}`}</span>${foot ? ' · ' : ''}` : ''}${foot}</div>
   </div>`;
 }
 
@@ -160,11 +169,10 @@ export default {
     </div>
 
     <div class="row" style="gap:10px;margin:6px 0 -4px;flex-wrap:wrap"><span class="section">Where we win and lose</span><span class="muted">Win rate: deals won out of deals finished. The coloured part of each bar is won, the grey part is lost.</span></div>
-    <div class="grid start" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-      <div class="stack" style="gap:8px">${winList('By industry', d.industry)}
-        <div class="tiny muted pretty" style="padding:0 4px">${d.small_industries ? `${f.num(d.small_industries)} other industries have too few deals to judge. ` : ''}${d.no_industry ? `${f.num(d.no_industry)} deals have no industry written down, so they are not in this list.` : ''}</div></div>
-      ${winList('By company size', d.size)}
-      ${winList('By source', d.channel)}
+    <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));align-items:stretch">
+      ${winList('By industry', d.industry, `${d.small_industries ? `${f.num(d.small_industries)} other industries have too few deals to judge. ` : ''}${d.no_industry ? `${f.num(d.no_industry)} deals have no industry written down.` : ''}`, 'w_industry', ctx)}
+      ${winList('By company size', d.size, d.no_size ? `${f.num(d.no_size)} deals have no company size written down.` : '', 'w_size', ctx)}
+      ${winList('By source', d.channel, 'Sources with fewer than 10 finished deals are left out.', 'w_source', ctx)}
     </div>
 
     <div class="card" style="padding:20px 24px 18px">
