@@ -42,7 +42,10 @@ def run(conn, now):
             "Lead: {} ({})\nStatus: {}\nScore: {}\n\nPlease log a call, email, note or status change in Zoho CRM."
             .format(lead["name"], lead["company"] or "-", lead["status"], lead["score"]))
     if pending:
-        mailer.flush(conn, now)
+        try:
+            mailer.flush(conn, now)
+        except mailer.MailError as err:  # stays in the outbox for the next pass
+            print("Reminders:", err)
     return len(pending)
 
 

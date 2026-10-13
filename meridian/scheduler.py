@@ -4,7 +4,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 
-from . import ads, alerts, backup, config, db, google, icp, meta, money, outbound, rivals, research, semrush, zoho
+from . import ads, alerts, backup, config, db, google, icp, mailer, meta, money, outbound, rivals, research, semrush, zoho
 
 CHECK_SECONDS = 60
 RESEARCH_PER_PASS = 100
@@ -65,6 +65,13 @@ def tick(force=False):
                 meta.flush(conn, now)
             except meta.MetaError as err:
                 print("Background sync:", err)
+        if mailer.mode() != "off" and mailer.ready():  # emails waiting in the outbox
+            try:
+                if mailer.flush(conn, now):
+                    did = True
+                conn.commit()
+            except mailer.MailError as err:
+                print("Background sync: email:", err)
         if not db.is_demo(conn) and (force or rivals.due(conn, now)):  # competitors' news and pages, twice a day
             did = True
             try:

@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ads, icp, alerts, backup, config, db, google, health, ingest, mailer, meta, metrics, money, narrative, outbound, people, reminders, research, rivals, scheduler, scoring, screens, semrush, team, website, zoho
+from . import accounts, ads, assistant, icp, alerts, backup, config, db, google, health, ingest, mailer, meta, metrics, money, narrative, outbound, people, reminders, research, rivals, scheduler, scoring, screens, semrush, team, website, zoho
 from .periods import Period, iso
 
 app = FastAPI(title="Meridian")
@@ -321,6 +321,28 @@ def put_form_site(body: FormSite):
         except ValueError as err:
             raise HTTPException(400, str(err))
         return {"ok": True}
+
+
+# ------------------------------------------------------------------------------- assistant
+
+class Question(BaseModel):
+    question: str
+    history: Optional[list] = None
+
+
+@app.get("/api/assistant")
+def assistant_status(request: Request):
+    person = getattr(request.state, "person", None)
+    return {"show": not person or person["role"] == "admin", "ready": assistant.ready()}
+
+
+@app.post("/api/assistant")
+def assistant_ask(b: Question):
+    history = [(h.get("role"), h.get("text")) for h in (b.history or []) if isinstance(h, dict) and h.get("text")]
+    try:
+        return {"answer": assistant.ask(b.question, history, today=datetime.now().date().isoformat())}
+    except assistant.AssistantError as err:
+        raise HTTPException(400, str(err))
 
 
 # ------------------------------------------------------------------------------- competitors
@@ -756,9 +778,12 @@ def send_test_report():
         to = user["email"] if user else None
         mailer.queue(conn, now, "report_test", to, "[Test] " + (row["headline"] or "Weekly marketing report"),
                      (row["body"] or "") + ("\n\nNext week\n" + row["next_steps"] if row["next_steps"] else ""))
-        sent = mailer.flush(conn, now)
+        try:
+            sent = mailer.flush(conn, now)
+        except mailer.MailError as err:
+            return {"ok": False, "message": "Not sent. {}.".format(err)}
         if sent:
-            return {"ok": True, "message": "Test sent to " + to}
+            return {"ok": True, "message": "Test sent to " + ((mailer.status()["test_to"] if mailer.mode() == "test" else to) or "the outbox")}
         return {"ok": False, "message": "Saved to the outbox. Email is not set up yet, so nothing was sent."}
 
 

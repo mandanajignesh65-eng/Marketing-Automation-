@@ -3,7 +3,7 @@
 import json
 from datetime import date, datetime, timedelta
 
-from . import config, health, ingest, insights, metrics, money, narrative, research, scoring, semrush
+from . import config, health, ingest, insights, metrics, money, narrative, research, scoring, semrush, mailer
 from .db import get_setting, is_demo
 from .periods import (MONTHS, MONTHS_LONG, WEEKDAYS, WEEKDAYS_LONG, Period, age_short, ago, day_label, days_in_month,
                       fired_label, iso, midnight, month_key, next_month, span_label, stamp)
@@ -714,7 +714,7 @@ def alerts_page(conn, now):
     return dict(open=open_now, waiting=metrics.count_needs_update(conn, now, 3),
                 reminder_rules=reminder_rules, alert_rules=alert_rules,
                 health=health.run(conn, now), groups=health.GROUPS, drop_pct=health.DROP_PCT,
-                email_ready=bool(config.SMTP_HOST), queued=queued,
+                email_ready=mailer.ready() and mailer.mode() != "off", queued=queued,
                 renewals=[dict(name=r["name"], renews_on=r["renews_on"], days=(date.fromisoformat(r["renews_on"]) - now.date()).days,
                                owner=r["owner"], email=r["email"]) for r in conn.execute(
                                    "SELECT * FROM subscriptions WHERE renews_on IS NOT NULL ORDER BY renews_on")])

@@ -37,6 +37,20 @@ services:
         sync: false
       - key: HEYREACH_API_KEY
         sync: false
+      - key: MERIDIAN_MAIL_MODE
+        value: "off"                 # off | test | live: no email leaves until this is changed
+      - key: MERIDIAN_MAIL_FROM      # the Microsoft 365 mailbox emails are sent from
+        sync: false
+      - key: MERIDIAN_MAIL_TEST_TO   # in test mode every email goes only to this address
+        sync: false
+      - key: MS_TENANT_ID            # the app registered in Microsoft Entra, with the Mail.Send permission
+        sync: false
+      - key: MS_CLIENT_ID
+        sync: false
+      - key: MS_CLIENT_SECRET
+        sync: false
+      - key: GEMINI_API_KEY          # the assistant; from Google AI Studio
+        sync: false
       - key: APIFY_TOKEN  # reads competitors' public LinkedIn posts
         sync: false
       - key: APOLLO_API_KEY
