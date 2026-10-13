@@ -332,7 +332,7 @@ def read_linkedin(conn, now, force=False):
     """
     accounts = conn.execute("SELECT a.* FROM competitor_accounts a JOIN competitors c ON c.id = a.competitor_id WHERE c.active = 1 AND a.network = 'linkedin'").fetchall()
     fresh = iso(now - timedelta(hours=LINKEDIN_HOURS))
-    if not accounts or (not force and all(a["checked_at"] and a["checked_at"] > fresh for a in accounts)):
+    if not accounts or (not force and all(a["checked_at"] and a["checked_at"] > fresh and not a["note"] for a in accounts)):
         return dict(posts=0, failed=0)
     token = config.setting("APIFY_TOKEN")
     try:
@@ -367,8 +367,8 @@ def read_linkedin(conn, now, force=False):
         conn.execute("UPDATE competitor_accounts SET checked_at = ?, note = NULL WHERE network = 'linkedin'", (iso(now),))
         conn.commit()
         return dict(posts=added, failed=0)
-    except RivalError as err:
-        conn.execute("UPDATE competitor_accounts SET checked_at = ?, note = ? WHERE network = 'linkedin'", (iso(now), str(err)[:200]))
+    except RivalError as err:  # the time of the last good read is left alone, so the next sync tries again
+        conn.execute("UPDATE competitor_accounts SET note = ? WHERE network = 'linkedin'", (str(err)[:200],))
         conn.commit()
         return dict(posts=0, failed=len(accounts))
 
@@ -431,8 +431,10 @@ def due(conn, now):
         not last or now - datetime.fromisoformat(last) >= timedelta(hours=EVERY_HOURS))
 
 
-def sync(conn, now):
-    """Read every feed. One page failing never stops the rest; each page records how its last read went."""
+def sync(conn, now, force=False):
+    """Read every feed. One page failing never stops the rest; each page records how its last read went.
+
+    force also reads LinkedIn again even when it was read today (the "Read all now" button)."""
     done = dict(signals=0, pages=0, failed=0)
     for comp in conn.execute("SELECT * FROM competitors WHERE active = 1 AND own = 0 ORDER BY sort, id").fetchall():
         try:
@@ -450,7 +452,7 @@ def sync(conn, now):
                 conn.execute("UPDATE competitor_sources SET checked_at = ?, note = ? WHERE id = ?", (iso(now), str(err)[:200], src["id"]))
                 done["failed"] += 1
         conn.commit()
-    seen = read_social(conn, now)
+    seen = read_social(conn, now, force)
     done.update(posts=seen["posts"], pages=done["pages"] + len(conn.execute("SELECT 1 FROM competitor_accounts").fetchall()), failed=done["failed"] + seen["failed"])
     db.set_setting(conn, "competitors_synced_at", iso(now))
     conn.commit()
