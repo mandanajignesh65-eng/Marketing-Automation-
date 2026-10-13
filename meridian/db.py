@@ -252,6 +252,16 @@ CREATE TABLE IF NOT EXISTS competitor_signals (
   summary TEXT, hidden INTEGER NOT NULL DEFAULT 0, mentions INTEGER NOT NULL DEFAULT 1, UNIQUE (competitor_id, url)
 );
 CREATE INDEX IF NOT EXISTS competitor_signals_at ON competitor_signals (published_at, first_seen);
+-- competitors' social pages and what they posted there
+CREATE TABLE IF NOT EXISTS competitor_accounts (
+  id INTEGER PRIMARY KEY, competitor_id INTEGER NOT NULL REFERENCES competitors(id), network TEXT NOT NULL, url TEXT NOT NULL,
+  feed TEXT, checked_at TEXT, note TEXT, UNIQUE (competitor_id, network)
+);
+CREATE TABLE IF NOT EXISTS competitor_posts (
+  id INTEGER PRIMARY KEY, competitor_id INTEGER NOT NULL REFERENCES competitors(id), network TEXT NOT NULL, url TEXT NOT NULL,
+  title TEXT NOT NULL, kind TEXT, posted_at TEXT NOT NULL, views INTEGER, likes INTEGER, first_seen TEXT NOT NULL, UNIQUE (competitor_id, url)
+);
+CREATE INDEX IF NOT EXISTS competitor_posts_at ON competitor_posts (posted_at);
 -- one line per export, counted the way Semrush's own screen counts (every listed position, map and AI results included)
 CREATE TABLE IF NOT EXISTS semrush_totals (
   domain TEXT NOT NULL, country TEXT NOT NULL, day TEXT NOT NULL, positions INTEGER NOT NULL, traffic INTEGER NOT NULL,
@@ -282,7 +292,7 @@ TABLES = [
     "reports", "report_recipients", "outbox", "left_out_leads", "companies",
     "semrush_files", "semrush_keywords", "semrush_competitors", "semrush_totals", "search_page_daily",
     "traffic_site_daily", "search_site_daily", "query_site_daily",
-    "competitors", "competitor_sources", "competitor_seen", "competitor_signals",
+    "competitors", "competitor_sources", "competitor_seen", "competitor_signals", "competitor_accounts", "competitor_posts",
     "meta_campaigns", "meta_adsets", "meta_ads", "meta_ad_daily", "meta_breakdown_daily", "meta_events", "meta_audiences",
     "accounts", "sessions", "benchmarks", "team_members", "goals", "goal_log", "goal_notes", "team_tasks", "team_notes", "blockers",
 ]

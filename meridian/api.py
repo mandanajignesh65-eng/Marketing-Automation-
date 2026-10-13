@@ -31,6 +31,7 @@ def start_up():
             conn = db.connect(path)
             db.upgrade(conn)
             rivals.seed(conn)  # the known competitors and their pages, the first time
+            rivals.seed_social(conn)
             conn.commit()
             conn.close()
     scheduler.start()
@@ -356,6 +357,8 @@ def change_competitors(b: RivalChange):
                 rivals.add_source(conn, b.id, b.kind, b.url)
             elif b.what == "remove_source":
                 rivals.remove_source(conn, b.id)
+            elif b.what == "remove_account":
+                rivals.remove_account(conn, b.id)
             elif b.what == "hide":
                 rivals.hide(conn, b.id, b.hidden is not False)
             elif b.what == "findings":

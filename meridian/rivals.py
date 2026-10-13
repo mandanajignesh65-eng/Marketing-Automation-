@@ -85,13 +85,13 @@ NAV = re.compile(r"^(home|about|about us|contact|contact us|login|log in|sign in
 
 # The five competitors and their verified pages, from the Chat360 competitor-watch source registry (5 Sep 2026).
 SEED = [
-    dict(name="Engati", domain="engati.ai", linkedin="https://www.linkedin.com/company/engati", sources=[
+    dict(name="Engati", youtube="https://www.youtube.com/@engati", domain="engati.ai", linkedin="https://www.linkedin.com/company/engati", sources=[
         ("news", "https://www.engati.ai/news-old"), ("blog", "https://www.engati.ai/blog"), ("customers", "https://www.engati.ai/customers"),
         ("events", "https://www.engati.ai/webinars"), ("careers", "https://www.engati.ai/careers"), ("pricing", "https://www.engati.ai/pricing")]),
-    dict(name="Yellow.ai", domain="yellow.ai", linkedin="https://www.linkedin.com/company/yellowdotai", sources=[
+    dict(name="Yellow.ai", youtube="https://www.youtube.com/@yellowdotai", domain="yellow.ai", linkedin="https://www.linkedin.com/company/yellowdotai", sources=[
         ("product", "https://docs.yellow.ai/whats-new"), ("blog", "https://yellow.ai/blog/"), ("news", "https://yellow.ai/newsroom/"),
         ("pricing", "https://yellow.ai/pricing/")]),
-    dict(name="Kore.ai", domain="kore.ai", linkedin="https://www.linkedin.com/company/koredotai", sources=[
+    dict(name="Kore.ai", youtube="https://www.youtube.com/@koreai", domain="kore.ai", linkedin="https://www.linkedin.com/company/koredotai", sources=[
         ("news", "https://www.kore.ai/news"), ("customers", "https://www.kore.ai/customer-stories"), ("events", "https://www.kore.ai/webinar"),
         ("careers", "https://www.kore.ai/careers")]),
     dict(name="Gupshup", domain="gupshup.ai", linkedin="https://www.linkedin.com/company/gupshup", context=True, sources=[
@@ -116,6 +116,17 @@ def seed(conn):
         cid = conn.execute("INSERT INTO competitors (name, domain, linkedin, needs_context, sort) VALUES (?,?,?,?,?)",
                            (c["name"], c["domain"], c["linkedin"], 1 if c.get("context") else 0, n)).lastrowid
         conn.executemany("INSERT INTO competitor_sources (competitor_id, kind, url) VALUES (?,?,?)", [(cid, k, u) for k, u in c["sources"]])
+
+
+def seed_social(conn):
+    """Add the known YouTube channels, once. A channel taken off the list afterwards stays off."""
+    if db.is_demo(conn) or db.get_setting(conn, "competitor_social_seeded"):
+        return
+    for c in SEED:
+        row = conn.execute("SELECT id FROM competitors WHERE name = ?", (c["name"],)).fetchone()
+        if row and c.get("youtube"):
+            conn.execute("INSERT OR IGNORE INTO competitor_accounts (competitor_id, network, url) VALUES (?,?,?)", (row["id"], "youtube", c["youtube"]))
+    db.set_setting(conn, "competitor_social_seeded", "1")
 
 
 def classify(title, fallback="news"):
@@ -238,6 +249,85 @@ def read_page(conn, now, comp, src):
     return added
 
 
+# ------------------------------------------------------------------------------- social pages
+
+NETWORKS = {"youtube": "YouTube"}
+YT_FEED = "https://www.youtube.com/feeds/videos.xml?channel_id={}"
+ATOM = {"a": "http://www.w3.org/2005/Atom", "m": "http://search.yahoo.com/mrss/"}
+
+
+def read_youtube(conn, now, acc):
+    """A channel's public video feed: its newest videos with their dates, views and likes. Returns how many were new."""
+    feed = acc["feed"]
+    if not feed:
+        found = re.search(r"/channel/(UC[\w-]{20,})", acc["url"]) or re.search(r"feeds/videos\.xml\?channel_id=(UC[\w-]{20,})", fetch(acc["url"])[0])
+        if not found:
+            raise RivalError("no channel was found at that address")
+        feed = found.group(1)
+        conn.execute("UPDATE competitor_accounts SET feed = ? WHERE id = ?", (feed, acc["id"]))
+    added = 0
+    for e in ET.fromstring(fetch(YT_FEED.format(feed))[0]).findall("a:entry", ATOM):
+        link, stats, stars = e.find("a:link", ATOM), e.find(".//m:statistics", ATOM), e.find(".//m:starRating", ATOM)
+        title, posted = e.findtext("a:title", "", ATOM).strip(), e.findtext("a:published", "", ATOM)
+        if link is None or not title or not posted:
+            continue
+        url = link.get("href")
+        views, likes = (int(x.get(k) or 0) if x is not None else None for x, k in ((stats, "views"), (stars, "count")))
+        added += conn.execute(
+            "INSERT OR IGNORE INTO competitor_posts (competitor_id, network, url, title, kind, posted_at, first_seen) VALUES (?,?,?,?,?,?,?)",
+            (acc["competitor_id"], "youtube", url, title[:300], "Short" if "/shorts/" in url else "Video", posted[:19], iso(now))).rowcount
+        conn.execute("UPDATE competitor_posts SET views = ?, likes = ? WHERE competitor_id = ? AND url = ?", (views, likes, acc["competitor_id"], url))
+    return added
+
+
+READERS = {"youtube": read_youtube}
+
+
+def read_social(conn, now):
+    done = dict(posts=0, failed=0)
+    for acc in conn.execute("SELECT a.* FROM competitor_accounts a JOIN competitors c ON c.id = a.competitor_id WHERE c.active = 1 ORDER BY a.id").fetchall():
+        try:
+            done["posts"] += READERS[acc["network"]](conn, now, acc)
+            conn.execute("UPDATE competitor_accounts SET checked_at = ?, note = NULL WHERE id = ?", (iso(now), acc["id"]))
+        except (RivalError, ET.ParseError) as err:
+            conn.execute("UPDATE competitor_accounts SET checked_at = ?, note = ? WHERE id = ?", (iso(now), str(err)[:200], acc["id"]))
+            done["failed"] += 1
+        conn.commit()
+    return done
+
+
+def social(conn, comps, since):
+    """Per competitor and network: the page, how much was posted in the period, and the posts themselves."""
+    accounts = [dict(r) for r in conn.execute("SELECT id, competitor_id, network, url, checked_at, note FROM competitor_accounts ORDER BY id")]
+    posts = [dict(r) for r in conn.execute(
+        "SELECT p.* FROM competitor_posts p JOIN competitors c ON c.id = p.competitor_id WHERE c.active = 1 AND p.posted_at >= ? ORDER BY p.posted_at DESC LIMIT 400", (since,))]
+    last = {(r["competitor_id"], r["network"]): r["at"] for r in conn.execute("SELECT competitor_id, network, MAX(posted_at) AS at FROM competitor_posts GROUP BY 1, 2")}
+    rows = []
+    for c in comps:
+        for a in (a for a in accounts if a["competitor_id"] == c["id"]):
+            mine = [p for p in posts if p["competitor_id"] == c["id"] and p["network"] == a["network"]]
+            rows.append(dict(competitor_id=c["id"], name=c["name"], network=a["network"], url=a["url"], posts=len(mine),
+                             views=sum(p["views"] or 0 for p in mine), likes=sum(p["likes"] or 0 for p in mine), last=last.get((c["id"], a["network"])), note=a["note"]))
+    return dict(networks=NETWORKS, accounts=accounts, rows=rows, posts=posts)
+
+
+def add_account(conn, competitor_id, url):
+    network = "youtube" if re.match(r"^https?://(www\.)?youtube\.com/(@|channel/)[\w.-]+", url) else None
+    if not network:
+        raise RivalError("Give the address of the YouTube channel, like https://www.youtube.com/@name.")
+    if not conn.execute("SELECT 1 FROM competitors WHERE id = ? AND active = 1", (competitor_id,)).fetchone():
+        raise RivalError("Choose which competitor the page belongs to.")
+    conn.execute("INSERT INTO competitor_accounts (competitor_id, network, url) VALUES (?,?,?) "
+                 "ON CONFLICT (competitor_id, network) DO UPDATE SET url = excluded.url, feed = NULL, note = NULL, checked_at = NULL", (competitor_id, network, url))
+
+
+def remove_account(conn, account_id):
+    acc = conn.execute("SELECT competitor_id, network FROM competitor_accounts WHERE id = ?", (account_id,)).fetchone()
+    if acc:
+        conn.execute("DELETE FROM competitor_posts WHERE competitor_id = ? AND network = ?", tuple(acc))
+        conn.execute("DELETE FROM competitor_accounts WHERE id = ?", (account_id,))
+
+
 def due(conn, now):
     last = db.get_setting(conn, "competitors_synced_at")
     return bool(conn.execute("SELECT 1 FROM competitors WHERE active = 1 LIMIT 1").fetchone()) and (
@@ -263,6 +353,8 @@ def sync(conn, now):
                 conn.execute("UPDATE competitor_sources SET checked_at = ?, note = ? WHERE id = ?", (iso(now), str(err)[:200], src["id"]))
                 done["failed"] += 1
         conn.commit()
+    seen = read_social(conn, now)
+    done.update(posts=seen["posts"], pages=done["pages"] + len(conn.execute("SELECT 1 FROM competitor_accounts").fetchall()), failed=done["failed"] + seen["failed"])
     db.set_setting(conn, "competitors_synced_at", iso(now))
     conn.commit()
     return done
@@ -341,7 +433,7 @@ def view(conn, now, days=30):
             "AND verification <> 'lead' GROUP BY category", (c["id"],))}
         c.update(counts=matrix[c["id"]], total=sum(matrix[c["id"]].values()), weekly=weekly[c["id"]], sources=sources, last=last,
                  seo=dict(seo) if seo else None, failing=sum(1 for s in sources if s["note"]) + (1 if c["press_note"] else 0))
-    return dict(days=days, competitors=comps, signals=signals, categories=CATEGORIES, kinds=KINDS, weeks=weeks,
+    return dict(days=days, competitors=comps, signals=signals, social=social(conn, comps, since), categories=CATEGORIES, kinds=KINDS, weeks=weeks,
                 synced_at=db.get_setting(conn, "competitors_synced_at"), every_hours=EVERY_HOURS)
 
 
@@ -360,6 +452,8 @@ def add_competitor(conn, name, domain, linkedin=None):
 
 def add_source(conn, competitor_id, kind, url):
     url = (url or "").strip()
+    if "youtube.com" in url.lower():
+        return add_account(conn, competitor_id, url)
     if kind not in KINDS or not re.match(r"^https?://[^\s]+\.[^\s]+$", url) or "linkedin.com" in url.lower():
         raise RivalError("Choose what kind of page it is and give its full address. LinkedIn pages cannot be read automatically.")
     if not conn.execute("SELECT 1 FROM competitors WHERE id = ? AND active = 1", (competitor_id,)).fetchone():
@@ -383,6 +477,7 @@ def main(argv):
         sys.exit(__doc__)
     conn = zoho.live_database()
     seed(conn)
+    seed_social(conn)
     conn.commit()
     if command == "sync":
         done = sync(conn, datetime.now().replace(microsecond=0))
