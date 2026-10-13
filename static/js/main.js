@@ -24,7 +24,7 @@ const SCREENS = { overview, funnel, channels, paid, outbound, web, leads, qualit
 const NAV = [
   { label: null, items: [['overview', 'Overview']] },
   { label: 'Performance', items: [['funnel', 'Funnel'], ['channels', 'Channels'], ['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic'], ['competitors', 'Competitors']] },
-  { label: 'Leads', items: [['leads', 'Leads', 'leads'], ['icp', 'ICP'], ['quality', 'Lead quality']] },
+  { label: 'Leads', items: [['leads', 'Leads', 'leads'], ['icp', 'Ideal customer'], ['quality', 'Lead quality']] },
   { label: 'Team', items: [['targets', 'Targets'], ['people', 'People']] },
   { label: 'Operations', items: [['subs', 'Subscriptions'], ['reports', 'Reports'], ['alerts', 'Alerts & reminders', 'alerts']] },
 ];

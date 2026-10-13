@@ -1,161 +1,115 @@
-"""The ideal customer page: who actually buys, worked out from every deal in the CRM.
+"""The ideal customer page.
 
-Eight questions are answered from the deals and the leads behind them: who buys, who is worth most, who buys
-fastest, who takes effort and rarely buys, where the good ones come from, who inside the company says yes, how
-big the market is, and what to do next. Each answer says how many deals it rests on, and says "cannot tell yet"
-when too little is recorded, so nobody reads a pattern into a handful of deals.
+Three things, each worked out from the CRM:
+  1. a picture of the best customer (the kind of company that buys most often, what a deal is worth, how long it takes)
+  2. where deals are won and lost, by industry, company size and how the customer found us
+  3. whether the leads coming in now are that kind of company
+
+Most won deals have no industry written down, so a leader can label them here. Labels are kept on the deal in
+Meridian and are not written back to the CRM.
 """
 
 import re
-from datetime import date, timedelta
 
 from . import metrics, scoring
 
-NOT_RECORDED = "Not recorded"
-SMALL = "Other (few deals each)"
-MIN_CLOSED = 10      # closed deals a group needs before its win rate is quoted
-MIN_WON = 3          # won deals a group needs before its value or speed is quoted
-SPANS = {"all": None, "24": 730, "12": 365}
-SIZES = ["Over 500 staff", "200 to 500 staff", "Under 200 staff", NOT_RECORDED]
-SENIOR = [("Owner or C-level", r"\b(ceo|cfo|coo|cmo|cto|cio|cbo|cxo|chief|founder|owner|president|managing director|md|partner|proprietor)\b"),
-          ("Head, VP or director", r"\b(head|vp|vice president|director|gm|general manager|avp|svp)\b"),
-          ("Manager", r"\b(manager|lead|mgr)\b")]
-DIMENSIONS = {"industry": "Industry", "size": "Company size", "channel": "Channel", "source": "Lead source", "role": "Buyer's role"}
+MIN_DEALS = 10   # finished deals a group needs before it is listed
+SIZES = ["More than 500 staff", "200 to 500 staff", "Fewer than 200 staff"]
+INDUSTRIES = ["Healthcare", "Automobile", "BFSI", "Retail", "Real estate", "Travel and hospitality", "Education", "Technology", "Manufacturing", "Other"]
+WEB = ("website", "chatbot")
 
 
-def size_band(lead):
-    """Company size from an employee count, or from the size label typed in the CRM ("201-500 employees", "Enterprise", "SMB")."""
-    n = lead["employees"]
-    label = (lead["company_size"] or "").lower()
+class IcpError(Exception):
+    pass
+
+
+def size_band(row):
+    """Company size from an employee count or from the label in the CRM ("201-500 employees", "Enterprise", "SMB"). None when unknown."""
+    label = (row["company_size"] or "").strip()
+    if label in SIZES:
+        return label
+    n, low = row["employees"], label.lower()
     if n is None:
-        if re.search(r"enterp|entrep", label):
+        if re.search(r"enterp|entrep", low):
             return SIZES[0]
-        if "mid" in label:
+        if "mid" in low:
             return SIZES[1]
-        if re.search(r"smb|small|start|<\s*200", label):
+        if re.search(r"smb|small|start|<\s*200", low):
             return SIZES[2]
-        m = re.search(r"\d[\d,]*", label)
+        m = re.search(r"\d[\d,]*", low)
         if not m:
-            return NOT_RECORDED
+            return None
         n = int(m.group(0).replace(",", ""))
     return SIZES[0] if n > 500 else SIZES[1] if n >= 200 else SIZES[2]
 
 
-def role_band(title):
-    text = (title or "").strip().lower()
-    if not text:
-        return NOT_RECORDED
-    return next((name for name, pattern in SENIOR if re.search(pattern, text)), "Other staff")
-
-
-def median(values):
+def middle(values):
     values = sorted(values)
     return values[len(values) // 2] if values else None
 
 
-def days_between(a, b):
-    try:
-        return (date.fromisoformat(b[:10]) - date.fromisoformat(a[:10])).days
-    except (TypeError, ValueError):
-        return None
-
-
-def view(conn, now, span="all"):
-    span = span if span in SPANS else "all"
-    since = (now.date() - timedelta(days=SPANS[span])).isoformat() if SPANS[span] else "0000"
+def view(conn, now, p):
     profile = scoring.profile(conn)
     names = {c["id"]: c["name"] for c in metrics.channels(conn)}
     deals = [dict(r) for r in conn.execute(
-        "SELECT d.stage, d.amount, d.created_at, d.closed_at, COALESCE(d.lead_source, l.lead_source) AS source, COALESCE(l.channel_id, d.channel_id) AS channel, "
-        "l.industry, l.company_size, l.employees, l.title FROM deals d LEFT JOIN leads l ON l.id = d.lead_id WHERE d.created_at >= ?", (since,))]
+        "SELECT d.id, d.name, d.stage, d.amount, d.created_at, d.closed_at, COALESCE(l.channel_id, d.channel_id) AS channel, "
+        "COALESCE(NULLIF(d.industry, ''), l.industry) AS industry, COALESCE(NULLIF(d.company_size, ''), l.company_size) AS company_size, l.employees "
+        "FROM deals d LEFT JOIN leads l ON l.id = d.lead_id")]
     for d in deals:
-        industry = (d["industry"] or "").strip()
-        segment = scoring.in_segment(industry, profile) if industry else None
-        d["keys"] = dict(industry=segment or (industry.title() if industry else NOT_RECORDED), size=size_band(d), channel=names.get(d["channel"], NOT_RECORDED),
-                         source=(d["source"] or "").strip() or NOT_RECORDED, role=role_band(d["title"]))
-        d["target"] = bool(segment)
-        d["days"] = days_between(d["created_at"], d["closed_at"]) if d["stage"] == "won" and d["closed_at"] else None
+        text = (d["industry"] or "").strip()
+        d["group"] = dict(industry=(scoring.in_segment(text, profile) or text[:1].upper() + text[1:].lower()) if text else None, size=size_band(d), channel=names.get(d["channel"]))
 
-    def summarise(rows, name, target=False):
-        won = [r for r in rows if r["stage"] == "won"]
-        lost = sum(1 for r in rows if r["stage"] == "lost")
-        closed = len(won) + lost
-        value = sum(r["amount"] or 0 for r in won)
-        valued = [r["amount"] for r in won if r["amount"]]
-        return dict(name=name, target=target, deals=len(rows), won=len(won), lost=lost, open=len(rows) - closed, closed=closed,
-                    win_rate=len(won) / closed * 100 if closed else None, won_value=value, avg_value=median(valued),  # the middle deal, so one giant deal cannot bend the picture
-                    largest=max(valued) if valued else None,
-                    median_days=median([r["days"] for r in won if r["days"] is not None and r["days"] >= 0]))
-
-    def grouped(dim):
+    def rows(key):
+        """Each group with enough finished deals: how many of every 100 it wins. Best first."""
         groups = {}
         for d in deals:
-            groups.setdefault(d["keys"][dim], []).append(d)
-        rows, small = [], []
-        for name, members in groups.items():
-            if dim in ("industry", "source") and name != NOT_RECORDED and len(members) < 5 and not any(m["target"] for m in members if dim == "industry"):
-                small += members  # a long tail of one-off labels says nothing by itself
-            else:
-                rows.append(summarise(members, name, dim == "industry" and any(m["target"] for m in members)))
-        rows.sort(key=lambda r: (r["name"] == NOT_RECORDED, -r["deals"]))
-        if small:
-            rows.append(summarise(small, SMALL))
-        return rows
+            if d["stage"] in ("won", "lost") and d["group"][key]:
+                g = groups.setdefault(d["group"][key], [0, 0])
+                g[0] += 1
+                g[1] += d["stage"] == "won"
+        out = [dict(name=k, deals=n, won=w, per_100=round(w / n * 100)) for k, (n, w) in groups.items() if n >= MIN_DEALS]
+        out.sort(key=lambda r: (-r["per_100"], -r["deals"]))
+        return out, sum(1 for n, _ in groups.values() if n < MIN_DEALS)
 
-    tables = {dim: grouped(dim) for dim in DIMENSIONS}
-    total = summarise(deals, "All deals")
+    industry, small_industries = rows("industry")
+    size, _ = rows("size")
+    channel, _ = rows("channel")
     won = [d for d in deals if d["stage"] == "won"]
-    recorded = {dim: sum(1 for d in won if d["keys"][dim] != NOT_RECORDED) for dim in DIMENSIONS}
+    labelled = [d for d in won if d["group"]["industry"]]
+    days = []
+    for d in won:
+        try:
+            from datetime import date
+            days.append((date.fromisoformat(d["closed_at"][:10]) - date.fromisoformat(d["created_at"][:10])).days)
+        except (TypeError, ValueError):
+            pass
+    best = [r["name"] for r in industry[:2] if r["per_100"] > 0]
+    card = dict(industry=best, size=size[0]["name"] if size else None, channel=channel[0]["name"] if channel else None,
+                deal=middle([d["amount"] for d in won if d["amount"]]), days=middle([x for x in days if x >= 0]))
 
-    def named(dim):
-        return [r for r in tables[dim] if r["name"] not in (NOT_RECORDED, SMALL)]
+    # the period's leads: do they look like the customer we want? (a target industry, and 200 or more staff)
+    leads = {}
+    for l in conn.execute("SELECT channel_id, industry, company_size, employees FROM leads WHERE created_at >= ? AND created_at < ?", (p.start_dt, p.end_dt)):
+        text, band = (l["industry"] or "").strip(), size_band(l)
+        kind = "unknown" if not text or not band else "match" if scoring.in_segment(text, profile) and band in SIZES[:2] else "other"
+        row = leads.setdefault(names.get(l["channel_id"], "Channel not known"), dict(match=0, other=0, unknown=0))
+        row[kind] += 1
+    by_channel = sorted((dict(name=k, total=sum(v.values()), **v) for k, v in leads.items()), key=lambda r: -r["total"])
+    totals = {k: sum(r[k] for r in by_channel) for k in ("match", "other", "unknown", "total")}
 
-    def best(dim, field, floor_field, floor, lowest=False):
-        rows = [r for r in named(dim) if r[floor_field] >= floor and r[field] is not None]
-        # ties go to the group with more won deals behind it
-        return (min if lowest else max)(rows, key=lambda r: (r[field], -r["won"] if lowest else r["won"])) if rows else None
+    return dict(period=p.as_json(), card=card, industry=industry, size=size, channel=channel, small_industries=small_industries,
+                no_industry=sum(1 for d in deals if d["stage"] in ("won", "lost") and not d["group"]["industry"]),
+                customers=len(won), labelled=len(labelled), targets=list(profile["segments"]),
+                to_label=[dict(id=d["id"], name=d["name"] or "Deal with no name", size=d["group"]["size"] or "") for d in
+                          sorted(won, key=lambda d: d["closed_at"] or "", reverse=True) if not d["group"]["industry"]],
+                industries=INDUSTRIES, sizes=SIZES, leads=by_channel, lead_totals=totals)
 
-    base = total["win_rate"] or 0
-    avoid = sorted((r for dim in ("industry", "size", "channel") for r in [dict(x, dim=DIMENSIONS[dim]) for x in named(dim)]
-                    if r["closed"] >= 15 and r["win_rate"] is not None and r["win_rate"] < base * 0.6), key=lambda r: r["win_rate"])
-    # leads of the last 12 months that match the profile on industry, and on industry and size together
-    year = (now.date() - timedelta(days=365)).isoformat()
-    lead_count = in_industry = in_both = 0
-    for l in conn.execute("SELECT industry, company_size, employees FROM leads WHERE created_at >= ?", (year,)):
-        lead_count += 1
-        if (l["industry"] or "").strip() and scoring.in_segment(l["industry"], profile):
-            in_industry += 1
-            in_both += size_band(l) in SIZES[:2]
-    # industry against company size: where the two together win
-    rows_i = [r["name"] for r in named("industry") if r["deals"] >= 15][:7]
-    matrix = []
-    for name in rows_i:
-        cells = []
-        for band in SIZES:
-            cell = summarise([d for d in deals if d["keys"]["industry"] == name and d["keys"]["size"] == band], band)
-            cells.append(dict(size=band, closed=cell["closed"], won=cell["won"], deals=cell["deals"], win_rate=cell["win_rate"]))
-        matrix.append(dict(name=name, target=any(r["target"] for r in tables["industry"] if r["name"] == name), cells=cells))
-    # the year each deal was opened, to see whether we are getting better at picking them
-    years = []
-    for y in sorted({d["created_at"][:4] for d in deals}):
-        row = summarise([d for d in deals if d["created_at"][:4] == y], y)
-        years.append(row)
-    # the best group on each dimension, as one line of the profile
-    fit = []
-    for dim, label in DIMENSIONS.items():
-        if dim == "source":  # the channel row already says where they come from, and sources include existing-customer upsells
-            continue
-        top = best(dim, "win_rate", "closed", MIN_CLOSED)
-        if top:
-            fit.append(dict(dim=dim, label=label, **top))
-    return dict(span=span, total=total, tables=tables, dimensions=DIMENSIONS, recorded=recorded, won=len(won),
-                matrix=matrix, sizes=SIZES, years=years, fit=fit,
-                segments=list(profile["segments"]), min_closed=MIN_CLOSED, min_won=MIN_WON,
-                answers=dict(
-                    buys=best("industry", "win_rate", "closed", MIN_CLOSED), buys_size=best("size", "win_rate", "closed", MIN_CLOSED),
-                    worth=best("industry", "avg_value", "won", MIN_WON), worth_size=best("size", "avg_value", "won", MIN_WON),
-                    fastest=best("industry", "median_days", "won", MIN_WON, lowest=True), fastest_channel=best("channel", "median_days", "won", MIN_WON, lowest=True),
-                    avoid=avoid[:5],
-                    channel=best("channel", "win_rate", "closed", MIN_CLOSED), channel_value=best("channel", "won_value", "won", MIN_WON),
-                    role=best("role", "won", "won", MIN_WON),
-                    market=dict(leads=lead_count, in_industry=in_industry, in_both=in_both)))
+
+def label(conn, deal_id, industry, size):
+    """Write a won customer's industry and size on its deal."""
+    if industry not in INDUSTRIES:
+        raise IcpError("Pick the industry.")
+    if size and size not in SIZES:
+        raise IcpError("Pick the company size from the list.")
+    if not conn.execute("UPDATE deals SET industry = ?, company_size = COALESCE(NULLIF(?, ''), company_size) WHERE id = ?", (industry, size or "", deal_id)).rowcount:
+        raise IcpError("That deal is no longer there.")

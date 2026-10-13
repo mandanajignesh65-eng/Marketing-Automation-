@@ -298,7 +298,8 @@ def connect(path=None):
 
 
 # Columns added after the first release: (table, column, type). upgrade() adds any that are missing.
-ADDED_COLUMNS = [("traffic_daily", "engaged", "INTEGER NOT NULL DEFAULT 0"), ("traffic_site_daily", "engaged", "INTEGER NOT NULL DEFAULT 0"),
+ADDED_COLUMNS = [("deals", "industry", "TEXT"), ("deals", "company_size", "TEXT"),  # labels given on the ideal customer page
+                 ("traffic_daily", "engaged", "INTEGER NOT NULL DEFAULT 0"), ("traffic_site_daily", "engaged", "INTEGER NOT NULL DEFAULT 0"),
                  ("leads", "company_size", "TEXT"), ("deals", "lead_source", "TEXT"),
                  ("utm_map", "excluded", "INTEGER NOT NULL DEFAULT 0"),
                  ("leads", "industry_via", "TEXT"), ("leads", "size_via", "TEXT"),

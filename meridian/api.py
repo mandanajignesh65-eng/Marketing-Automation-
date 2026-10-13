@@ -374,9 +374,25 @@ def change_competitors(b: RivalChange):
 
 
 @app.get("/api/icp")
-def get_icp(span: str = "all"):
+def get_icp(range: str = "month", start: Optional[str] = None, end: Optional[str] = None):
     with session() as conn:
-        return icp.view(conn, db.now(conn), span)
+        return icp.view(conn, db.now(conn), period(conn, range, start, end))
+
+
+class CustomerLabel(BaseModel):
+    id: int
+    industry: str
+    size: str = ""
+
+
+@app.post("/api/icp/label")
+def label_customer(body: CustomerLabel):
+    with session() as conn:
+        try:
+            icp.label(conn, body.id, body.industry, body.size)
+        except icp.IcpError as err:
+            raise HTTPException(400, str(err))
+        return {"ok": True}
 
 
 @app.get("/api/quality")
