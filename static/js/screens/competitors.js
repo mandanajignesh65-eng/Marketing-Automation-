@@ -69,37 +69,39 @@ export default {
 
     // ------------------------------------------------------------ social
     const social = () => {
-      const nets = Object.keys(so.networks).filter(n => so.rows.some(r => r.network === n));
+      const nets = Object.keys(so.networks).filter(n => so.posts.some(p => p.network === n) || so.rows.some(r => r.network === n));
       if (!nets.length) return html`<div class="card pad small muted">No social pages are being read yet. Add one from the Sources tab.</div>`;
-      const net = nets.includes(ui.net) ? ui.net : nets[0], cfg = NET[net] || NET.linkedin, [ka, la] = cfg.a, [kb, lb] = cfg.b, word = cfg.item;
-      const rows = so.rows.filter(r => r.network === net), mine = rows.filter(r => r.own).map(r => r.competitor_id);
-      const picked = rows.find(r => String(r.competitor_id) === String(ui.comp));
-      const all = so.posts.filter(p => p.network === net && (picked ? p.competitor_id === picked.competitor_id : !mine.includes(p.competitor_id)));
-      const posts = ui.top ? all.slice().sort((a, b) => (b[ka] || 0) - (a[ka] || 0)) : all;
-      const best = k => Math.max(...rows.map(r => r[k] || 0), 0);
-      const num = (r, k) => { const v = r[k] || 0, on = v && v === best(k) && rows.length > 1; return html`<span class="right ${on ? 'semi' : ''}" style="${on ? 'color:var(--pos)' : ''}">${v && (r.posts || k === 'followers') ? f.num(v) : none}</span>`; };
-      const cols = `minmax(0,1.6fr) ${cfg.followers ? '120px ' : ''}100px 100px 110px 120px`, pcols = '74px 130px minmax(0,1fr) 80px 90px';
-      const word2 = word[0].toUpperCase() + word.slice(1) + 's';
+      const net = nets.includes(ui.net) ? ui.net : null;
+      const pages = [...new Map(so.rows.map(r => [r.competitor_id, { id: r.competitor_id, name: r.name, own: r.own }])).values()];
+      const pick = pages.find(c => String(c.id) === String(ui.comp));
+      const list = so.posts.filter(p => (!net || p.network === net) && (!pick || p.competitor_id === pick.id));
+      const posts = ui.top ? list.slice().sort((a, b) => (b.likes || 0) + (b.views || 0) / 50 - (a.likes || 0) - (a.views || 0) / 50) : list;
+      const shown = Math.max(24, Number(ui.shown) || 24), open = ui.open || {};
+      const stat = (v, label) => (v == null ? '' : html`<span class="nowrap"><span class="medium ink">${f.num(v)}</span> <span class="muted">${label}</span></span>`);
+      const card = p => { const cfg = NET[p.network] || NET.linkedin, long = (p.title || '').length > 150, full = open[p.id];
+        return html`<div class="card" style="padding:0;overflow:hidden;display:flex;flex-direction:column">
+          ${p.image ? html`<a href="${p.url}" target="_blank" rel="noopener" style="display:block;aspect-ratio:16/10;background:var(--surface2);overflow:hidden">
+            <img src="${p.image}" alt="" loading="lazy" referrerpolicy="no-referrer" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.parentNode.style.display='none'"></a>` : ''}
+          <div class="stack" style="padding:14px 16px 14px;gap:8px;flex:1">
+            <div class="between" style="gap:8px"><span class="row" style="gap:8px;min-width:0"><span class="medium clip">${names[p.competitor_id] || '—'}</span><span class="pill sm" style="flex:none">${so.networks[p.network] || p.network}</span></span>
+              <span class="small muted nowrap">${day(p.posted_at)}</span></div>
+            <div class="small" style="line-height:1.5;${full ? '' : 'display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden'}">${p.title}</div>
+            ${long ? html`<span class="small link" data-act="more" data-arg="${p.id}" style="cursor:pointer;align-self:flex-start">${full ? 'Show less' : 'Read more'}</span>` : ''}
+            <div class="row small" style="gap:14px;flex-wrap:wrap;margin-top:auto;padding-top:8px;border-top:1px solid var(--line2)">
+              ${stat(p.views, 'views')}${stat(p.likes ?? 0, 'likes')}${stat(p.comments ?? (p.network === 'youtube' ? null : 0), cfg.b[1].toLowerCase())}
+              <span style="flex:1"></span>${p.kind && !['Text', 'Post'].includes(p.kind) ? html`<span class="tiny muted">${p.kind}</span>` : ''}
+              <a class="small link" href="${p.url}" target="_blank" rel="noopener" style="text-decoration:none">Open</a></div>
+          </div></div>`; };
       return html`
-      ${nets.length > 1 ? html`<div class="row">${switcher(nets.map(n => ({ arg: `net=${n}`, label: so.networks[n], on: n === net })), 'set')}</div>` : ''}
-      <div class="card clipped" style="--cols:${cols}">
-        <div class="baseline" style="padding:16px 16px 12px"><span class="title">${so.networks[net]}</span><span class="small muted">last ${d.days} days</span></div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span>Page</span>${cfg.followers ? html`<span class="right">Followers</span>` : ''}<span class="right">${word2}</span>
-          <span class="right">${la}</span><span class="right">${lb}</span><span class="right">Last ${word}</span></div>
-        ${rows.map(r => html`<div class="trow" style="${r.own ? 'background:var(--surface2)' : ''}"><span class="row" style="gap:8px;min-width:0"><a class="medium clip" href="${r.url}" target="_blank" rel="noopener" style="color:var(--ink);text-decoration:none">${r.name}</a>${r.own ? html`<span class="pill sm" style="flex:none">Us</span>` : ''}</span>
-          ${cfg.followers ? num(r, 'followers') : ''}${count(r.posts)}${num(r, ka)}${num(r, kb)}
-          <span class="right muted">${r.note ? html`<span style="color:var(--warn)" title="${r.note}">Not read</span>` : r.last ? day(r.last) : '—'}</span></div>`)}
-      </div>
-      <div class="card clipped" style="--cols:${pcols}">
-        <div class="baseline" style="padding:16px 16px 12px;gap:14px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">${picked ? picked.name : word2}</span><span class="small muted">${f.num(posts.length)}</span></span>
-          <div class="row" style="gap:10px;flex-wrap:wrap">${switcher([{ arg: 'top=', label: 'Newest', on: !ui.top }, { arg: 'top=1', label: ka === 'views' ? 'Most viewed' : 'Most liked', on: !!ui.top }], 'set')}
-          ${switcher([{ arg: 'comp=', label: 'All competitors', on: !picked }, ...rows.map(r => ({ arg: `comp=${r.competitor_id}`, label: r.name, on: picked === r }))], 'set')}</div></div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span>Date</span><span>Page</span><span>${word[0].toUpperCase() + word.slice(1)}</span><span class="right">${la}</span><span class="right">${lb}</span></div>
-        ${posts.slice(0, 60).map(p => html`<div class="trow"><span class="muted nowrap">${day(p.posted_at)}</span><span class="medium">${names[p.competitor_id] || '—'}</span>
-          <span class="row" style="gap:8px;min-width:0"><a href="${p.url}" target="_blank" rel="noopener" class="medium clip" style="color:var(--ink);text-decoration:none" title="${p.title}">${p.title}</a>${p.kind && !['Text', 'Post'].includes(p.kind) && (net !== 'youtube' || p.kind !== 'Video') ? html`<span class="pill sm" style="flex:none">${p.kind}</span>` : ''}</span>
-          <span class="right">${f.num(p[ka] || 0)}</span><span class="right">${f.num(p[kb] || 0)}</span></div>`)}
-        ${posts.length ? '' : html`<div class="small muted" style="padding:16px">Nothing posted in this period.</div>`}
-      </div>`;
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        ${switcher([{ arg: 'net=', label: 'All platforms', on: !net }, ...nets.map(n => ({ arg: `net=${n}`, label: so.networks[n], on: n === net }))], 'set')}
+        ${switcher([{ arg: 'comp=', label: 'Everyone', on: !pick }, ...pages.map(c => ({ arg: `comp=${c.id}`, label: c.own ? `${c.name} (us)` : c.name, on: pick === c }))], 'set')}
+        <span style="flex:1"></span>
+        ${switcher([{ arg: 'top=', label: 'Newest', on: !ui.top }, { arg: 'top=1', label: 'Most engagement', on: !!ui.top }], 'set')}</div>
+      <div class="small muted">${f.num(posts.length)} posts in the last ${d.days} days</div>
+      ${posts.length ? html`<div class="grid start" style="grid-template-columns:repeat(auto-fill,minmax(270px,1fr))">${posts.slice(0, shown).map(card)}</div>`
+        : html`<div class="card pad small muted">Nothing posted in this period.</div>`}
+      ${posts.length > shown ? html`<div class="row" style="justify-content:center"><span class="btn" data-act="showMore">Show more</span></div>` : ''}`;
     };
 
     // ------------------------------------------------------------ compare
@@ -113,13 +115,11 @@ export default {
       return html`
       <div class="card clipped" style="--cols:${cols}">
         <div class="thead right"><span style="text-align:left">Last ${d.days} days</span>${d.competitors.map(c => html`<span class="ink semi">${c.name}</span>`)}</div>
-        ${part('LinkedIn')}
-        ${row('Followers', c => val((soc(c, 'linkedin') || {}).followers))}
-        ${row('Posts', c => val((soc(c, 'linkedin') || {}).posts))}
-        ${row('Likes per post', c => { const r = soc(c, 'linkedin'); return r && r.posts ? f.num(Math.round(r.likes / r.posts)) : none; })}
-        ${part('YouTube')}
-        ${row('Videos', c => val((soc(c, 'youtube') || {}).posts))}
-        ${row('Views', c => val((soc(c, 'youtube') || {}).views))}
+        ${Object.keys(so.networks).filter(n => so.rows.some(r => r.network === n)).map(n => { const cfg = NET[n] || NET.linkedin, [ka, la] = cfg.a; return html`${part(so.networks[n])}
+        ${cfg.followers ? row('Followers', c => val((soc(c, n) || {}).followers)) : ''}
+        ${row(n === 'youtube' ? 'Videos' : 'Posts', c => val((soc(c, n) || {}).posts))}
+        ${row(`${la} per ${cfg.item}`, c => { const r = soc(c, n); return r && r.posts ? f.num(Math.round((r[ka] || 0) / r.posts)) : none; })}
+        ${row(`Last ${cfg.item}`, c => when((soc(c, n) || {}).last))}`; })}
         ${part('Updates')}
         ${row('Updates', c => html`<span class="semi">${val(c.total)}</span>`)}
         ${row('Product', c => val(c.counts.product))}
@@ -209,6 +209,8 @@ export default {
   actions: {
     view: (ctx, d) => ctx.setParams({ view: d.arg }),
     days(ctx, d) { ctx.ui().days = Number(d.arg); ctx.reload(); },
+    more(ctx, d) { const ui = ctx.ui(); ui.open = { ...(ui.open || {}), [d.arg]: !(ui.open || {})[d.arg] }; ctx.render(); },
+    showMore(ctx) { const ui = ctx.ui(); ui.shown = (Number(ui.shown) || 24) + 24; ctx.render(); },
     set(ctx, d) { const at = d.arg.indexOf('='); ctx.ui()[d.arg.slice(0, at)] = d.arg.slice(at + 1) || null; ctx.render(); },
     cat(ctx, d) { Object.assign(ctx.ui(), { cat: d.arg.slice(4) || null, leads: false }); ctx.render(); },
     leads(ctx) { const ui = ctx.ui(); ui.leads = !ui.leads; ctx.render(); },

@@ -295,12 +295,30 @@ def read_youtube(conn, now, acc):
         if link is None or not title or not posted:
             continue
         url = link.get("href")
+        thumb = e.find(".//m:thumbnail", ATOM)
+        image = thumb.get("url") if thumb is not None else None
         views, likes = (int(x.get(k) or 0) if x is not None else None for x, k in ((stats, "views"), (stars, "count")))
         added += conn.execute(
             "INSERT OR IGNORE INTO competitor_posts (competitor_id, network, url, title, kind, posted_at, first_seen) VALUES (?,?,?,?,?,?,?)",
             (acc["competitor_id"], "youtube", url, title[:300], "Short" if "/shorts/" in url else "Video", posted[:19], iso(now))).rowcount
-        conn.execute("UPDATE competitor_posts SET views = ?, likes = ? WHERE competitor_id = ? AND url = ?", (views, likes, acc["competitor_id"], url))
+        conn.execute("UPDATE competitor_posts SET views = ?, likes = ?, image = COALESCE(?, image) WHERE competitor_id = ? AND url = ?",
+                     (views, likes, image, acc["competitor_id"], url))
     return added
+
+
+def first_image(obj, depth=0):
+    """The first picture address inside a post's data (image, video thumbnail, document cover), or None."""
+    if depth > 4 or obj is None:
+        return None
+    if isinstance(obj, list):
+        return next((x for x in (first_image(v, depth + 1) for v in obj) if x), None)
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, str) and v.startswith("https://") and re.search(r"thumbnail|image|poster|cover|media_url|displayurl|^url$", k, re.I) \
+                    and re.search(r"\.(jpe?g|png|webp)|/image|media\.licdn|fbcdn|cdninstagram|pbs\.twimg", v, re.I):
+                return v
+        return next((x for x in (first_image(v, depth + 1) for v in obj.values() if isinstance(v, (dict, list))) if x), None)
+    return None
 
 
 def slug(url):
@@ -360,8 +378,9 @@ def read_linkedin(conn, now, force=False):
                 added += conn.execute(
                     "INSERT OR IGNORE INTO competitor_posts (competitor_id, network, url, title, kind, posted_at, first_seen) VALUES (?,?,?,?,?,?,?)",
                     (acc["competitor_id"], "linkedin", url, title, post_kind(p), when[:19], iso(now))).rowcount
-                conn.execute("UPDATE competitor_posts SET likes = ?, comments = ? WHERE competitor_id = ? AND url = ?",
-                             (eng.get("likes"), eng.get("comments"), acc["competitor_id"], url))
+                image = first_image(p.get("postImages")) or first_image({k: p.get(k) for k in ("postVideo", "document", "article", "repost")})
+                conn.execute("UPDATE competitor_posts SET likes = ?, comments = ?, image = COALESCE(?, image) WHERE competitor_id = ? AND url = ?",
+                             (eng.get("likes"), eng.get("comments"), image, acc["competitor_id"], url))
                 followers = re.match(r"([\d,]+) followers", author.get("info") or "")
                 if followers and (author.get("universalName") or "").lower() == slug(acc["url"]):
                     conn.execute("UPDATE competitor_accounts SET followers = ? WHERE id = ?", (int(followers.group(1).replace(",", "")), acc["id"]))
@@ -451,7 +470,7 @@ def apify_posts(network, accounts, first):
             if acc and p.get("url") and p.get("timestamp"):
                 kind = {"Sidecar": "Carousel"}.get(p.get("type"), p.get("type") or "Post")
                 out[acc["id"]].append(dict(url=p["url"], text=p.get("caption"), at=p["timestamp"][:19], kind=kind,
-                                           likes=p.get("likesCount"), second=p.get("commentsCount"), views=p.get("videoViewCount")))
+                                           likes=p.get("likesCount"), second=p.get("commentsCount"), views=p.get("videoViewCount"), image=p.get("displayUrl")))
     elif network == "facebook":
         items = apify_run(actor, dict(startUrls=[dict(url=a["url"]) for a in accounts], resultsLimit=limit))
         for p in items:
@@ -459,7 +478,7 @@ def apify_posts(network, accounts, first):
             when = p.get("time") or (datetime.utcfromtimestamp(p["timestamp"]).isoformat() if p.get("timestamp") else None)
             if acc and p.get("url") and when:
                 out[acc["id"]].append(dict(url=p["url"], text=p.get("text"), at=when[:19], kind="Video" if any((m or {}).get("__typename") == "Video" for m in p.get("media") or []) else "Post",
-                                           likes=p.get("likes"), second=p.get("shares"), views=None))
+                                           likes=p.get("likes"), second=p.get("shares"), views=None, image=first_image(p.get("media"))))
     else:  # X: one run per account, so one busy account cannot crowd out the rest
         for user, acc in by.items():
             for p in apify_run(actor, dict(twitterHandles=[user], maxItems=limit, sort="Latest")):
@@ -471,7 +490,8 @@ def apify_posts(network, accounts, first):
                 when = x_date(p.get("createdAt"))
                 if p.get("url") and when:
                     out[acc["id"]].append(dict(url=p["url"], text=p.get("fullText") or p.get("text"), at=when, kind="Repost" if p.get("isRetweet") else "Post",
-                                               likes=p.get("likeCount"), second=p.get("replyCount"), views=p.get("viewCount")))
+                                               likes=p.get("likeCount"), second=p.get("replyCount"), views=p.get("viewCount"),
+                                               image=next((m.get("media_url_https") for m in ((p.get("extendedEntities") or {}).get("media") or []) if m.get("media_url_https")), None)))
     return out, followers
 
 
@@ -496,8 +516,8 @@ def read_apify_network(conn, now, network, force=False):
                     added += conn.execute(
                         "INSERT OR IGNORE INTO competitor_posts (competitor_id, network, url, title, kind, posted_at, first_seen) VALUES (?,?,?,?,?,?,?)",
                         (acc["competitor_id"], network, p["url"], title, p["kind"], p["at"], iso(now))).rowcount
-                    conn.execute("UPDATE competitor_posts SET likes = ?, comments = ?, views = ? WHERE competitor_id = ? AND url = ?",
-                                 (p["likes"], p["second"], p["views"], acc["competitor_id"], p["url"]))
+                    conn.execute("UPDATE competitor_posts SET likes = ?, comments = ?, views = ?, image = COALESCE(?, image) WHERE competitor_id = ? AND url = ?",
+                                 (p["likes"], p["second"], p["views"], p.get("image"), acc["competitor_id"], p["url"]))
                 if acc["id"] in followers:
                     conn.execute("UPDATE competitor_accounts SET followers = ? WHERE id = ?", (followers[acc["id"]], acc["id"]))
                 conn.execute("UPDATE competitor_accounts SET checked_at = ?, note = ? WHERE id = ?",
