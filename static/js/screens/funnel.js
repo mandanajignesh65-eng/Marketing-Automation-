@@ -5,10 +5,10 @@ import { segmented, pageHead, info, sq, switcher } from '../ui.js';
 // key, name, one line under the name, and what the "i" says. `part` groups the steps by where the figure comes from.
 // `rate` gives the two numbers behind the % on the right, `of` names what it is a share of, and `why` explains it.
 const STEPS = {
-  reached: { k: 'reached', label: 'People reached', part: 'reach', sub: 'Website visits plus outreach messages',
-    parts: x => [[x.visits, 'website visits'], [x.sent, 'outreach messages sent'], [x.replied, 'replies to those messages']],
+  reached: { k: 'reached', label: 'People reached', part: 'reach', sub: 'Website sessions plus outreach messages',
+    parts: x => [[x.visits, 'website sessions'], [x.sent, 'outreach messages sent'], [x.replied, 'replies to those messages']],
     tip: 'Everyone marketing touched in this period. It adds two things: how many times people opened our website, and how many LinkedIn requests and emails we sent. When ads are connected, ad clicks will be added too.' },
-  visits: { k: 'visits', label: 'Website visits', part: 'web', sub: 'Times people opened our website',
+  visits: { k: 'visits', label: 'Website sessions', part: 'web', sub: 'Sessions on our website',
     tip: 'How many times people opened our website in this period. Counted by Google Analytics.' },
   sent: { k: 'sent', label: 'Messages sent', part: 'outreach', sub: 'LinkedIn requests and emails we sent',
     tip: 'How many people we wrote to first: LinkedIn connection requests and emails added together.' },
@@ -29,7 +29,7 @@ const STEPS = {
 // How leads relate to the step above them, which depends on what that step is.
 const LEAD_RATE = {
   all: { rate: x => [x.leads, x.reached], of: 'of people reached', why: 'Out of every 100 people we reached, by the website or by a message, how many became a lead.' },
-  web: { rate: x => [x.web_leads, x.visits], of: 'of visits', why: 'Out of every 100 website visits, how many became a lead on the website (a form or the chatbot). Leads from outreach and events are left out of this %, because those people did not come through the website.' },
+  web: { rate: x => [x.web_leads, x.visits], of: 'of sessions', why: 'Out of every 100 website visits, how many became a lead on the website (a form or the chatbot). Leads from outreach and events are left out of this %, because those people did not come through the website.' },
   outreach: { rate: x => [x.leads, x.replied], of: 'of replies', why: 'Out of every 100 replies, how many became a lead in Zoho. If this is very low, replies are probably not being added to Zoho with the right lead source.' },
 };
 const ORDER = { all: ['reached'], web: ['visits'], outreach: ['sent', 'replied'] };

@@ -150,7 +150,7 @@ def build(conn, now, p, site=None):
 
     visits, engaged = one("SELECT COALESCE(SUM(sessions), 0), COALESCE(SUM(engaged), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (s, e) + t_args)
     direct = one("SELECT COALESCE(SUM(sessions), 0) FROM {} WHERE source = '(direct)' AND date BETWEEN ? AND ?{}".format(traffic, t_and), (s, e) + t_args)[0]
-    visits_prev = one("SELECT COALESCE(SUM(sessions), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (ps, pe) + t_args)[0]
+    visits_prev, engaged_prev = one("SELECT COALESCE(SUM(sessions), 0), COALESCE(SUM(engaged), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (ps, pe) + t_args)
     search, search_prev = search_totals(s, e), search_totals(ps, pe)
     leads, qualified = web_leads(p.start_dt, p.end_dt)
     leads_prev, _ = web_leads(p.pstart_dt, p.pend_dt)
@@ -310,7 +310,7 @@ def build(conn, now, p, site=None):
     return dict(
         period=p.as_json(), company=get_setting(conn, "company", ""), sites=known or [], site=site or "", site_ready=ready,
         forms=forms, by_site=by_site, unplaced=sum(f["leads"] for f in forms if not f["site"]),
-        visits=dict(value=visits, prev=visits_prev, engaged=engaged, direct=direct), search_parts=search_parts, clicks=dict(value=search["clicks"], prev=search_prev["clicks"]),
+        visits=dict(value=visits, prev=visits_prev, engaged=engaged, engaged_prev=engaged_prev, direct=direct), search_parts=search_parts, clicks=dict(value=search["clicks"], prev=search_prev["clicks"]),
         impressions=dict(value=search["impressions"], prev=search_prev["impressions"]),
         position=dict(value=search["position"], prev=search_prev["position"]),
         leads=dict(value=leads, prev=leads_prev, qualified=qualified),

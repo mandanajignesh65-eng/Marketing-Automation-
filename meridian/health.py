@@ -72,8 +72,8 @@ def _qualified(conn, a, b):
 #   count checks give one number; rate checks give (part, whole) and show part out of every 100 of whole.
 #   benchmark: the starting figure and where it comes from. floor: the fewest cases a rate needs before it can alert.
 CHECKS = [
-    dict(key="visits", group="Website", name="Website visits", kind="count", unit="visits",
-         says="How many times people came to the website.", count=_visits),
+    dict(key="visits", group="Website", name="Website sessions", kind="count", unit="sessions",
+         says="Sessions on the website.", count=_visits),
     dict(key="google_clicks", group="Website", name="Clicks from Google", kind="count", unit="clicks", lag=True,
          says="How many times someone clicked to us from a Google search.", count=lambda c, a, b: _search(c, "clicks", a, b)),
     dict(key="google_ctr", group="Website", name="Google click rate", kind="rate", lag=True, benchmark=2.0, floor=1000,
@@ -84,9 +84,9 @@ CHECKS = [
          says="Out of every 100 Google clicks, how many came from people who did not type our name. These are new people finding us.",
          source="SEO guides put a healthy B2B site at 50 to 70 in every 100 clicks from searches without the brand name.",
          rate=_clicks_by_name),
-    dict(key="visit_to_lead", group="Website", name="Visits that become leads", kind="rate", benchmark=2.0, floor=500,
-         says="Out of every 100 website visits, how many became a lead.",
-         source="B2B software sites average 1.5 to 2.5 leads per 100 visits across published 2026 studies.",
+    dict(key="visit_to_lead", group="Website", name="Conversion rate", kind="rate", benchmark=2.0, floor=500,
+         says="Out of every 100 website sessions, how many became a lead.",
+         source="B2B software sites average 1.5 to 2.5 leads per 100 sessions across published 2026 studies.",
          rate=lambda c, a, b: (_web_leads(c, a, b), _visits(c, a, b))),
 
     dict(key="leads", group="Leads", name="New leads", kind="count", unit="leads",

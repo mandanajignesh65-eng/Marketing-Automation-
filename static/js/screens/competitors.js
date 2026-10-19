@@ -125,7 +125,7 @@ export default {
         ${row('Pricing change', c => when(c.last.pricing))}
         ${d.competitors.some(c => c.seo) ? html`${part('Google search, India')}
         ${row('Keywords they rank for', c => val(c.seo && c.seo.keywords))}
-        ${row('Visits a month, estimated', c => val(c.seo && c.seo.traffic))}
+        ${row('Estimated monthly traffic', c => val(c.seo && c.seo.traffic))}
         ${row('Keywords shared with us', c => val(c.seo && c.seo.common))}` : ''}
         ${part('Links')}
         ${row('Website', c => link(`https://${c.domain}`, c.domain))}

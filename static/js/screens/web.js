@@ -87,14 +87,14 @@ function semrushCards(s) {
   const facts = [[f.num(s.keywords), 'Words we rank for', 'How many different searches show our website somewhere in the first 100 Google results.'],
     [f.num(s.top3), 'In the top 3', 'How many of those searches show us in place 1, 2 or 3. These get most of the clicks.'],
     [f.num(s.top10), 'On the first page', 'How many of those searches show us in the first 10 results.'],
-    [f.num(s.traffic), 'Visits a month, estimated', 'Semrush’s guess of how many visits a month these rankings bring. It is an estimate, not a count.'],
+    [f.num(s.traffic), 'Estimated monthly traffic', 'Semrush’s guess of how many visits a month these rankings bring. It is an estimate, not a count.'],
     [f.pct(share), 'From our own name', 'How much of that estimate comes from people searching our name. The rest comes from people who did not know us.']];
   return html`
     <div class="row" style="gap:10px;margin:6px 0 -2px"><span class="section">${s.domain}</span><span class="muted">Semrush, ${s.country} database, export of ${s.day}</span>${s.as_semrush ? info(TIPS.semrushCount) : ''}</div>
     <div class="grid" style="grid-template-columns:repeat(5,minmax(0,1fr))">${facts.map(([v, l, tip], i) => html`<div class="card kpi" style="padding:14px 16px">
       <span class="kpi-v md" style="font-size:26px">${v}</span><span class="row eyebrow" style="gap:7px">${l}${info(tip, { end: i > 2 })}</span></div>`)}</div>
     <div class="grid start" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
-      <div class="card" style="padding:18px 20px 8px;--cols:minmax(0,1fr) 70px 64px 52px">${head('Searches bringing visits, our name aside', 'Searches that do not use our name and already bring visits. Place is where we show in Google. Searches is how many people search it each month.')}${rows(s.earning, 'No rankings outside our own name.')}</div>
+      <div class="card" style="padding:18px 20px 8px;--cols:minmax(0,1fr) 70px 64px 52px">${head('Non-branded keywords bringing traffic', 'Searches that do not use our name and already bring visits. Place is where we show in Google. Searches is how many people search it each month.')}${rows(s.earning, 'No rankings outside our own name.')}</div>
       <div class="card" style="padding:18px 20px 8px;--cols:minmax(0,1fr) 70px 64px 52px">${head('Within reach: places 11 to 30', 'Searches where we are on page 2 or 3 of Google and many people search. Moving these onto page 1 would bring visits.', true)}${rows(s.within_reach, 'Nothing between places 11 and 30.')}</div>
     </div>
     ${s.competitors.length ? html`<div class="card" style="padding:18px 20px 8px;--cols:minmax(0,1fr) 120px 120px 150px">
@@ -118,7 +118,7 @@ export default {
     const pick = (key, options, fallback) => (options.includes(ui[key]) ? ui[key] : fallback);
     const sw = (key, options, on) => switcher(options.map(([arg, label, color]) => ({ arg: `${key}=${arg}`, label, color, on: on === arg })), 'set');
     const dayLabel = (x, i) => (i === 0 || x.day === 1 ? `${x.day} ${x.month}` : d.days.length <= 16 || x.day % 5 === 0 ? x.day : '');
-    const METRIC = { visits: ['Visits', 'var(--ink)'], clicks: ['Google clicks', GREEN], leads: ['Leads', BLUE] };
+    const METRIC = { visits: ['Sessions', 'var(--ink)'], clicks: ['Google clicks', GREEN], leads: ['Leads', BLUE] };
 
     // ------------------------------------------------------------ summary
     const summary = () => {
@@ -132,18 +132,18 @@ export default {
       ${d.site && d.unplaced ? html`<div class="row small" style="gap:10px;padding:9px 14px;border-radius:10px;background:color-mix(in oklch, var(--warn) 12%, var(--surface))">
         <span><span class="semi">${f.num(d.unplaced)} website lead${d.unplaced === 1 ? ' is' : 's are'} not counted for any website yet.</span> Their forms have no website picked.</span>
         <span style="flex:1"></span><span class="btn xs" data-act="site" data-arg="">Pick websites for the forms</span></div>` : ''}
-      <div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr))">
-        ${kpi(f.num(d.visits.value), 'Visits', TIPS.visits, change(d.visits.value, d.visits.prev), d.visits.engaged ? html`<span title="${TIPS.engaged}">${f.num(d.visits.engaged)} engaged</span>` : '')}
-        ${kpi(f.num(d.clicks.value), 'Clicks from Google', TIPS.clicks, change(d.clicks.value, d.clicks.prev), d.visits.value ? `${f.pct(d.clicks.value / d.visits.value * 100)} of visits` : '')}
+      <div class="grid" style="grid-template-columns:repeat(5,minmax(0,1fr))">
+        ${kpi(f.num(d.visits.value), 'Sessions', TIPS.visits, change(d.visits.value, d.visits.prev), '')}
+        ${kpi(f.num(d.visits.engaged), 'Engaged sessions', TIPS.engaged, change(d.visits.engaged, d.visits.engaged_prev), d.visits.value ? `${f.pct(d.visits.engaged / d.visits.value * 100)} engagement rate` : '')}
+        ${kpi(f.num(d.clicks.value), 'Clicks from Google', TIPS.clicks, change(d.clicks.value, d.clicks.prev), d.visits.value ? `${f.pct(d.clicks.value / d.visits.value * 100)} of sessions` : '')}
         ${kpi(f.num(d.leads.value), 'Website leads', TIPS.leads, change(d.leads.value, d.leads.prev), `${f.num(d.leads.qualified)} qualified`)}
-        ${kpi(f.orDash(toLead, f.pct), 'Visits that became leads', TIPS.toLead, null, show && toLeadPrev != null ? `was ${f.pct(toLeadPrev)}` : '', { end: true })}
+        ${kpi(f.orDash(toLead, f.pct), 'Conversion rate', TIPS.toLead, null, show && toLeadPrev != null ? `was ${f.pct(toLeadPrev)}` : '', { end: true })}
       </div>
       ${d.visits.value >= 200 && d.visits.direct / d.visits.value >= 0.6 ? html`<div class="row small" style="gap:10px;padding:10px 14px;border-radius:10px;background:color-mix(in oklch, var(--warn) 12%, var(--surface))">
-        <span><span class="semi">${f.pct(d.visits.direct / d.visits.value * 100)} of visits have no known source.</span> That is far above normal, so the visit count is probably inflated.
-          ${d.visits.engaged ? html`Only <span class="semi">${f.num(d.visits.engaged)}</span> visits were engaged.` : ''} Ask whoever looks after Google Analytics to check for robots and the tracking setup.</span>${info(TIPS.direct, { end: true })}</div>` : ''}
+        <span><span class="semi">${f.pct(d.visits.direct / d.visits.value * 100)} of sessions are direct traffic (no known source).</span> Links in emails, ads and social posts need UTM tags so these sessions are credited to the right channel.</span>${info(TIPS.direct, { end: true })}</div>` : ''}
       ${!d.site && d.by_site.length ? html`<div class="card clipped" style="--cols:${scols}">
         <div class="row" style="gap:8px;padding:16px 16px 10px"><span class="title">Site comparison</span>${info(TIPS.sides)}</div>
-        <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Website</span><span>Visits</span><span>Clicks from Google</span><span>Leads</span><span>Visits that became leads</span></div>
+        <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Website</span><span>Sessions</span><span>Clicks from Google</span><span>Leads</span><span>Conversion rate</span></div>
         ${d.by_site.map(x => html`<div class="trow right" data-act="site" data-arg="${x.site}" title="See only ${x.site}" style="cursor:pointer">
           <span class="medium" style="text-align:left">${x.site}</span>
           <span><span class="medium">${f.num(x.visits)}</span>${show && x.prev ? html` <span class="tiny" style="color:${f.tone(change(x.visits, x.prev))}">${f.arrowShort(change(x.visits, x.prev))}</span>` : ''}</span>
@@ -157,7 +157,7 @@ export default {
       </div>
       <div class="grid start" style="grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)">
         <div class="card" style="padding:18px 24px 12px">
-          ${cardHead('Where visitors came from', TIPS.sources)}
+          ${cardHead('Traffic sources', TIPS.sources)}
           ${ranked(d.sources.map(s => ({ name: s.name, value: s.visits, color: SOURCE_COLOR[s.name] || GREY, title: s.top.join(', '),
             note: `${s.engaged ? f.num(s.engaged) + ' engaged · ' : ''}${total ? f.pct(s.visits / total * 100) : ''}${show && s.prev ? ` · ${f.arrowShort(change(s.visits, s.prev))}` : ''}` })))}
         </div>
