@@ -2,7 +2,7 @@ import { html } from '../html.js';
 import * as f from '../format.js';
 import { sq, avatar, statusPill, menu, switcher, info } from '../ui.js';
 
-const WIDE = 'minmax(0,1.5fr) minmax(0,1.5fr) minmax(0,1.3fr) minmax(0,1.05fr) minmax(0,1.05fr) 84px 56px minmax(0,1.2fr)';
+const WIDE = 'minmax(0,1.5fr) minmax(0,1.5fr) minmax(0,1.3fr) minmax(0,1.05fr) minmax(0,1.05fr) 84px 56px';
 const NARROW = 'minmax(0,1.4fr) minmax(0,1.4fr) minmax(0,1.2fr) minmax(0,1.1fr) 84px 56px';
 const OWNER_BUTTONS = 6;  // owners with the most leads get a button each; the rest sit behind "More"
 const TIPS = {
@@ -84,7 +84,7 @@ function table(d, ctx) {
     <span class="colf ${value ? 'on' : ''}" data-act="menu" data-arg="f-${id}" title="Filter by ${label.toLowerCase()}"><span class="clip">${label}</span><span style="font-size:8px">▼</span></span>
     ${tip ? info(tip, { end: right }) : ''}${app.menu === 'f-' + id ? menu(items, 'filter-' + id, { right }) : ''}</div>`; };
   const heads = html`<div class="thead" style="gap:12px"><span>Name</span>${head('segment')}${head('channel')}${wide ? head('owner') : ''}${head('status')}
-    ${head('score', TIPS.score, true)}${head('age', null, true)}${wide ? head('activity', null, true) : ''}</div>`;
+    ${head('score', TIPS.score, true)}${head('age', null, true)}</div>`;
   if (!list.rows.length) {
     return html`<div class="card" style="--cols:${wide ? WIDE : NARROW};--gap:12px">${filterStrip(d, ctx, cols)}${heads}
       <div class="stack" style="align-items:center;gap:10px;padding:36px 20px;text-align:center">
@@ -107,7 +107,6 @@ function table(d, ctx) {
       <div class="row" style="gap:8px" title="${r.marked ? `Marked ${r.marked === 'yes' ? 'qualified' : 'unqualified'} by hand` : ''}"><span class="medium" style="width:18px">${r.score}</span>
         <div style="width:32px;height:4px;border-radius:2px;background:var(--track)"><div style="width:${r.score}%;height:100%;border-radius:2px;background:var(--${r.qualified ? 'pos' : 'ink3'})"></div></div>${r.marked ? html`<span class="tiny faint">${r.marked === 'yes' ? 'Qualified' : 'Unqualified'}</span>` : ''}</div>
       <span style="color:var(--${r.age_tone})">${r.age}</span>
-      ${wide ? html`<span class="small muted clip">${r.last}</span>` : ''}
     </div>`; })}
     <div class="between small faint" style="padding:10px 16px;border-top:1px solid var(--line)">
       <span>Showing ${f.num(list.rows.length)} of ${f.num(list.total)}</span>
