@@ -421,9 +421,25 @@ def handle(network, url):
     return found.group(1).strip(".").lower() if found else None
 
 
+# Added later (19 Oct 2026): pages found after the first round.
+SOCIAL_SEED_2 = {
+    "Kore.ai": {"instagram": "https://www.instagram.com/kore.ai"},
+    "Haptik": {"youtube": "https://www.youtube.com/channel/UCEeT8gTq3PKhbA-vB7k7GiQ"},
+}
+
+
 def seed_more_social(conn):
-    """Once: the Instagram, Facebook and X pages of the known companies."""
-    if db.is_demo(conn) or db.get_setting(conn, "competitor_more_social_seeded"):
+    """Once each: the Instagram, Facebook and X pages of the known companies, then the ones found later."""
+    if db.is_demo(conn):
+        return
+    if not db.get_setting(conn, "competitor_social_seeded_2"):
+        for name, pages in SOCIAL_SEED_2.items():
+            row = conn.execute("SELECT id FROM competitors WHERE name = ? AND active = 1", (name,)).fetchone()
+            for network, url in pages.items():
+                if row:
+                    conn.execute("INSERT OR IGNORE INTO competitor_accounts (competitor_id, network, url) VALUES (?,?,?)", (row["id"], network, url))
+        db.set_setting(conn, "competitor_social_seeded_2", "1")
+    if db.get_setting(conn, "competitor_more_social_seeded"):
         return
     for name, pages in SOCIAL_SEED.items():
         row = conn.execute("SELECT id FROM competitors WHERE name = ? AND active = 1", (name,)).fetchone()
