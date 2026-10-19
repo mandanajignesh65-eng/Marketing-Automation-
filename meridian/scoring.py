@@ -25,6 +25,7 @@ ICP = dict(
 # whole words, or the start of a word when it ends in * ("insur*" finds "insurance" but "hospital" skips "hospitality").
 LIVE_ICP = dict(
     ICP, employees=(200, None), employees_half=(1, 199), exact=False,
+    other_industry=0.35,  # a known industry outside the four still earns part of the industry points
     segments={
         "Healthcare": ["health*", "hospital", "hospitals", "pharma*", "medical", "diagnostic*", "clinic*"],
         "Retail": ["retail*", "ecom*", "e-com*", "apparel", "fashion", "fmcg", "consumer goods", "jewel*", "garment*", "cosmetic*"],
@@ -64,7 +65,9 @@ def in_segment(industry, icp):
 # Weights for a database fed by the CRM alone: it knows the company, not web or email behaviour,
 # so fit carries the whole score until intent signals are connected.
 # Being in a priority segment is enough to qualify; company size refines it. Revenue is not recorded in the CRM.
-FIT_ONLY_WEIGHTS = dict(size=30, industry=70, revenue=0, demo=0, pricing=0, email=0)
+# A big company qualifies in any known industry; a smaller one needs to be in a priority industry.
+FIT_ONLY_WEIGHTS = dict(size=55, industry=45, revenue=0, demo=0, pricing=0, email=0)
+OLD_FIT_ONLY = dict(size=30, industry=70)  # the weights before October 2026, replaced unless someone changed them
 
 
 def default_criteria(fit_only=False):
@@ -82,7 +85,8 @@ def _criteria(icp):
     return [
         ("size", "Fit", "Company size", "{} employees for full points, {} for half".format(span(*icp["employees"]), span(*icp["employees_half"]))
          if icp["employees"][1] else "Mid-market or enterprise ({} employees) for full points, smaller companies for half".format(span(*icp["employees"])), 20),
-        ("industry", "Fit", "Industry", industries[0].upper() + industries[1:], 15),
+        ("industry", "Fit", "Industry", industries[0].upper() + industries[1:] + (" for full points, any other known industry for a third"
+                                                                                 if icp.get("other_industry") else ""), 15),
         ("revenue", "Fit", "Annual revenue", "{} for full points, {}–{} for half".format(
             revenue_range(icp), money_short(icp["revenue_half"][0]), money_short(icp["revenue_half"][1])), 15),
         ("demo", "Intent", "Demo or contact request", "Any demo, contact sales or trial form", 20),
@@ -136,7 +140,7 @@ def evaluate(lead, icp=ICP):
     else:
         segment = in_segment(industry, icp)
         named = segment and segment.lower() != industry.lower()
-        out.append(("industry", 1.0 if segment else 0.0,
+        out.append(("industry", 1.0 if segment else icp.get("other_industry", 0.0),
                     industry + (" · priority vertical" + (" ({})".format(segment) if named else "") if segment else " · not a priority vertical")))
 
     rev = lead.get("revenue")
@@ -210,6 +214,25 @@ def count_qualified(conn, weights, thr, start_dt, end_dt):
         args,
     ).fetchone()
     return row["n"]
+
+
+def update_weights(conn):
+    """Once: move a live database from the old weights (industry 70, size 30) to the new ones, then rescore every lead.
+
+    Weights someone has changed on the Scoring rules page are left alone."""
+    if is_demo(conn) or get_setting(conn, "scoring_weights_2026_10"):
+        return False
+    rows = {r["key"]: r["weight"] for r in conn.execute("SELECT key, weight FROM scoring_criteria")}
+    if not rows:
+        return False
+    if all(rows.get(k) == w for k, w in OLD_FIT_ONLY.items()):
+        for key, weight in FIT_ONLY_WEIGHTS.items():
+            conn.execute("UPDATE scoring_criteria SET weight = ? WHERE key = ?", (weight, key))
+    rule = next(r for k, g, l, r, w in _criteria(LIVE_ICP) if k == "industry")
+    conn.execute("UPDATE scoring_criteria SET rule = ? WHERE key = 'industry'", (rule,))
+    refresh_fit(conn)
+    set_setting(conn, "scoring_weights_2026_10", "1")
+    return True
 
 
 def save(conn, weights, thr):
