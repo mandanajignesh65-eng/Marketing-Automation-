@@ -1,5 +1,7 @@
 """HTTP API and static front end. Run with: uvicorn meridian.api:app"""
 
+import time
+import os
 import hmac
 from contextlib import contextmanager
 from datetime import date, datetime
@@ -213,10 +215,14 @@ def change_own_password(b: NewPassword, request: Request):
 
 # ------------------------------------------------------------------------------- screens
 
+VERSION = os.environ.get("RENDER_GIT_COMMIT") or str(int(time.time()))  # the deployed code, or this start of the server
+
+
 @app.get("/api/shell")
 def get_shell(request: Request):
     with session() as conn:
         shell = screens.shell(conn, db.now(conn))
+        shell["version"] = VERSION  # an open page reloads itself when this changes
         person = getattr(request.state, "person", None)
         if person:  # the signed-in person replaces the placeholder shown when sign-in is off
             shell["user"] = dict(name=person["name"], role="Leader" if person["role"] == "admin" else "Team member", email=person["email"],

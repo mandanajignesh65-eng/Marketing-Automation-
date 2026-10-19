@@ -412,6 +412,22 @@ document.addEventListener('keydown', event => {
 });
 window.addEventListener('hashchange', onRoute);
 
+// A page left open for days must not show an old date or old code: when it is looked at again, check the server.
+// New code: reload the whole page. A new day: fetch the dates again and redraw the figures.
+let checkedAt = Date.now();
+async function stillCurrent() {
+  if (document.hidden || Date.now() - checkedAt < 5 * 60 * 1000) return;
+  checkedAt = Date.now();
+  try {
+    const fresh = await api.get('shell');
+    if (app.shell && fresh.version && app.shell.version && fresh.version !== app.shell.version) return location.reload();
+    if (app.shell && fresh.today !== app.shell.today) { app.shell = fresh; setCurrency(fresh.currency); load(true); }
+  } catch (err) { /* offline or signed out: the next look tries again */ }
+}
+document.addEventListener('visibilitychange', stillCurrent);
+window.addEventListener('focus', stillCurrent);
+setInterval(stillCurrent, 5 * 60 * 1000 + 1000);
+
 (async function start() {
   try {
     await ctx.refreshShell();
