@@ -113,7 +113,8 @@ export default {
     const view = TABS.some(t => t[0] === params.view) ? params.view : 'summary';
     const kpi = (value, label, tip, delta, sub, { end = false, mode = 'up' } = {}) => html`<div class="card kpi" style="padding:16px 18px">
       <span class="kpi-v md">${value}</span><span class="row eyebrow" style="gap:7px">${label}${info(tip, { end })}</span>
-      <span class="kpi-d">${show && delta != null ? html`<span style="color:${f.tone(delta, mode)}">${f.arrowShort(delta)}</span> <span class="faint">vs ${d.period.prev_short}</span>` : ''}${sub ? html`<span class="faint">${show && delta != null ? ' · ' : ''}${sub}</span>` : ''}</span></div>`;
+      ${show && delta != null ? html`<span class="kpi-d nowrap"><span style="color:${f.tone(delta, mode)}">${f.arrowShort(delta)}</span> <span class="faint">vs ${d.period.prev_short}</span></span>` : ''}
+      ${sub ? html`<span class="kpi-d faint nowrap clip">${sub}</span>` : ''}</div>`;
     const cardHead = (title, tip, right = '') => html`<div class="baseline" style="gap:16px;flex-wrap:wrap;margin-bottom:12px"><span class="row" style="gap:8px"><span class="title">${title}</span>${info(tip)}</span>${right}</div>`;
     const pick = (key, options, fallback) => (options.includes(ui[key]) ? ui[key] : fallback);
     const sw = (key, options, on) => switcher(options.map(([arg, label, color]) => ({ arg: `${key}=${arg}`, label, color, on: on === arg })), 'set');
@@ -132,10 +133,13 @@ export default {
       ${d.site && d.unplaced ? html`<div class="row small" style="gap:10px;padding:9px 14px;border-radius:10px;background:color-mix(in oklch, var(--warn) 12%, var(--surface))">
         <span><span class="semi">${f.num(d.unplaced)} website lead${d.unplaced === 1 ? ' is' : 's are'} not counted for any website yet.</span> Their forms have no website picked.</span>
         <span style="flex:1"></span><span class="btn xs" data-act="site" data-arg="">Pick websites for the forms</span></div>` : ''}
-      <div class="grid" style="grid-template-columns:repeat(5,minmax(0,1fr))">
+      <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
         ${kpi(f.num(d.visits.value), 'Sessions', TIPS.visits, change(d.visits.value, d.visits.prev), '')}
-        ${kpi(f.num(d.visits.engaged), 'Engaged sessions', TIPS.engaged, change(d.visits.engaged, d.visits.engaged_prev), d.visits.value ? `${f.pct(d.visits.engaged / d.visits.value * 100)} engagement rate` : '')}
-        ${kpi(f.num(d.clicks.value), 'Clicks from Google', TIPS.clicks, change(d.clicks.value, d.clicks.prev), d.visits.value ? `${f.pct(d.clicks.value / d.visits.value * 100)} of sessions` : '')}
+        ${kpi(f.num(d.visits.engaged), 'Engaged sessions', TIPS.engaged, change(d.visits.engaged, d.visits.engaged_prev), '')}
+        ${kpi(f.orDash(rate(d.visits.engaged, d.visits.value), f.pct), 'Engagement rate', TIPS.engaged, null, show && d.visits.prev ? `was ${f.pct(rate(d.visits.engaged_prev, d.visits.prev))}` : '')}
+      </div>
+      <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+        ${kpi(f.num(d.clicks.value), 'Clicks from Google', TIPS.clicks, change(d.clicks.value, d.clicks.prev), '')}
         ${kpi(f.num(d.leads.value), 'Website leads', TIPS.leads, change(d.leads.value, d.leads.prev), `${f.num(d.leads.qualified)} qualified`)}
         ${kpi(f.orDash(toLead, f.pct), 'Conversion rate', TIPS.toLead, null, show && toLeadPrev != null ? `was ${f.pct(toLeadPrev)}` : '', { end: true })}
       </div>
