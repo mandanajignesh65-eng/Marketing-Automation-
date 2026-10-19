@@ -144,7 +144,7 @@ def build(conn, now, p, site=None):
         return dict(clicks=r["c"], impressions=r["i"], position=pos)
 
     def web_leads(start_dt, end_dt):
-        r = one("SELECT COUNT(*) AS n, COALESCE(SUM(score >= ?), 0) AS q FROM leads WHERE created_at >= ? AND created_at < ?" + lead_and,
+        r = one("SELECT COUNT(*) AS n, COALESCE(SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')), 0) AS q FROM leads WHERE created_at >= ? AND created_at < ?" + lead_and,
                 (thr, start_dt, end_dt) + lead_args)
         return r["n"], r["q"]
 
@@ -293,7 +293,7 @@ def build(conn, now, p, site=None):
     forms = [dict(name=r["k"], kind="Chatbot" if r["ch"] == "chatbot" else "Form", site=on_site.get(r["k"], ""), leads=r["n"], qualified=r["q"] or 0,
                   prev=before.get(r["k"], 0))
              for r in conn.execute(
-                 "SELECT COALESCE(lead_source, '') AS k, MAX(channel_id) AS ch, COUNT(*) AS n, SUM(score >= ?) AS q FROM leads "
+                 "SELECT COALESCE(lead_source, '') AS k, MAX(channel_id) AS ch, COUNT(*) AS n, SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')) AS q FROM leads "
                  "WHERE created_at >= ? AND created_at < ? AND channel_id IN ({}) GROUP BY 1 ORDER BY n DESC".format(marks),
                  (thr, p.start_dt, p.end_dt) + WEB_LEAD_CHANNELS)]
 

@@ -497,6 +497,7 @@ def get_lead(lead_id: int):
 class LeadPatch(BaseModel):
     owner: Optional[str] = None
     status: Optional[str] = None
+    qualify: Optional[str] = None  # "yes", "no", or "score" to go back to the score
 
 
 @app.patch("/api/leads/{lead_id}")
@@ -509,6 +510,14 @@ def patch_lead(lead_id: int, body: LeadPatch):
             raise HTTPException(404, "Lead not found")
         if body.status and body.status not in metrics.STATUSES:
             raise HTTPException(400, "Unknown status")
+        if body.qualify is not None:
+            if body.qualify not in ("yes", "no", "score"):
+                raise HTTPException(400, "Unknown choice")
+            value = None if body.qualify == "score" else body.qualify
+            scoring.mark(conn, lead_id, value)
+            conn.execute("INSERT INTO lead_events (lead_id, at, kind, title, detail) VALUES (?,?,?,?,?)",
+                         (lead_id, iso(now), "crm", {"yes": "Marked qualified", "no": "Marked unqualified", None: "Qualification back to the score"}[value],
+                          "In Meridian only. Zoho CRM is not changed."))
         if body.owner and body.owner != lead["owner"]:
             conn.execute("UPDATE leads SET owner = ? WHERE id = ?", (body.owner, lead_id))
             conn.execute("INSERT INTO lead_events (lead_id, at, kind, title, detail) VALUES (?,?,?,?,?)",

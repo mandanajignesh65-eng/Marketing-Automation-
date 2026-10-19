@@ -104,8 +104,8 @@ function table(d, ctx) {
         ${r.source ? html`<span class="small muted clip" style="padding-left:15px" title="${r.source}">${r.source}</span>` : ''}</div>
       ${wide ? html`<span class="clip">${r.owner || '—'}</span>` : ''}
       <div>${statusPill(r.status)}</div>
-      <div class="row" style="gap:8px"><span class="medium" style="width:18px">${r.score}</span>
-        <div style="width:32px;height:4px;border-radius:2px;background:var(--track)"><div style="width:${r.score}%;height:100%;border-radius:2px;background:var(--${r.qualified ? 'pos' : 'ink3'})"></div></div></div>
+      <div class="row" style="gap:8px" title="${r.marked ? `Marked ${r.marked === 'yes' ? 'qualified' : 'unqualified'} by hand` : ''}"><span class="medium" style="width:18px">${r.score}</span>
+        <div style="width:32px;height:4px;border-radius:2px;background:var(--track)"><div style="width:${r.score}%;height:100%;border-radius:2px;background:var(--${r.qualified ? 'pos' : 'ink3'})"></div></div>${r.marked ? html`<span class="tiny faint">${r.marked === 'yes' ? 'Qualified' : 'Unqualified'}</span>` : ''}</div>
       <span style="color:var(--${r.age_tone})">${r.age}</span>
       ${wide ? html`<span class="small muted clip">${r.last}</span>` : ''}
     </div>`; })}
@@ -147,7 +147,9 @@ function detail(L, ctx) {
       </div>
       <div class="track"><div class="fill" style="width:${Math.min(100, L.score)}%;background:var(--${tone})"></div>
         <div class="mark" style="left:${L.threshold}%;top:-4px;bottom:-4px;background:var(--ink)"></div></div>
-      <div class="tiny faint">Qualifies at ${L.threshold}</div>
+      <div class="between" style="gap:10px"><span class="tiny faint">${L.marked ? `Marked ${L.marked === 'yes' ? 'qualified' : 'unqualified'} by hand · score says ${L.score >= L.threshold ? 'qualified' : 'not qualified'}` : `Qualifies at ${L.threshold}`}</span>
+        ${L.marked ? html`<span class="btn xs" data-act="qualify" data-arg="score">Use the score</span>`
+          : html`<span class="btn xs" data-act="qualify" data-arg="${L.qualified ? 'no' : 'yes'}">${L.qualified ? 'Mark as unqualified' : 'Mark as qualified'}</span>`}</div>
     </div>
 
     ${section('Company', '', html`<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px 12px">
@@ -213,6 +215,8 @@ export default {
   },
 
   actions: {
+    qualify: (ctx, d) => ctx.save(() => ctx.api.patch('leads/' + ctx.app.params.lead, { qualify: d.arg }),
+      { no: 'Marked unqualified. The counts update everywhere.', yes: 'Marked qualified. The counts update everywhere.', score: 'Back to the score.' }[d.arg]),
     open: (ctx, d) => ctx.go('leads', { ...ctx.app.params, lead: d.arg }),
     close: ctx => ctx.go('leads', { channel: ctx.app.params.channel }),
     'filter-channel'(ctx, d) { ctx.app.menu = null; ctx.go('leads', { ...ctx.app.params, channel: d.arg }); },

@@ -204,12 +204,12 @@ def audience(conn, p, ids, thr):
     clause, args = metrics.in_clause("channel_id", ids)
     total = {n: dict(name=n, leads=0, qualified=0) for n in names}
     by_channel = {}
-    for r in conn.execute("SELECT channel_id, industry, score FROM leads WHERE created_at >= ? AND created_at < ?" + clause,
+    for r in conn.execute("SELECT channel_id, industry, score, qualify_override FROM leads WHERE created_at >= ? AND created_at < ?" + clause,
                           [p.start_dt, p.end_dt] + args):
         industry = (r["industry"] or "").strip()
         name = (scoring.in_segment(industry, icp) or OTHER_INDUSTRY) if industry else NO_COMPANY
         total[name]["leads"] += 1
-        total[name]["qualified"] += r["score"] >= thr
+        total[name]["qualified"] += scoring.is_qualified(r, thr)
         row = by_channel.setdefault(r["channel_id"], dict(id=r["channel_id"], leads=0, parts=dict.fromkeys(names, 0)))
         row["leads"] += 1
         row["parts"][name] += 1
@@ -233,7 +233,7 @@ def channels(conn, now, p):
     keys = ["{:04d}-{:02d}".format(*ym) for ym in months]
     trend = {k: {} for k in keys}
     for r in conn.execute(
-            "SELECT substr(created_at, 1, 7) AS month, channel_id, COUNT(*) AS n, SUM(score >= ?) AS q FROM leads "
+            "SELECT substr(created_at, 1, 7) AS month, channel_id, COUNT(*) AS n, SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')) AS q FROM leads "
             "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2",
             (thr, keys[0] + "-01", p.end_dt)):
         if r["month"] in trend:
@@ -243,7 +243,7 @@ def channels(conn, now, p):
     source = "COALESCE(NULLIF(TRIM(lead_source), ''), NULLIF(TRIM(utm_campaign), ''), 'Source not recorded')"
     inside = {}
     for r in conn.execute(
-            "SELECT channel_id, {} AS source, COUNT(*) AS n, SUM(score >= ?) AS q FROM leads "
+            "SELECT channel_id, {} AS source, COUNT(*) AS n, SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')) AS q FROM leads "
             "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2".format(source), (thr, p.start_dt, p.end_dt)):
         inside.setdefault(r["channel_id"], {})[r["source"]] = dict(source=r["source"], leads=r["n"], qualified=r["q"] or 0, deals=0, pipeline=0)
     for r in conn.execute(
@@ -437,7 +437,7 @@ def lead_row(r, now, thr, icp=None):
     else:
         last = ""
     return dict(id=r["id"], name=r["name"], company=r["company"], initials=initials(r["name"]), channel_id=r["channel_id"],
-                owner=r["owner"], status=r["status"], score=r["score"], qualified=r["score"] >= thr,
+                owner=r["owner"], status=r["status"], score=r["score"], qualified=scoring.is_qualified(r, thr), marked=r["qualify_override"] if "qualify_override" in r.keys() else None,
                 industry=r["industry"], source=r["lead_source"], kind=company_kind(r["industry"], icp) if icp else None,
                 age=age_short(now, r["created_at"]), age_tone="neg" if waiting and quiet >= 7 else "warn" if waiting else "ink2",
                 last=last)
@@ -465,7 +465,7 @@ def leads(conn, now, p, q="", channel="", owner="", status="", score="", needs_u
         where.append("status = ?")
         args.append(status)
     if score in ("qualified", "unqualified"):
-        where.append("score >= ?" if score == "qualified" else "score < ?")
+        where.append("((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes') AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')" if score == "qualified" else "NOT ((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes') AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')")
         args.append(thr)
     elif score == "high":
         where.append("score >= 80")
@@ -496,7 +496,7 @@ def leads(conn, now, p, q="", channel="", owner="", status="", score="", needs_u
 
     # what the period holds, for the numbers at the top and the counts on the filter buttons
     span = (p.start_dt, p.end_dt)
-    head = conn.execute("SELECT COUNT(*) AS n, COALESCE(SUM(score >= ?), 0) AS q FROM leads WHERE created_at >= ? AND created_at < ?",
+    head = conn.execute("SELECT COUNT(*) AS n, COALESCE(SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')), 0) AS q FROM leads WHERE created_at >= ? AND created_at < ?",
                         (thr,) + span).fetchone()
     by_kind = dict.fromkeys(kinds, 0)
     for r in conn.execute("SELECT industry, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < ? GROUP BY industry", span):
@@ -583,7 +583,7 @@ def quality(conn, now, p):
                           (p.start_dt, p.end_dt)):
         hist[r["b"]] = r["n"]
     by = {r["channel_id"]: r for r in conn.execute(
-        "SELECT channel_id, COUNT(*) AS n, AVG(score) AS avg, SUM(score >= ?) AS q FROM leads "
+        "SELECT channel_id, COUNT(*) AS n, AVG(score) AS avg, SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')) AS q FROM leads "
         "WHERE created_at >= ? AND created_at < ? GROUP BY channel_id", (thr, p.start_dt, p.end_dt))}
     chans = [dict(id=cid, avg=r["avg"], leads=r["n"], qualified=r["q"] or 0) for cid, r in by.items() if cid]
     changed_at = get_setting(conn, "scoring_changed_at")
@@ -617,7 +617,7 @@ def clarity(conn, p, thr):
         work = bool(domain) and research.usable(domain, own)
         named = research.company_key(dict(lead, email="", website=""), own) is not None
         key = research.company_key(lead, own)
-        if lead["score"] >= thr:
+        if scoring.is_qualified(r, thr):
             verdict = "fits"
         elif industry:
             verdict = "no_fit"

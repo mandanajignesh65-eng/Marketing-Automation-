@@ -102,6 +102,19 @@ def points(weight, fraction):
     return int(weight * fraction + 0.5)
 
 
+def is_qualified(lead, thr):
+    """Qualified by its score, unless someone marked the lead by hand (qualify_override 'yes' or 'no')."""
+    mark = lead["qualify_override"] if "qualify_override" in lead.keys() else None
+    return mark == "yes" if mark in ("yes", "no") else lead["score"] >= thr
+
+
+def mark(conn, lead_id, value):
+    """Mark a lead qualified ('yes') or unqualified ('no') by hand, or None to go back to its score. Kept in Meridian only."""
+    if value not in ("yes", "no", None):
+        raise ValueError("value must be yes, no or empty")
+    return conn.execute("UPDATE leads SET qualify_override = ? WHERE id = ?", (value, lead_id)).rowcount
+
+
 def threshold(conn):
     return int(get_setting(conn, "qualify_threshold", DEFAULT_THRESHOLD))
 
