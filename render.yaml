@@ -53,6 +53,8 @@ services:
         sync: false
       - key: GEMINI_API_KEY          # the assistant; from Google AI Studio
         sync: false
+      - key: CRUSTDATA_API_KEY       # looks up each new lead's company (industry, staff size); the lookup is free
+        sync: false
       - key: APIFY_TOKEN  # reads competitors' public LinkedIn posts
         sync: false
       - key: APOLLO_API_KEY
