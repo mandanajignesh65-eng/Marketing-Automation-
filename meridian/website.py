@@ -7,12 +7,12 @@ grouped by what they are (home, blog, case study, product...) and by site, so co
 
 import json
 import re
-from datetime import timedelta
+from datetime import date, timedelta
 
 from . import metrics, scoring, semrush
 from .db import get_setting, is_demo, set_setting
 from .google import page_key
-from .periods import MONTHS, scaled
+from .periods import BASELINE_DAYS, MONTHS, scaled
 
 WEB_LEAD_CHANNELS = ("website", "chatbot")  # leads that came through the site itself
 PAGE_LIMIT, QUERY_LIMIT = 300, 200
@@ -152,7 +152,11 @@ def build(conn, now, p, site=None):
     direct = one("SELECT COALESCE(SUM(sessions), 0) FROM {} WHERE source = '(direct)' AND date BETWEEN ? AND ?{}".format(traffic, t_and), (s, e) + t_args)[0]
     visits_prev, engaged_prev = (scaled(x, p.scale) for x in one("SELECT COALESCE(SUM(sessions), 0), COALESCE(SUM(engaged), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (ps, pe) + t_args))
     search, search_prev = search_totals(s, e), search_totals(ps, pe)
-    search_prev = dict(search_prev, clicks=scaled(search_prev["clicks"], p.scale), impressions=scaled(search_prev["impressions"], p.scale))
+    # Google's search figures arrive two or three days late, so the average is taken over the days that have arrived
+    last = one("SELECT MAX(date) FROM search_site_daily WHERE date <= ?", (e,))[0]
+    arrived = max(0, (min(p.e, date.fromisoformat(last)) - p.s).days + 1) if last else 0
+    search_scale = arrived / BASELINE_DAYS if last and last < e else p.scale
+    search_prev = dict(search_prev, clicks=scaled(search_prev["clicks"], search_scale), impressions=scaled(search_prev["impressions"], search_scale))
     leads, qualified = web_leads(p.start_dt, p.end_dt)
     leads_prev = scaled(web_leads(p.pstart_dt, p.pend_dt)[0], p.scale)
 
@@ -311,6 +315,7 @@ def build(conn, now, p, site=None):
     return dict(
         period=p.as_json(), company=get_setting(conn, "company", ""), sites=known or [], site=site or "", site_ready=ready,
         forms=forms, by_site=by_site, unplaced=sum(f["leads"] for f in forms if not f["site"]),
+        search_through=last,
         visits=dict(value=visits, prev=visits_prev, engaged=engaged, engaged_prev=engaged_prev, direct=direct), search_parts=search_parts, clicks=dict(value=search["clicks"], prev=search_prev["clicks"]),
         impressions=dict(value=search["impressions"], prev=search_prev["impressions"]),
         position=dict(value=search["position"], prev=search_prev["position"]),

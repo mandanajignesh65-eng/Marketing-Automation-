@@ -139,7 +139,7 @@ export default {
         ${kpi(f.orDash(rate(d.visits.engaged, d.visits.value), f.pct), 'Engagement rate', TIPS.engaged, null, show && d.visits.prev ? `was ${f.pct(rate(d.visits.engaged_prev, d.visits.prev))}` : '')}
       </div>
       <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-        ${kpi(f.num(d.clicks.value), 'Clicks from Google', TIPS.clicks, change(d.clicks.value, d.clicks.prev), '')}
+        ${kpi(f.num(d.clicks.value), 'Clicks from Google', TIPS.clicks, change(d.clicks.value, d.clicks.prev), d.search_through && d.search_through < d.period.end ? `Google data up to ${new Date(d.search_through + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : '')}
         ${kpi(f.num(d.leads.value), 'Website leads', TIPS.leads, change(d.leads.value, d.leads.prev), `${f.num(d.leads.qualified)} qualified`)}
         ${kpi(f.orDash(toLead, f.pct), 'Conversion rate', TIPS.toLead, null, show && toLeadPrev != null ? `was ${f.pct(toLeadPrev)}` : '', { end: true })}
       </div>
