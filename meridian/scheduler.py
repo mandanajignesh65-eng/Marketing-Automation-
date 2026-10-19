@@ -42,7 +42,7 @@ def tick(force=False):
             zoho.sync(conn, now)
             alerts.run(conn, now)
             conn.commit()
-            if research.configured():  # new leads' companies, a few at a time so a backlog never holds up the sync
+            if research.configured() and not research.busy():  # new leads' companies, a few at a time so a backlog never holds up the sync
                 research.run(conn, now, limit=RESEARCH_PER_PASS)
                 conn.commit()
         for tool in outbound.KEYS:  # Apollo and HeyReach, every few hours

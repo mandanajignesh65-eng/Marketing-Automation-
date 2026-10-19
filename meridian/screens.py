@@ -732,7 +732,7 @@ def settings(conn, now, p):
         elif s["state"] == "disconnected":
             text, action = ("Last synced " + when) if when else "Disconnected", "Reconnect"
         elif s["key"] == "crustdata" and research.configured():  # the key is in place; it has just not run with it yet
-            s["state"], text, action = "connected", "Key added · ready to look up companies", "Run now"
+            s["state"], text, action = "connected", (s["note"] or "Key added · ready to look up companies").capitalize(), "Run now"
         else:
             text, action = ("Last run " + when) if when else "Never synced", "Connect"
         sources.append(dict(key=s["key"], name=s["name"], detail=s["detail"], state=s["state"], synced=text, action=action,

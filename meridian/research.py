@@ -17,6 +17,7 @@ overwritten: research only fills in blanks.
 import json
 import re
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -320,6 +321,48 @@ def run(conn, now, limit=None, since=None, progress=None):
         mark_source(conn, now, "connected")
         conn.commit()
     return summary
+
+
+_busy = threading.Lock()
+
+
+def busy():
+    return _busy.locked()
+
+
+def run_in_background():
+    """Look up every waiting company without making the screen wait. False when a lookup is already running.
+
+    Progress shows on the Crustdata card in Settings while it runs."""
+    if not configured():
+        raise ResearchError("Company research needs a Crustdata API key.")
+    if not _busy.acquire(blocking=False):
+        return False
+
+    def go():
+        conn = db.connect()
+        try:
+            def progress(summary):
+                done = summary["found"] + summary["not_found"]
+                conn.execute("UPDATE sources SET note = ? WHERE key = 'crustdata'",
+                             ("looking up companies: {:,} of {:,} done".format(done, summary["asked"]),))
+                conn.commit()
+            run(conn, db.now(conn), progress=progress)
+        except Exception as err:
+            conn.rollback()
+            conn.execute("UPDATE sources SET note = ? WHERE key = 'crustdata'", ("the last lookup stopped: {}".format(str(err)[:150]),))
+            conn.commit()
+            print("Company research:", err)
+        finally:
+            conn.close()
+            _busy.release()
+            try:
+                from . import backup
+                backup.changed()
+            except Exception:
+                pass
+    threading.Thread(target=go, name="meridian-research", daemon=True).start()
+    return True
 
 
 def mark_source(conn, now, status=None):

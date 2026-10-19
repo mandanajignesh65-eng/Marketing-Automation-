@@ -919,10 +919,11 @@ def sync_source(key: str):
             if not research.configured():
                 return {"ok": False, "message": "Company research needs a Crustdata API key. Run ./connect-crustdata.sh in Terminal."}
             try:
-                summary = research.run(conn, db.now(conn), limit=250)
+                started = research.run_in_background()
             except research.ResearchError as err:
                 return {"ok": False, "message": str(err)}
-            return {"ok": True, "message": "Company research: " + research.describe(summary) + "."}
+            return {"ok": True, "message": "Looking up companies in the background. Progress shows on this card; refresh in a few minutes."
+                    if started else "A lookup is already running. Refresh in a few minutes."}
         if key in outbound.KEYS:
             if db.is_demo(conn):
                 return {"ok": False, "message": "This is sample data. Outbound tools connect to your own data."}
