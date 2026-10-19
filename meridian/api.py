@@ -36,6 +36,7 @@ def start_up():
             rivals.seed_social(conn)
             rivals.seed_linkedin(conn)
             rivals.seed_own(conn)
+            rivals.seed_more_social(conn)
             if path == config.LIVE_DB:
                 scoring.update_weights(conn)  # new scoring weights, once
             conn.commit()

@@ -6,10 +6,18 @@ const TABS = [['updates', 'Updates'], ['social', 'Social'], ['compare', 'Compare
 const SPANS = [[7, '7 days'], [30, '30 days'], [90, '90 days']];
 const COLOR = { product: 'var(--accent)', pricing: 'oklch(0.66 0.13 48)', customers: 'oklch(0.60 0.11 165)', partnership: 'oklch(0.62 0.15 300)', funding: 'oklch(0.70 0.14 65)',
   hiring: 'oklch(0.56 0.07 215)', events: 'oklch(0.60 0.15 320)', recognition: 'oklch(0.74 0.09 178)', content: 'var(--ink3)', news: 'var(--ink2)' };
-const day = iso => { const d = new Date(String(iso).slice(0, 10) + 'T00:00:00'); return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); };
+const day = iso => { const d = new Date(String(iso).slice(0, 10) + 'T00:00:00'); return d.toLocaleDateString('en-IN', d.getFullYear() === new Date().getFullYear() ? { day: 'numeric', month: 'short' } : { day: 'numeric', month: 'short', year: 'numeric' }); };
 const ago = iso => { if (!iso) return 'never'; const h = (Date.now() - new Date(iso).getTime()) / 36e5; return h < 1 ? 'just now' : h < 48 ? `${Math.round(h)} h ago` : `${Math.round(h / 24)} days ago`; };
 const host = url => { try { return new URL(url).hostname.replace('www.', ''); } catch (e) { return url; } };
 const none = html`<span class="faint">—</span>`;
+// What each network's tables show: two engagement figures, whether it has a follower count, and what one item is called.
+const NET = {
+  linkedin: { followers: true, a: ['likes', 'Likes'], b: ['comments', 'Comments'], item: 'post' },
+  instagram: { a: ['likes', 'Likes'], b: ['comments', 'Comments'], item: 'post' },
+  facebook: { a: ['likes', 'Likes'], b: ['comments', 'Shares'], item: 'post' },
+  x: { followers: true, a: ['likes', 'Likes'], b: ['comments', 'Replies'], item: 'post' },
+  youtube: { a: ['views', 'Views'], b: ['likes', 'Likes'], item: 'video' },
+};
 const count = n => html`<span class="right medium">${f.num(n)}</span>`;
 
 export default {
@@ -62,33 +70,34 @@ export default {
     // ------------------------------------------------------------ social
     const social = () => {
       const nets = Object.keys(so.networks).filter(n => so.rows.some(r => r.network === n));
-      if (!nets.length) return html`<div class="card pad small muted">No social pages are being read yet. Add a LinkedIn page or a YouTube channel from the Sources tab.</div>`;
-      const net = nets.includes(ui.net) ? ui.net : nets[0], li = net === 'linkedin', word = li ? 'post' : 'video';
+      if (!nets.length) return html`<div class="card pad small muted">No social pages are being read yet. Add one from the Sources tab.</div>`;
+      const net = nets.includes(ui.net) ? ui.net : nets[0], cfg = NET[net] || NET.linkedin, [ka, la] = cfg.a, [kb, lb] = cfg.b, word = cfg.item;
       const rows = so.rows.filter(r => r.network === net), mine = rows.filter(r => r.own).map(r => r.competitor_id);
       const picked = rows.find(r => String(r.competitor_id) === String(ui.comp));
       const all = so.posts.filter(p => p.network === net && (picked ? p.competitor_id === picked.competitor_id : !mine.includes(p.competitor_id)));
-      const posts = ui.top ? all.slice().sort((a, b) => (b.likes || 0) - (a.likes || 0)) : all;
-      const top = Math.max(...rows.map(r => r.posts), 1), best = k => Math.max(...rows.map(r => r[k] || 0), 0);
+      const posts = ui.top ? all.slice().sort((a, b) => (b[ka] || 0) - (a[ka] || 0)) : all;
+      const best = k => Math.max(...rows.map(r => r[k] || 0), 0);
       const num = (r, k) => { const v = r[k] || 0, on = v && v === best(k) && rows.length > 1; return html`<span class="right ${on ? 'semi' : ''}" style="${on ? 'color:var(--pos)' : ''}">${v && (r.posts || k === 'followers') ? f.num(v) : none}</span>`; };
-      const cols = `minmax(0,1.6fr) ${li ? '120px ' : ''}100px 100px 110px 120px`, pcols = '74px 130px minmax(0,1fr) 80px 90px';
+      const cols = `minmax(0,1.6fr) ${cfg.followers ? '120px ' : ''}100px 100px 110px 120px`, pcols = '74px 130px minmax(0,1fr) 80px 90px';
+      const word2 = word[0].toUpperCase() + word.slice(1) + 's';
       return html`
       ${nets.length > 1 ? html`<div class="row">${switcher(nets.map(n => ({ arg: `net=${n}`, label: so.networks[n], on: n === net })), 'set')}</div>` : ''}
       <div class="card clipped" style="--cols:${cols}">
         <div class="baseline" style="padding:16px 16px 12px"><span class="title">${so.networks[net]}</span><span class="small muted">last ${d.days} days</span></div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span>Page</span>${li ? html`<span class="right">Followers</span>` : ''}<span class="right">${li ? 'Posts' : 'Videos'}</span>
-          <span class="right">${li ? 'Likes' : 'Views'}</span><span class="right">${li ? 'Comments' : 'Likes'}</span><span class="right">Last ${word}</span></div>
+        <div class="thead" style="border-top:1px solid var(--line)"><span>Page</span>${cfg.followers ? html`<span class="right">Followers</span>` : ''}<span class="right">${word2}</span>
+          <span class="right">${la}</span><span class="right">${lb}</span><span class="right">Last ${word}</span></div>
         ${rows.map(r => html`<div class="trow" style="${r.own ? 'background:var(--surface2)' : ''}"><span class="row" style="gap:8px;min-width:0"><a class="medium clip" href="${r.url}" target="_blank" rel="noopener" style="color:var(--ink);text-decoration:none">${r.name}</a>${r.own ? html`<span class="pill sm" style="flex:none">Us</span>` : ''}</span>
-          ${li ? num(r, 'followers') : ''}${count(r.posts)}${num(r, li ? 'likes' : 'views')}${num(r, li ? 'comments' : 'likes')}
+          ${cfg.followers ? num(r, 'followers') : ''}${count(r.posts)}${num(r, ka)}${num(r, kb)}
           <span class="right muted">${r.note ? html`<span style="color:var(--warn)" title="${r.note}">Not read</span>` : r.last ? day(r.last) : '—'}</span></div>`)}
       </div>
       <div class="card clipped" style="--cols:${pcols}">
-        <div class="baseline" style="padding:16px 16px 12px;gap:14px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">${picked ? picked.name : li ? 'Posts' : 'Videos'}</span><span class="small muted">${f.num(posts.length)}</span></span>
-          <div class="row" style="gap:10px;flex-wrap:wrap">${switcher([{ arg: 'top=', label: 'Newest', on: !ui.top }, { arg: 'top=1', label: 'Most liked', on: !!ui.top }], 'set')}
+        <div class="baseline" style="padding:16px 16px 12px;gap:14px;flex-wrap:wrap"><span class="row" style="gap:8px"><span class="title">${picked ? picked.name : word2}</span><span class="small muted">${f.num(posts.length)}</span></span>
+          <div class="row" style="gap:10px;flex-wrap:wrap">${switcher([{ arg: 'top=', label: 'Newest', on: !ui.top }, { arg: 'top=1', label: ka === 'views' ? 'Most viewed' : 'Most liked', on: !!ui.top }], 'set')}
           ${switcher([{ arg: 'comp=', label: 'All competitors', on: !picked }, ...rows.map(r => ({ arg: `comp=${r.competitor_id}`, label: r.name, on: picked === r }))], 'set')}</div></div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span>Date</span><span>Page</span><span>${li ? 'Post' : 'Video'}</span><span class="right">${li ? 'Likes' : 'Views'}</span><span class="right">${li ? 'Comments' : 'Likes'}</span></div>
+        <div class="thead" style="border-top:1px solid var(--line)"><span>Date</span><span>Page</span><span>${word[0].toUpperCase() + word.slice(1)}</span><span class="right">${la}</span><span class="right">${lb}</span></div>
         ${posts.slice(0, 60).map(p => html`<div class="trow"><span class="muted nowrap">${day(p.posted_at)}</span><span class="medium">${names[p.competitor_id] || '—'}</span>
-          <span class="row" style="gap:8px;min-width:0"><a href="${p.url}" target="_blank" rel="noopener" class="medium clip" style="color:var(--ink);text-decoration:none" title="${p.title}">${p.title}</a>${p.kind && p.kind !== 'Text' && (li || p.kind !== 'Video') ? html`<span class="pill sm" style="flex:none">${p.kind}</span>` : ''}</span>
-          <span class="right">${f.num((li ? p.likes : p.views) || 0)}</span><span class="right">${f.num((li ? p.comments : p.likes) || 0)}</span></div>`)}
+          <span class="row" style="gap:8px;min-width:0"><a href="${p.url}" target="_blank" rel="noopener" class="medium clip" style="color:var(--ink);text-decoration:none" title="${p.title}">${p.title}</a>${p.kind && !['Text', 'Post'].includes(p.kind) && (net !== 'youtube' || p.kind !== 'Video') ? html`<span class="pill sm" style="flex:none">${p.kind}</span>` : ''}</span>
+          <span class="right">${f.num(p[ka] || 0)}</span><span class="right">${f.num(p[kb] || 0)}</span></div>`)}
         ${posts.length ? '' : html`<div class="small muted" style="padding:16px">Nothing posted in this period.</div>`}
       </div>`;
     };

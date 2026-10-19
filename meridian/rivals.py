@@ -272,7 +272,7 @@ def read_page(conn, now, comp, src):
 
 # ------------------------------------------------------------------------------- social pages
 
-NETWORKS = {"linkedin": "LinkedIn", "youtube": "YouTube"}
+NETWORKS = {"linkedin": "LinkedIn", "instagram": "Instagram", "facebook": "Facebook", "x": "X", "youtube": "YouTube"}
 APIFY_RUN = "https://api.apify.com/v2/acts/harvestapi~linkedin-company-posts/run-sync-get-dataset-items"
 LINKEDIN_HOURS = 20  # LinkedIn is read once a day: every post read is paid for
 YT_FEED = "https://www.youtube.com/feeds/videos.xml?channel_id={}"
@@ -374,12 +374,151 @@ def read_linkedin(conn, now, force=False):
         return dict(posts=0, failed=len(accounts))
 
 
+# Instagram, Facebook and X through Apify: (actor, hours between reads, posts per page on a first read and after it).
+# Each post read is paid for, so these are read every few days and only the newest few posts are asked for.
+APIFY_NETWORKS = {
+    "instagram": ("apify~instagram-post-scraper", 70, 12, 6),
+    "facebook": ("apify~facebook-posts-scraper", 160, 6, 3),
+    "x": ("apidojo~tweet-scraper", 70, 15, 8),
+}
+HANDLE = {
+    "instagram": re.compile(r"instagram\.com/([A-Za-z0-9_.]+)", re.I),
+    "facebook": re.compile(r"facebook\.com/([A-Za-z0-9_.\-]+)", re.I),
+    "x": re.compile(r"(?:x|twitter)\.com/([A-Za-z0-9_]+)", re.I),
+}
+# The pages each company links to from its own website (October 2026).
+SOCIAL_SEED = {
+    "Engati": {"instagram": "getengati", "facebook": "getengati", "x": "getengati"},
+    "Yellow.ai": {"facebook": "YellowDotAI", "x": "yellowdotai"},
+    "Gupshup": {"instagram": "gupshup.ai", "facebook": "gupshupai", "x": "gupshup"},
+    "Haptik": {"instagram": "hellohaptik", "facebook": "haptik", "x": "haptik"},
+    "Chat360": {"instagram": "chat360_io", "facebook": "chat360.io"},
+}
+PROFILE = {"instagram": "https://www.instagram.com/{}", "facebook": "https://www.facebook.com/{}", "x": "https://x.com/{}"}
+
+
+def handle(network, url):
+    found = HANDLE[network].search(url or "")
+    return found.group(1).strip(".").lower() if found else None
+
+
+def seed_more_social(conn):
+    """Once: the Instagram, Facebook and X pages of the known companies."""
+    if db.is_demo(conn) or db.get_setting(conn, "competitor_more_social_seeded"):
+        return
+    for name, pages in SOCIAL_SEED.items():
+        row = conn.execute("SELECT id FROM competitors WHERE name = ? AND active = 1", (name,)).fetchone()
+        for network, user in pages.items():
+            if row:
+                conn.execute("INSERT OR IGNORE INTO competitor_accounts (competitor_id, network, url) VALUES (?,?,?)",
+                             (row["id"], network, PROFILE[network].format(user)))
+    db.set_setting(conn, "competitor_more_social_seeded", "1")
+
+
+def apify_run(actor, body):
+    token = config.setting("APIFY_TOKEN")
+    if not token:
+        raise RivalError("the Apify key has not been added")
+    req = urllib.request.Request("https://api.apify.com/v2/acts/{}/run-sync-get-dataset-items".format(actor), data=json.dumps(body).encode(),
+                                 headers={"Authorization": "Bearer " + token, "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=280) as res:
+            items = json.load(res)
+    except urllib.error.HTTPError as err:
+        raise RivalError("Apify answered with error {}{}".format(err.code, ": the key was not accepted" if err.code == 401 else ""))
+    except (urllib.error.URLError, OSError, ValueError) as err:
+        raise RivalError("Apify could not be reached ({})".format(getattr(err, "reason", err)))
+    return [x for x in items if isinstance(x, dict)] if isinstance(items, list) else []
+
+
+def x_date(text):
+    try:
+        return datetime.strptime(text, "%a %b %d %H:%M:%S %z %Y").strftime("%Y-%m-%dT%H:%M:%S")
+    except (TypeError, ValueError):
+        return None
+
+
+def apify_posts(network, accounts, first):
+    """Ask Apify for the newest posts of these pages. Returns {account id: [post dict]} and the follower counts found."""
+    actor, _, many, few = APIFY_NETWORKS[network]
+    limit = many if first else few
+    by = {handle(network, a["url"]): a for a in accounts}
+    out, followers = {a["id"]: [] for a in accounts}, {}
+    if network == "instagram":
+        items = apify_run(actor, dict(username=list(by), resultsLimit=limit, skipPinnedPosts=True))
+        for p in items:
+            acc = by.get(handle("instagram", p.get("inputUrl") or "")) or by.get((p.get("ownerUsername") or "").lower())
+            if acc and p.get("url") and p.get("timestamp"):
+                kind = {"Sidecar": "Carousel"}.get(p.get("type"), p.get("type") or "Post")
+                out[acc["id"]].append(dict(url=p["url"], text=p.get("caption"), at=p["timestamp"][:19], kind=kind,
+                                           likes=p.get("likesCount"), second=p.get("commentsCount"), views=p.get("videoViewCount")))
+    elif network == "facebook":
+        items = apify_run(actor, dict(startUrls=[dict(url=a["url"]) for a in accounts], resultsLimit=limit))
+        for p in items:
+            acc = by.get(handle("facebook", p.get("inputUrl") or p.get("facebookUrl") or ""))
+            when = p.get("time") or (datetime.utcfromtimestamp(p["timestamp"]).isoformat() if p.get("timestamp") else None)
+            if acc and p.get("url") and when:
+                out[acc["id"]].append(dict(url=p["url"], text=p.get("text"), at=when[:19], kind="Video" if any((m or {}).get("__typename") == "Video" for m in p.get("media") or []) else "Post",
+                                           likes=p.get("likes"), second=p.get("shares"), views=None))
+    else:  # X: one run per account, so one busy account cannot crowd out the rest
+        for user, acc in by.items():
+            for p in apify_run(actor, dict(twitterHandles=[user], maxItems=limit, sort="Latest")):
+                author = p.get("author") or {}
+                if (author.get("userName") or "").lower() != user:
+                    continue
+                if author.get("followers") is not None:
+                    followers[acc["id"]] = author["followers"]
+                when = x_date(p.get("createdAt"))
+                if p.get("url") and when:
+                    out[acc["id"]].append(dict(url=p["url"], text=p.get("fullText") or p.get("text"), at=when, kind="Repost" if p.get("isRetweet") else "Post",
+                                               likes=p.get("likeCount"), second=p.get("replyCount"), views=p.get("viewCount")))
+    return out, followers
+
+
+def read_apify_network(conn, now, network, force=False):
+    _, hours, _, _ = APIFY_NETWORKS[network]
+    accounts = conn.execute("SELECT a.* FROM competitor_accounts a JOIN competitors c ON c.id = a.competitor_id WHERE c.active = 1 AND a.network = ?",
+                            (network,)).fetchall()
+    fresh = iso(now - timedelta(hours=hours))
+    due_now = [a for a in accounts if force or not a["checked_at"] or a["checked_at"] <= fresh or a["note"]]
+    if not due_now:
+        return dict(posts=0, failed=0)
+    added = 0
+    try:
+        for first in (True, False):
+            batch = [a for a in due_now if (not a["checked_at"]) == first]
+            if not batch:
+                continue
+            found, followers = apify_posts(network, batch, first)
+            for acc in batch:
+                for p in found[acc["id"]]:
+                    title = re.sub(r"\s+", " ", (p["text"] or "").strip())[:300] or "({})".format(p["kind"])
+                    added += conn.execute(
+                        "INSERT OR IGNORE INTO competitor_posts (competitor_id, network, url, title, kind, posted_at, first_seen) VALUES (?,?,?,?,?,?,?)",
+                        (acc["competitor_id"], network, p["url"], title, p["kind"], p["at"], iso(now))).rowcount
+                    conn.execute("UPDATE competitor_posts SET likes = ?, comments = ?, views = ? WHERE competitor_id = ? AND url = ?",
+                                 (p["likes"], p["second"], p["views"], acc["competitor_id"], p["url"]))
+                if acc["id"] in followers:
+                    conn.execute("UPDATE competitor_accounts SET followers = ? WHERE id = ?", (followers[acc["id"]], acc["id"]))
+                conn.execute("UPDATE competitor_accounts SET checked_at = ?, note = ? WHERE id = ?",
+                             (iso(now), None if found[acc["id"]] else "no posts came back: check the page address", acc["id"]))
+        conn.commit()
+        return dict(posts=added, failed=0)
+    except RivalError as err:
+        conn.execute("UPDATE competitor_accounts SET note = ? WHERE network = ?", (str(err)[:200], network))
+        conn.commit()
+        return dict(posts=added, failed=len(due_now))
+
+
 READERS = {"youtube": read_youtube}
 
 
 def read_social(conn, now, force=False):
     done = read_linkedin(conn, now, force)
-    for acc in conn.execute("SELECT a.* FROM competitor_accounts a JOIN competitors c ON c.id = a.competitor_id WHERE c.active = 1 AND a.network <> 'linkedin' ORDER BY a.id").fetchall():
+    for network in APIFY_NETWORKS:
+        more = read_apify_network(conn, now, network)  # paid per post: read on their own timer, never forced
+        done.update(posts=done["posts"] + more["posts"], failed=done["failed"] + more["failed"])
+    for acc in conn.execute("SELECT a.* FROM competitor_accounts a JOIN competitors c ON c.id = a.competitor_id WHERE c.active = 1 AND a.network = 'youtube' ORDER BY a.id").fetchall():
         try:
             done["posts"] += READERS[acc["network"]](conn, now, acc)
             conn.execute("UPDATE competitor_accounts SET checked_at = ?, note = NULL WHERE id = ?", (iso(now), acc["id"]))
@@ -407,9 +546,12 @@ def social(conn, comps, since):
 
 
 def add_account(conn, competitor_id, url):
-    network = "youtube" if re.match(r"^https?://(www\.)?youtube\.com/(@|channel/)[\w.-]+", url) else "linkedin" if slug(url) else None
+    network = "youtube" if re.match(r"^https?://(www\.)?youtube\.com/(@|channel/)[\w.-]+", url) else "linkedin" if slug(url) else \
+        next((n for n in ("instagram", "facebook", "x") if handle(n, url)), None)
     if not network:
-        raise RivalError("Give the address of the YouTube channel or the LinkedIn company page, like https://www.linkedin.com/company/name.")
+        raise RivalError("Give the address of the page: LinkedIn, Instagram, Facebook, X or a YouTube channel.")
+    if network in PROFILE:
+        url = PROFILE[network].format(handle(network, url))
     if network == "linkedin":
         url = "https://www.linkedin.com/company/" + slug(url)
         conn.execute("UPDATE competitors SET linkedin = ? WHERE id = ?", (url, competitor_id))
@@ -583,7 +725,7 @@ def add_competitor(conn, name, domain, linkedin=None):
 
 def add_source(conn, competitor_id, kind, url):
     url = (url or "").strip()
-    if "youtube.com" in url.lower() or "linkedin.com" in url.lower():
+    if any(site in url.lower() for site in ("youtube.com", "linkedin.com", "instagram.com", "facebook.com", "twitter.com", "x.com/")):
         return add_account(conn, competitor_id, url)
     if kind not in KINDS or not re.match(r"^https?://[^\s]+\.[^\s]+$", url):
         raise RivalError("Choose what kind of page it is and give its full address.")
@@ -611,6 +753,7 @@ def main(argv):
     seed_social(conn)
     seed_linkedin(conn)
     seed_own(conn)
+    seed_more_social(conn)
     conn.commit()
     if command == "sync":
         done = sync(conn, datetime.now().replace(microsecond=0))
