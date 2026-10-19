@@ -44,6 +44,35 @@ def next_month(d):
     return (d.replace(day=1) + timedelta(days=32)).replace(day=1)
 
 
+BASELINE_DAYS = 90
+
+
+class Window(tuple):
+    """A comparison window (start_dt, end_dt, start_date, end_date) that knows how much to scale its counts by."""
+
+    def __new__(cls, parts, scale=1.0):
+        w = super().__new__(cls, parts)
+        w.scale = scale
+        return w
+
+
+def scaled(value, factor):
+    """A count from the comparison window brought to the length of the range being looked at."""
+    if factor is None or value is None or isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    x = value * factor
+    return round(x) if abs(x) >= 10 else round(x, 1)
+
+
+def scale_all(obj, factor):
+    """scaled() on every number in a dict or list (counts only: never pass averages or rates)."""
+    if isinstance(obj, dict):
+        return {k: scale_all(v, factor) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [scale_all(v, factor) for v in obj]
+    return scaled(obj, factor)
+
+
 class Period:
     """A date range plus the comparison range before it.
 
@@ -64,26 +93,22 @@ class Period:
         else:
             rng, s, e = "month", today.replace(day=1), today
 
-        if rng in ("day", "week"):
-            ps, pe = s - timedelta(days=7), e - timedelta(days=7)
-        elif rng == "month":
-            last_prev = s - timedelta(days=1)
-            ps = last_prev.replace(day=1)
-            pe = ps.replace(day=min(e.day, last_prev.day))
-        else:
-            n = (e - s).days + 1
-            ps, pe = s - timedelta(days=n), s - timedelta(days=1)
+        # The comparison is the daily average of the three months before the range, times the range's length.
+        # The window is the 90 days before it; every count from that window is multiplied by `scale`.
+        ps, pe = s - timedelta(days=BASELINE_DAYS), s - timedelta(days=1)
 
         self.now, self.rng, self.s, self.e, self.ps, self.pe = now, rng, s, e, ps, pe
         self.to_date = e == today
         self.start_dt = iso(midnight(s))
         self.pstart_dt = iso(midnight(ps))
+        self.pend_dt = iso(midnight(s))
         if self.to_date:
             self.end_dt = iso(now + timedelta(seconds=1))
-            self.pend_dt = iso(datetime.combine(pe, now.time()) + timedelta(seconds=1))
+            length = (e - s).days + min(1.0, max(0.05, (now - midnight(e)).total_seconds() / 86400))  # today counts as the part already gone
         else:
             self.end_dt = iso(midnight(e + timedelta(days=1)))
-            self.pend_dt = iso(midnight(pe + timedelta(days=1)))
+            length = (e - s).days + 1
+        self.scale = length / BASELINE_DAYS
 
     @property
     def cur(self):
@@ -91,21 +116,14 @@ class Period:
 
     @property
     def prev(self):
-        return (self.pstart_dt, self.pend_dt, self.ps.isoformat(), self.pe.isoformat())
+        return Window((self.pstart_dt, self.pend_dt, self.ps.isoformat(), self.pe.isoformat()), self.scale)
 
     @property
     def days(self):
         return [self.s + timedelta(days=i) for i in range((self.e - self.s).days + 1)]
 
     def prev_name(self):
-        """Short name for the comparison range, e.g. 'August', 'last week'."""
-        if self.rng == "month":
-            return MONTHS_LONG[self.ps.month - 1]
-        if self.rng == "week":
-            return "last week"
-        if self.rng == "day":
-            return "last " + WEEKDAYS_LONG[self.ps.weekday()]
-        return span_label(self.ps, self.pe)
+        return "the 3-month average"
 
     def as_json(self):
         return {
@@ -114,7 +132,7 @@ class Period:
             "end": self.e.isoformat(),
             "label": span_label(self.s, self.e, spaced=True) + " " + str(self.e.year),
             "short": span_label(self.s, self.e),
-            "prev_short": span_label(self.ps, self.pe),
+            "prev_short": "3-month avg",
             "prev_name": self.prev_name(),
             "to_date": self.to_date,
         }

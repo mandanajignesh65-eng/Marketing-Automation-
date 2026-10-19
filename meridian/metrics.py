@@ -1,5 +1,7 @@
 """Core figures: per-channel funnel counts for a window, and the helpers built on them."""
 
+from .periods import scaled
+
 GROUPS = [("organic", "Inbound · organic"), ("paid", "Inbound · paid"), ("events", "Events"), ("outbound", "Outbound")]
 # Open leads older than this are history, not work waiting on an owner, so they are not chased.
 REMINDER_WINDOW_DAYS = 60
@@ -60,6 +62,11 @@ def channel_stats(conn, window, threshold):
             "SELECT channel_id, COUNT(*) AS n FROM deals WHERE stage = 'won' "
             "AND closed_at >= ? AND closed_at < ? GROUP BY channel_id", (start_dt, end_dt)):
         slot(r["channel_id"])["won"] = r["n"]
+    factor = getattr(window, "scale", None)  # the comparison window: bring its counts to the range's length
+    if factor:
+        for row in out.values():
+            for k in row:
+                row[k] = scaled(row[k], factor)
     return out
 
 
@@ -70,7 +77,7 @@ def total(stats, ids=None):
         if ids is None or cid in ids:
             for k in STAT_KEYS:
                 out[k] += row[k]
-    return out
+    return {k: round(v, 1) if isinstance(v, float) else v for k, v in out.items()}
 
 
 def ratio(a, b):

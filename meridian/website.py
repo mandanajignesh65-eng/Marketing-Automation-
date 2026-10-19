@@ -12,7 +12,7 @@ from datetime import timedelta
 from . import metrics, scoring, semrush
 from .db import get_setting, is_demo, set_setting
 from .google import page_key
-from .periods import MONTHS
+from .periods import MONTHS, scaled
 
 WEB_LEAD_CHANNELS = ("website", "chatbot")  # leads that came through the site itself
 PAGE_LIMIT, QUERY_LIMIT = 300, 200
@@ -150,10 +150,11 @@ def build(conn, now, p, site=None):
 
     visits, engaged = one("SELECT COALESCE(SUM(sessions), 0), COALESCE(SUM(engaged), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (s, e) + t_args)
     direct = one("SELECT COALESCE(SUM(sessions), 0) FROM {} WHERE source = '(direct)' AND date BETWEEN ? AND ?{}".format(traffic, t_and), (s, e) + t_args)[0]
-    visits_prev, engaged_prev = one("SELECT COALESCE(SUM(sessions), 0), COALESCE(SUM(engaged), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (ps, pe) + t_args)
+    visits_prev, engaged_prev = (scaled(x, p.scale) for x in one("SELECT COALESCE(SUM(sessions), 0), COALESCE(SUM(engaged), 0) FROM {} WHERE date BETWEEN ? AND ?{}".format(traffic, t_and), (ps, pe) + t_args))
     search, search_prev = search_totals(s, e), search_totals(ps, pe)
+    search_prev = dict(search_prev, clicks=scaled(search_prev["clicks"], p.scale), impressions=scaled(search_prev["impressions"], p.scale))
     leads, qualified = web_leads(p.start_dt, p.end_dt)
-    leads_prev, _ = web_leads(p.pstart_dt, p.pend_dt)
+    leads_prev = scaled(web_leads(p.pstart_dt, p.pend_dt)[0], p.scale)
 
     # ---- day by day, for the chart at the top
     by_day = {d.isoformat(): dict(visits=0, clicks=0, leads=0) for d in p.days}
@@ -202,7 +203,7 @@ def build(conn, now, p, site=None):
             g["parts"][r["source"]] = g["parts"].get(r["source"], 0) + r["n"]
         return out
     cur_src, prev_src = source_groups(s, e), source_groups(ps, pe)
-    sources = sorted((dict(name=g["name"], visits=g["visits"], engaged=g["engaged"], prev=prev_src.get(g["name"], {}).get("visits", 0),
+    sources = sorted((dict(name=g["name"], visits=g["visits"], engaged=g["engaged"], prev=scaled(prev_src.get(g["name"], {}).get("visits", 0), p.scale),
                            top=[k for k, _ in sorted(g["parts"].items(), key=lambda kv: -kv[1])[:3]])
                       for g in cur_src.values()), key=lambda g: -g["visits"])
 
@@ -226,11 +227,11 @@ def build(conn, now, p, site=None):
             next(b for b in buckets if b["lo"] <= pos < b["hi"])["n"] += 1
         before = prev_q.get(q)
         queries.append(dict(query=q, brand=brand, clicks=r["c"], impressions=r["i"], position=pos,
-                            prev_clicks=before["c"] if before else 0,
+                            prev_clicks=scaled(before["c"], p.scale) if before else 0,
                             prev_position=weighted(before["pw"] or 0, before["i"]) if before else None))
     prev_split = dict(brand=0, other=0)
     for q, r in prev_q.items():
-        prev_split["brand" if is_brand(q) else "other"] += r["c"]
+        prev_split["brand" if is_brand(q) else "other"] += scaled(r["c"], p.scale)
     top_queries = sorted(queries, key=lambda r: (-r["clicks"], -r["impressions"]))[:QUERY_LIMIT]
     # shown often, not using our name, sitting just off the top: the cheapest places to win visits
     near = sorted((r for r in queries if not r["brand"] and r["position"] is not None and 4 <= r["position"] <= 20 and r["impressions"] >= 20),
@@ -263,10 +264,10 @@ def build(conn, now, p, site=None):
         t = types.setdefault((host, kind), dict(site=host, type=kind, pages=0, views=0, prev=0, clicks=0))
         t["pages"] += 1 if views else 0
         t["views"] += views
-        t["prev"] += prev_pages.get(key, {}).get("views", 0)
+        t["prev"] += scaled(prev_pages.get(key, {}).get("views", 0), p.scale)
         t["clicks"] += hit["c"] if hit else 0
         title = (cur_pages.get(key, {}).get("title") or "").split(" - Chat360")[0].split(" | Chat360")[0].strip()
-        pages.append(dict(site=host, path=path, title=title or None, type=kind, views=views, prev=prev_pages.get(key, {}).get("views", 0),
+        pages.append(dict(site=host, path=path, title=title or None, type=kind, views=views, prev=scaled(prev_pages.get(key, {}).get("views", 0), p.scale),
                           clicks=hit["c"] if hit else 0, impressions=hit["i"] if hit else 0,
                           position=weighted(hit["pw"] or 0, hit["i"]) if hit else None))
     pages.sort(key=lambda r: (-r["views"], -r["clicks"]))
@@ -291,7 +292,7 @@ def build(conn, now, p, site=None):
         "SELECT COALESCE(lead_source, '') AS k, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < ? AND channel_id IN ({}) GROUP BY 1".format(marks),
         (p.pstart_dt, p.pend_dt) + WEB_LEAD_CHANNELS)}
     forms = [dict(name=r["k"], kind="Chatbot" if r["ch"] == "chatbot" else "Form", site=on_site.get(r["k"], ""), leads=r["n"], qualified=r["q"] or 0,
-                  prev=before.get(r["k"], 0))
+                  prev=scaled(before.get(r["k"], 0), p.scale))
              for r in conn.execute(
                  "SELECT COALESCE(lead_source, '') AS k, MAX(channel_id) AS ch, COUNT(*) AS n, SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')) AS q FROM leads "
                  "WHERE created_at >= ? AND created_at < ? AND channel_id IN ({}) GROUP BY 1 ORDER BY n DESC".format(marks),
@@ -301,7 +302,7 @@ def build(conn, now, p, site=None):
     by_site = []
     for name in (known or []) if len(known or []) > 1 else []:
         v = one("SELECT COALESCE(SUM(sessions), 0) FROM traffic_site_daily WHERE site = ? AND date BETWEEN ? AND ?", (name, s, e))[0]
-        vp = one("SELECT COALESCE(SUM(sessions), 0) FROM traffic_site_daily WHERE site = ? AND date BETWEEN ? AND ?", (name, ps, pe))[0]
+        vp = scaled(one("SELECT COALESCE(SUM(sessions), 0) FROM traffic_site_daily WHERE site = ? AND date BETWEEN ? AND ?", (name, ps, pe))[0], p.scale)
         g = one("SELECT COALESCE(SUM(clicks), 0) AS c, COALESCE(SUM(impressions), 0) AS i FROM search_site_daily WHERE site = ? AND date BETWEEN ? AND ?", (name, s, e))
         by_site.append(dict(site=name, visits=v, prev=vp, clicks=g["c"], impressions=g["i"],
                             leads=sum(f["leads"] for f in forms if f["site"] == name), qualified=sum(f["qualified"] for f in forms if f["site"] == name)))

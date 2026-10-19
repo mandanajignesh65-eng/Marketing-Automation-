@@ -30,7 +30,7 @@ import urllib.request
 from datetime import timedelta
 
 from . import config, db, money, scoring
-from .periods import iso
+from .periods import iso, scale_all
 
 URL = "https://graph.facebook.com"
 MODES = ("off", "test", "live")
@@ -245,7 +245,7 @@ def view(conn, now, p):
         return {r["ad_id"]: dict(r) for r in conn.execute(
             "SELECT d.ad_id, {}, COALESCE(MAX(d.reach), 0) AS reach_day, COALESCE(SUM(d.reach), 0) AS reach_sum FROM meta_ad_daily d "
             "WHERE d.date BETWEEN ? AND ? GROUP BY d.ad_id".format(sums), (a, b))}
-    cur, prev = figures(s, e), figures(ps, pe)
+    cur, prev = figures(s, e), scale_all(figures(ps, pe), p.scale)
     blank = dict({k: 0 for k in SUMS}, reach_sum=0)
     ads = []
     for a in conn.execute("SELECT * FROM meta_ads ORDER BY created DESC, id DESC"):

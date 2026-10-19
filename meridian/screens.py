@@ -5,14 +5,15 @@ from datetime import date, datetime, timedelta
 
 from . import config, health, ingest, insights, metrics, money, narrative, research, scoring, semrush, mailer
 from .db import get_setting, is_demo
-from .periods import (MONTHS, MONTHS_LONG, WEEKDAYS, WEEKDAYS_LONG, Period, age_short, ago, day_label, days_in_month,
+from .periods import (scaled, scale_all, MONTHS, MONTHS_LONG, WEEKDAYS, WEEKDAYS_LONG, Period, age_short, ago, day_label, days_in_month,
                       fired_label, iso, midnight, month_key, next_month, span_label, stamp)
 
 TONE = {"neg": "neg", "warn": "warn", "info": "ink3"}
 
 
 def delta(cur, prev):
-    return {"value": cur, "prev": prev, "pct": metrics.pct_change(cur, prev) if cur is not None and prev else None}
+    shown = (round(prev) if abs(prev) >= 10 else round(prev, 1)) if isinstance(prev, float) else prev  # averages come with fractions
+    return {"value": cur, "prev": shown, "pct": metrics.pct_change(cur, prev) if cur is not None and prev else None}
 
 
 def initials(name):
@@ -128,7 +129,7 @@ def overview(conn, now, p, channel):
                     email=dict(sent=health._outbound(conn, "apollo", "sent", a, b), opened=health._outbound(conn, "apollo", "opened", a, b),
                                replied=health._outbound(conn, "apollo", "replied", a, b)))
 
-    out_cur, out_prev = outreach(p.cur), outreach(p.prev)
+    out_cur, out_prev = outreach(p.cur), scale_all(outreach(p.prev), p.scale)
     visits = health._visits(conn, p.cur[2], p.cur[3])
     by_channel = {cid or "unmapped": s["leads"] for cid, s in cur_by.items() if s["leads"] and (ids is None or cid in ids)}
     # the same results split by the kind of marketing that brought them
@@ -141,7 +142,7 @@ def overview(conn, now, p, channel):
             for key in ("leads", "qualified", "deals", "won", "spend"):
                 slot[key] += row[key]
     return dict(
-        visits=delta(visits, health._visits(conn, p.prev[2], p.prev[3])),
+        visits=delta(visits, scaled(health._visits(conn, p.prev[2], p.prev[3]), p.scale)),
         replies=delta(out_cur["linkedin"]["replied"] + out_cur["email"]["replied"], out_prev["linkedin"]["replied"] + out_prev["email"]["replied"]),
         deals=delta(cur["deals"], prev["deals"]), outreach=out_cur,
         journey=dict(visits=visits, web_leads=health._web_leads(conn, p.cur[2], p.cur[3]), leads=cur["leads"], qualified=cur["qualified"],
@@ -182,6 +183,11 @@ def funnel(conn, now, p, segment):
         if top in ("outreach", "all"):
             stats.update(sent=sum(health._outbound(conn, t, "sent", a, b) for t in tools),
                          replied=sum(health._outbound(conn, t, "replied", a, b) for t in tools))
+        factor = getattr(window, "scale", None)
+        if factor:
+            for k in ("visits", "web_leads", "sent", "replied"):
+                if k in stats:
+                    stats[k] = scaled(stats[k], factor)
         if top == "all":
             stats["reached"] = stats["visits"] + stats["sent"]
         return stats
@@ -326,6 +332,7 @@ def outbound(conn, now, p):
         earlier = {r["campaign_id"]: [r[k] for k in steps] for r in conn.execute(
             "SELECT d.campaign_id, {} FROM outbound_daily d WHERE {} AND d.date BETWEEN ? AND ? GROUP BY 1".format(sums, own),
             (ch["id"], p.ps.isoformat(), p.pe.isoformat()))}
+        earlier = scale_all(earlier, p.scale)
         monthly = {}
         for r in conn.execute(
                 "SELECT d.campaign_id, substr(d.date, 1, 7) AS month, {} FROM outbound_daily d WHERE {} AND d.date >= ? AND d.date <= ? GROUP BY 1, 2"
@@ -353,7 +360,7 @@ def outbound(conn, now, p):
         cur = totals(p.s, p.e)
         groups.append(dict(
             id=ch["id"], color=ch["color"], connected=ch["id"] in connected, campaigns=camps,
-            totals=[cur[k] for k in steps], prev=[totals(p.ps, p.pe)[k] for k in steps],
+            totals=[cur[k] for k in steps], prev=[scaled(totals(p.ps, p.pe)[k], p.scale) for k in steps],
             leads=st["leads"], qualified=st["qualified"], deals=st["deals"], prev_leads=pst["leads"], spend=st["spend"],
             months=[dict(label=MONTHS[ym[1] - 1][:3], **by_month[k]) for k, ym in zip(keys, months)]))
     return dict(period=p.as_json(), groups=groups, threshold=thr)

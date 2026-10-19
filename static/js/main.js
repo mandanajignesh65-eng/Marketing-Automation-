@@ -219,7 +219,7 @@ function topbar(screen) {
     </div>
     <div class="medium ${uses.range ? '' : 'off'}">${periodLabel()}</div>
     <div class="vr"></div>
-    <div class="row small muted ${uses.compare ? '' : 'off'}" style="gap:8px" data-act="toggleCompare">${toggle(app.compare, 'toggleCompare')}<span>Compare to previous period</span></div>
+    <div class="row small muted ${uses.compare ? '' : 'off'}" style="gap:8px" data-act="toggleCompare">${toggle(app.compare, 'toggleCompare')}<span>Compare to 3-month average</span></div>
     <div class="menu-wrap ${uses.channel ? '' : 'off'}" data-menu-trigger>
       <div class="select" data-act="menu" data-arg="channel">${channelLabel()}<span class="caret"></span></div>
       ${app.menu === 'channel' ? channelMenu() : ''}
