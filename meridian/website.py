@@ -315,6 +315,7 @@ def build(conn, now, p, site=None):
         position=dict(value=search["position"], prev=search_prev["position"]),
         leads=dict(value=leads, prev=leads_prev, qualified=qualified),
         days=days, months=months, sources=sources,
+        ga_synced=(conn.execute("SELECT MAX(date) FROM traffic_daily").fetchone() or [None])[0],
         split=split, prev_split=prev_split, hidden_clicks=max(search["clicks"] - split["brand"]["clicks"] - split["other"]["clicks"], 0),
         queries=top_queries, query_count=len(queries), near=near, buckets=[dict(label=b["label"], n=b["n"]) for b in buckets],
         pages=pages[:PAGE_LIMIT], page_count=len(pages), types=sorted(types.values(), key=lambda t: -t["views"]),
