@@ -1,0 +1,14 @@
+# Meridian's site for the server's Caddy. Copy to /etc/caddy-sites/ on the server (see deploy/README.md).
+meridian.sendwise.online {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Frame-Options "DENY"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	reverse_proxy meridian:8321 {
+		header_up X-Forwarded-For {client_ip}
+	}
+}

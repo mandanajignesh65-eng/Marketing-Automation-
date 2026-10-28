@@ -1,0 +1,24 @@
+# Meridian on the Mumbai server, beside other apps. See deploy/README.md.
+#   sudo docker compose up -d --build
+# The server's Caddy (HTTPS) reaches it as meridian:8321 on the shared "web" network.
+services:
+  meridian:
+    build: .
+    image: meridian:latest
+    container_name: meridian
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/app/data          # the database lives on the server disk and survives restarts
+    mem_limit: 700m
+    networks: [web]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8321/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 6s
+      start_period: 60s
+      retries: 3
+networks:
+  web:
+    external: true
+    name: outreach-platform_default   # the network the server's Caddy is on
