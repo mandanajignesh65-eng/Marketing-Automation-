@@ -1,5 +1,6 @@
 # Meridian's site for the server's Caddy. Copy to /etc/caddy-sites/ on the server (see deploy/README.md).
-meridian.sendwise.online {
+# meridian.sendwise.co.in is the address in use; the .online one stays so old links work once that domain is back.
+meridian.sendwise.co.in, meridian.sendwise.online {
 	encode gzip
 	header {
 		Strict-Transport-Security "max-age=31536000"

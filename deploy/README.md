@@ -1,7 +1,7 @@
 # Meridian on the Mumbai server
 
 Meridian runs on the Google Cloud VM `outreach-mumbai` (asia-south1-a, e2-small, 34.14.206.140), in its own
-container, at https://meridian.sendwise.online. Another app (outreach) runs on the same VM; its Caddy owns ports
+container, at https://meridian.sendwise.co.in (moved from meridian.sendwise.online on 2026-10-28). Another app (outreach) runs on the same VM; its Caddy owns ports
 80 and 443 and serves any site file placed in `/etc/caddy-sites`. Meridian only adds its own file there.
 
 | What | Where on the server |
@@ -28,6 +28,8 @@ On first start, with no data file, the app downloads the stored copy from Supaba
 ```bash
 cd /opt/meridian && sudo git pull && sudo docker compose up -d --build
 ```
+
+If `deploy/meridian.caddy` changed, copy it again and reload Caddy (the last two lines of First set-up).
 
 ## Check it
 
