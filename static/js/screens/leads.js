@@ -1,6 +1,6 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
-import { sq, avatar, statusPill, statusName, menu, switcher, info } from '../ui.js';
+import { sq, avatar, qualifiedPill, menu, switcher, info } from '../ui.js';
 
 const WIDE = 'minmax(0,1.5fr) minmax(0,1.5fr) minmax(0,1.3fr) minmax(0,1.05fr) minmax(0,1.05fr) 84px 56px';
 const NARROW = 'minmax(0,1.4fr) minmax(0,1.4fr) minmax(0,1.2fr) minmax(0,1.1fr) 84px 56px';
@@ -10,14 +10,15 @@ const TIPS = {
   qualified: 'Leads that look like the customers we want: the right industry and a big enough company.',
   target: 'Leads whose company is in one of the industries we want most.',
   unknown: 'Leads where we do not know the company. We cannot tell if these are good or not. A company field on our forms would fix this.',
-  filters: 'Click the name at the top of a column, like Channel or Sales status, to choose which leads to see. You can filter several columns at once. Each filter you turn on shows here as a blue tag. Click the × on a tag to remove it.',
+  filters: 'Click the name at the top of a column, like Channel or Status, to choose which leads to see. You can filter several columns at once. Each filter you turn on shows here as a blue tag. Click the × on a tag to remove it.',
   score: 'A number from 0 to 100 that says how well this lead matches the customers we want. A green bar means it qualifies.',
   age: 'How long ago this lead came in.',
 };
 const SCORES = [['', 'Any'], ['qualified', 'Qualified'], ['unqualified', 'Not qualified']];
 let searchTimer;
 
-const SCORE_NAMES = { qualified: 'Qualified', unqualified: 'Not qualified', high: '80 and above', zero: 'Score 0' };
+const QUALIFIED_NAMES = { qualified: 'Qualified', unqualified: 'Not qualified' };
+const SCORE_NAMES = { high: '80 and above', zero: 'Score 0' };
 const AGE_NAMES = { today: 'Today', week: 'Last 7 days', month: 'Last 30 days', older: 'Older than 30 days' };
 const ACTIVITY_NAMES = { waiting: 'Waiting for owner', recent: 'Active in last 7 days', none: 'No activity yet' };
 
@@ -36,9 +37,11 @@ function columnFilters(d, ctx) {
     channel: ['Channel', chName, [item('', 'All channels', !ch), ...fc.channels.map(c => item(c.id, ctx.channel(c.id).name, ch === c.id, c.n, ctx.channel(c.id).color))]],
     owner: ['Owner', ui.owner, [item('', 'All owners', !ui.owner), ...fc.owners.map(o => item(o.id, o.id, ui.owner === o.id, o.n)),
       ...app.shell.owners.filter(o => !fc.owners.some(x => x.id === o)).map(o => item(o, o, ui.owner === o, 0))]],
-    status: ['Sales status', statusName(ui.status), [item('', 'All sales statuses', !ui.status), ...app.shell.statuses.map(st => item(st, statusName(st), ui.status === st, countOf(fc.statuses, st)))]],
-    score: ['Score', SCORE_NAMES[ui.score] || '', [item('', 'Any score', !ui.score), item('qualified', `Qualified (${L.threshold} or more)`, ui.score === 'qualified', L.period_qualified),
-      item('unqualified', `Not qualified (under ${L.threshold})`, ui.score === 'unqualified', L.period_total - L.period_qualified), item('high', '80 and above', ui.score === 'high'), item('zero', 'Score 0 (company not known)', ui.score === 'zero')]],
+    // Qualified is Meridian's own (the score); Zoho's stage is only a filter, and its "Qualified" is left out so the word means one thing
+    status: ['Status', QUALIFIED_NAMES[ui.score] || (ui.status ? 'Zoho ' + ui.status : ''), [item('', 'All leads', !ui.score && !ui.status),
+      item('qualified', 'Qualified', ui.score === 'qualified', L.period_qualified), item('unqualified', 'Not qualified', ui.score === 'unqualified', L.period_total - L.period_qualified),
+      { heading: 'Stage in Zoho' }, ...app.shell.statuses.filter(st => st !== 'Qualified').map(st => item('zoho:' + st, st, ui.status === st, countOf(fc.statuses, st)))]],
+    score: ['Score', SCORE_NAMES[ui.score] || '', [item('', 'Any score', !SCORE_NAMES[ui.score]), item('high', '80 and above', ui.score === 'high'), item('zero', 'Score 0 (company not known)', ui.score === 'zero')]],
     age: ['Age', AGE_NAMES[ui.age] || '', [item('', 'Any age', !ui.age), ...named(AGE_NAMES, ui.age)]],
     activity: ['Last activity', ACTIVITY_NAMES[activity] || '', [item('', 'Any activity', !activity), item('waiting', 'Waiting for an owner update', activity === 'waiting', L.waiting),
       item('recent', 'Active in the last 7 days', activity === 'recent'), item('none', 'No activity yet', activity === 'none')]],
@@ -103,7 +106,7 @@ function table(d, ctx) {
       <div class="stack" style="min-width:0"><div class="row" style="gap:7px;min-width:0">${sq(c.color)}<span class="clip">${c.name}</span></div>
         ${r.source ? html`<span class="small muted clip" style="padding-left:15px" title="${r.source}">${r.source}</span>` : ''}</div>
       ${wide ? html`<span class="clip">${r.owner || '—'}</span>` : ''}
-      <div>${statusPill(r.status)}</div>
+      <div>${qualifiedPill(r.qualified)}</div>
       <div class="row" style="gap:8px" title="${r.marked ? `Marked ${r.marked === 'yes' ? 'qualified' : 'unqualified'} by hand` : ''}"><span class="medium" style="width:18px">${r.score}</span>
         <div style="width:32px;height:4px;border-radius:2px;background:var(--track)"><div style="width:${r.score}%;height:100%;border-radius:2px;background:var(--${r.qualified ? 'pos' : 'ink3'})"></div></div>${r.marked ? html`<span class="tiny faint">${r.marked === 'yes' ? 'Qualified' : 'Unqualified'}</span>` : ''}</div>
       <span style="color:var(--${r.age_tone})">${r.age}</span>
@@ -127,7 +130,7 @@ function detail(L, ctx) {
       <div class="stack" style="flex:1;min-width:0;gap:2px">
         <div style="font-size:18px;font-weight:600;letter-spacing:-0.015em">${L.name}</div>
         <div class="muted">${[L.title, L.company].filter(Boolean).join(' · ')}</div>
-        <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">${statusPill(L.status)}<span class="small muted">Owner <span class="ink">${L.owner || 'Unassigned'}</span></span></div>
+        <div class="row" style="gap:8px;margin-top:8px;flex-wrap:wrap">${qualifiedPill(L.qualified)}<span class="small muted">Zoho stage <span class="ink">${L.status}</span></span><span class="small muted">Owner <span class="ink">${L.owner || 'Unassigned'}</span></span></div>
       </div>
       <button class="round-btn" data-act="close" aria-label="Close lead">✕</button>
     </div>
@@ -220,8 +223,10 @@ export default {
     close: ctx => ctx.go('leads', { channel: ctx.app.params.channel }),
     'filter-channel'(ctx, d) { ctx.app.menu = null; ctx.go('leads', { ...ctx.app.params, channel: d.arg }); },
     'filter-owner': (ctx, d) => setFilter(ctx, { owner: d.arg }),
-    'filter-status': (ctx, d) => setFilter(ctx, { status: d.arg }),
-    'filter-score': (ctx, d) => setFilter(ctx, { score: d.arg }),
+    // one pick per column: Qualified / Not qualified (by score) or a Zoho stage
+    'filter-status': (ctx, d) => setFilter(ctx, d.arg.startsWith('zoho:') ? { status: d.arg.slice(5), score: QUALIFIED_NAMES[ctx.ui().score] ? '' : ctx.ui().score }
+      : { status: '', score: d.arg || (QUALIFIED_NAMES[ctx.ui().score] ? '' : ctx.ui().score) }),
+    'filter-score': (ctx, d) => setFilter(ctx, { score: d.arg || (QUALIFIED_NAMES[ctx.ui().score] ? ctx.ui().score : '') }),
     'filter-segment': (ctx, d) => setFilter(ctx, { segment: d.arg }),
     'filter-age': (ctx, d) => setFilter(ctx, { age: d.arg }),
     // "waiting for owner" is the older needs-update filter, which looks across all dates; the others stay inside the period

@@ -2,20 +2,13 @@
 import { html } from './html.js';
 import * as f from './format.js';
 
-export const STATUS_COLOR = {
-  'New': 'var(--ink3)', 'Contacted': 'var(--accent)', 'Qualified': 'var(--pos)',
-  'Meeting booked': 'var(--violet)', 'Unqualified': 'var(--neg)',
-};
-
 export const sq = (color, size = 8, radius = 2) =>
   html`<span class="sq" style="width:${size}px;height:${size}px;border-radius:${radius}px;background:${color}"></span>`;
 
 export const dot = color => html`<span class="dot" style="background:${color}"></span>`;
 
-// Zoho's sales status. Its "Qualified" is the salesperson's call, shown as "Sales qualified" so it is never
-// mistaken for Meridian's Qualified (score at or above the threshold, or marked by hand).
-export const statusName = status => status === 'Qualified' ? 'Sales qualified' : status;
-export const statusPill = status => html`<span class="pill">${dot(STATUS_COLOR[status] || 'var(--ink3)')}${statusName(status)}</span>`;
+// Meridian's Qualified: the score reaches the threshold, or the lead was marked by hand (scoring.qualified_sql).
+export const qualifiedPill = yes => html`<span class="pill">${dot(yes ? 'var(--pos)' : 'var(--ink3)')}${yes ? 'Qualified' : 'Not qualified'}</span>`;
 
 export const avatar = (initials, size = 28) =>
   html`<div class="avatar" style="width:${size}px;height:${size}px;font-size:${size >= 40 ? 14 : 10}px">${initials}</div>`;
