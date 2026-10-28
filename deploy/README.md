@@ -35,3 +35,11 @@ cd /opt/meridian && sudo git pull && sudo docker compose up -d --build
 sudo docker ps --filter name=meridian      # "healthy"
 sudo docker logs --tail 50 meridian
 ```
+
+## Google Analytics and Search Console
+
+Meridian reads them as the service account `meridian-google@outreach-512414.iam.gserviceaccount.com`, which never
+has to sign in again (a person's sign-in from `connect-google.sh` ends after 7 days while the Google Cloud app is
+in "Testing"). The account is added as a Viewer in Analytics (Admin → Property access management) and as a
+Restricted user in Search Console (Settings → Users and permissions). Its JSON key, base64-encoded, is
+`GOOGLE_SERVICE_ACCOUNT_JSON` in `/opt/meridian/.env`.

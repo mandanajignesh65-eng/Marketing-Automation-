@@ -5,12 +5,17 @@ positions from Search Console.
     python -m meridian.google sync      bring in the latest days now
     python -m meridian.google status    what is connected and how much it holds
 
+Two ways to sign in. A service account (GOOGLE_SERVICE_ACCOUNT_JSON: the account's JSON key, base64-encoded) is
+added as a viewer in Analytics and Search Console and never has to sign in again. Without one, the saved sign-in
+from "connect" is used; Google ends that one after 7 days while the Google Cloud app is in "Testing".
+
 Both are read with view-only permission and nothing in Google is changed. The first sync reaches back a year;
 later ones re-read the last few days, because Google keeps revising recent figures (Search Console runs two to
 three days behind). Only totals come in: sessions per source, views per page, clicks per search query. Google
 does not hand over anything about individual visitors.
 """
 
+import base64
 import http.server
 import json
 import re
@@ -45,6 +50,17 @@ class GoogleError(Exception):
     """A problem the person running the sync can act on."""
 
 
+def service_account():
+    """The service account's JSON key, or None when Meridian signs in as a person instead."""
+    raw = config.setting("GOOGLE_SERVICE_ACCOUNT_JSON")
+    if not raw:
+        return None
+    try:
+        return json.loads(base64.b64decode(raw))
+    except ValueError:
+        raise GoogleError("GOOGLE_SERVICE_ACCOUNT_JSON is not a base64-encoded service-account key.")
+
+
 def credentials():
     return tuple(config.setting(k) for k in ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REFRESH_TOKEN"))
 
@@ -59,7 +75,7 @@ def several(text):
 
 
 def configured(source=None):
-    if not all(credentials()):
+    if not (config.setting("GOOGLE_SERVICE_ACCOUNT_JSON") or all(credentials())):
         return False
     return bool(targets()[source]) if source else any(targets().values())
 
@@ -86,7 +102,8 @@ def fetch(method, url, body=None, token=None, form=None):
         error = detail.get("error")
         message = (error.get("message") if isinstance(error, dict) else detail.get("error_description") or error) or "error {}".format(err.code)
         if error == "invalid_grant":
-            message = "Google no longer accepts the saved sign-in. Run ./connect-google.sh in Terminal to sign in again."
+            message = ("Google no longer accepts the saved sign-in. Add a service account (GOOGLE_SERVICE_ACCOUNT_JSON), "
+                       "which does not expire, or run ./connect-google.sh to sign in again.")
         elif "has not been used in project" in message or "is disabled" in message:
             message = "A Google API is not switched on for your project yet. " + message.split(" If you enabled")[0]
         raise GoogleError("Google: " + message)
@@ -94,7 +111,27 @@ def fetch(method, url, body=None, token=None, form=None):
         raise GoogleError("Could not reach Google: {}".format(getattr(err, "reason", err)))
 
 
+def b64url(data):
+    return base64.urlsafe_b64encode(data).rstrip(b"=")
+
+
+def service_token(key):
+    """An hour's access for the service account: a token request signed with its private key (Google's JWT flow)."""
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+    now = int(time.time())
+    claims = dict(iss=key["client_email"], scope=SCOPES, aud=TOKEN_URL, iat=now, exp=now + 3600)
+    unsigned = b64url(json.dumps(dict(alg="RS256", typ="JWT")).encode()) + b"." + b64url(json.dumps(claims).encode())
+    private = serialization.load_pem_private_key(key["private_key"].encode(), password=None)
+    assertion = unsigned + b"." + b64url(private.sign(unsigned, padding.PKCS1v15(), hashes.SHA256()))
+    return fetch("POST", TOKEN_URL, form=dict(grant_type="urn:ietf:params:oauth:grant-type:jwt-bearer",
+                                             assertion=assertion.decode()))["access_token"]
+
+
 def access_token(creds=None):
+    key = None if creds else service_account()
+    if key:
+        return service_token(key)
     client_id, client_secret, refresh = creds or credentials()
     return fetch("POST", TOKEN_URL, form=dict(client_id=client_id, client_secret=client_secret, refresh_token=refresh,
                                              grant_type="refresh_token"))["access_token"]
