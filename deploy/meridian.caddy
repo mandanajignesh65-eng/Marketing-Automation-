@@ -6,6 +6,7 @@ meridian.sendwise.online {
 		X-Frame-Options "DENY"
 		X-Content-Type-Options "nosniff"
 		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Robots-Tag "noindex, nofollow"  # a private team tool: keep it out of search results
 		-Server
 	}
 	# Cloudflare sits in front, so the visitor's own address is in CF-Connecting-IP, not in the connection.
