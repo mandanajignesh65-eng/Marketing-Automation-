@@ -8,7 +8,9 @@ meridian.sendwise.online {
 		Referrer-Policy "strict-origin-when-cross-origin"
 		-Server
 	}
+	# Cloudflare sits in front, so the visitor's own address is in CF-Connecting-IP, not in the connection.
+	# Meridian counts wrong passwords per address; without this every visitor would share Cloudflare's.
 	reverse_proxy meridian:8321 {
-		header_up X-Forwarded-For {client_ip}
+		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 	}
 }
