@@ -24,7 +24,7 @@ from .periods import iso
 ROUNDS = 240000
 SESSION_DAYS = 14
 COOKIE = "meridian_session"
-ROLES = ("admin", "member")
+ROLE = "admin"  # the one role: everyone who signs in can do everything
 MAX_TRIES, TRY_WINDOW = 8, 300   # wrong passwords allowed per address in five minutes
 _tries = {}
 
@@ -41,12 +41,10 @@ class AccountError(ValueError):
     pass
 
 
-def tidy(name, email, role):
+def tidy(name, email):
     name, email = (name or "").strip(), (email or "").strip().lower()
     if not name or not re.match(r"^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$", email):
         raise AccountError("A name and a proper email address are needed (check for a comma where a dot should be).")
-    if role not in ROLES:
-        raise AccountError("The role is admin or member.")
     return name, email
 
 
@@ -56,30 +54,28 @@ def strong(password):
     return password
 
 
-def add(conn, now, name, email, password, role="member"):
-    name, email = tidy(name, email, role)
+def add(conn, now, name, email, password):
+    name, email = tidy(name, email)
     salt = secrets.token_hex(16)
     conn.execute("INSERT INTO accounts (email, name, role, salt, pw_hash, created_at) VALUES (?,?,?,?,?,?) "
                  "ON CONFLICT (email) DO UPDATE SET name = excluded.name, role = excluded.role, salt = excluded.salt, pw_hash = excluded.pw_hash",
-                 (email, name, role, salt, digest(strong(password), salt), iso(now)))
+                 (email, name, ROLE, salt, digest(strong(password), salt), iso(now)))
 
 
 def admins(conn, besides=None):
     return conn.execute("SELECT COUNT(*) FROM accounts WHERE role = 'admin' AND id <> ?", (besides or 0,)).fetchone()[0]
 
 
-def save(conn, now, account_id, name, email, role, password=None):
+def save(conn, now, account_id, name, email, password=None):
     """Add a login, or change one. A password is needed for a new login; for an old one it is replaced only when given."""
-    name, email = tidy(name, email, role)
+    name, email = tidy(name, email)
     clash = conn.execute("SELECT id FROM accounts WHERE email = ?", (email,)).fetchone()
     if clash and clash["id"] != account_id:
         raise AccountError("Somebody already signs in with that email.")
     if not account_id:
-        add(conn, now, name, email, password, role)
+        add(conn, now, name, email, password)
         return conn.execute("SELECT id FROM accounts WHERE email = ?", (email,)).fetchone()["id"]
-    if role != "admin" and not admins(conn, besides=account_id):
-        raise AccountError("At least one leader is needed, so this person has to stay a leader.")
-    conn.execute("UPDATE accounts SET name = ?, email = ?, role = ? WHERE id = ?", (name, email, role, account_id))
+    conn.execute("UPDATE accounts SET name = ?, email = ? WHERE id = ?", (name, email, account_id))
     if password:
         set_password(conn, account_id, password)
     return account_id
@@ -153,12 +149,11 @@ def main(argv):
     if command == "add":
         print("Add a person who can sign in to Meridian.\n")
         name, email = input("Name: "), input("Email: ")
-        role = "admin" if input("Can this person change settings and add people? Type Y for yes, or press Return for no: ").strip().lower().startswith("y") else "member"
         password = getpass.getpass("Password, at least 10 characters (hidden as you type): ")
         if password != getpass.getpass("The same password again: "):
             sys.exit("The two passwords were different. Nothing was saved.")
         try:
-            add(conn, datetime.now().replace(microsecond=0), name, email, password, role)
+            add(conn, datetime.now().replace(microsecond=0), name, email, password)
         except ValueError as err:
             sys.exit(str(err) + " Nothing was saved.")
         conn.commit()

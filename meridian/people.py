@@ -25,25 +25,19 @@ def view(conn, me):
     for r in rows:
         r["you"] = bool(me and r["account_id"] == me["id"])
         r["targets"] = conn.execute("SELECT COUNT(*) FROM goals WHERE active = 1 AND member_id = ?", (r["member_id"],)).fetchone()[0] if r["member_id"] else 0
-    rows.sort(key=lambda r: (r["role"] != "admin", r["name"].lower()))
+    rows.sort(key=lambda r: r["name"].lower())
     return dict(people=rows, min_password=10)
 
 
-def save(conn, now, me, account_id, member_id, name, email, role, password, focus, targets):
-    """Add or change a person. `targets` gives a new person a place on the Targets screen."""
+def save(conn, now, account_id, member_id, name, email, password, focus):
+    """Add or change a person. There is one role: everyone who signs in can do everything, and everyone has a place on Targets."""
     password = (password or "").strip() or None
-    login = bool(account_id or password)
-    if not login and not (member_id or targets):
-        raise accounts.AccountError("Give this person a password so they can sign in, or tick the box to give them targets.")
-    if me and account_id == me["id"] and role != "admin":
-        raise accounts.AccountError("You cannot take your own leader rights away. Ask another leader to do it.")
-    if login:
-        accounts.save(conn, now, account_id, name, email, role or "member", password)
+    if not (account_id or password):
+        raise accounts.AccountError("Give this person a password so they can sign in.")
+    accounts.save(conn, now, account_id, name, email, password)
     email = (email or "").strip().lower()
-    if member_id and focus is None:  # not sent: keep what is written
-        focus = conn.execute("SELECT focus FROM team_members WHERE id = ?", (member_id,)).fetchone()["focus"]
-    if member_id or targets:
-        team.save_member(conn, member_id, name, focus, email)
+    member_id = member_id or member_for(conn, email)
+    team.save_member(conn, member_id, name, focus, email)
 
 
 def remove(conn, me, account_id, member_id):

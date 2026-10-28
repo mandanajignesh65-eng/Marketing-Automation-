@@ -167,10 +167,8 @@ class PersonChange(BaseModel):
     member_id: Optional[int] = None
     name: Optional[str] = None
     email: Optional[str] = None
-    role: Optional[str] = None
     password: Optional[str] = None
     focus: Optional[str] = None
-    targets: bool = False
 
 
 class NewPassword(BaseModel):
@@ -188,8 +186,8 @@ def get_people(request: Request):
 def save_person(b: PersonChange, request: Request):
     with session() as conn:
         try:
-            people.save(conn, datetime.now().replace(microsecond=0), getattr(request.state, "person", None), b.account_id, b.member_id,
-                        b.name, b.email, b.role, b.password, b.focus, b.targets)
+            people.save(conn, datetime.now().replace(microsecond=0), b.account_id, b.member_id,
+                        b.name, b.email, b.password, b.focus)
         except (accounts.AccountError, team.TeamError) as err:
             raise HTTPException(400, str(err))
         return {"ok": True}
