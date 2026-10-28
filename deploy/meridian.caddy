@@ -9,8 +9,11 @@ meridian.sendwise.online {
 		X-Robots-Tag "noindex, nofollow"  # a private team tool: keep it out of search results
 		-Server
 	}
-	# Cloudflare sits in front, so the visitor's own address is in CF-Connecting-IP, not in the connection.
-	# Meridian counts wrong passwords per address; without this every visitor would share Cloudflare's.
+	# Meridian counts wrong passwords per address. Through Cloudflare the visitor's address is in CF-Connecting-IP;
+	# a request that did not come through Cloudflare gets its own connection address there, so nobody can fake it.
+	# Cloudflare's addresses: https://www.cloudflare.com/ips/
+	@direct not remote_ip 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+	request_header @direct CF-Connecting-IP {remote_host}
 	reverse_proxy meridian:8321 {
 		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 	}
