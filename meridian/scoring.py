@@ -106,9 +106,9 @@ def qualified_sql(threshold="?"):
     """The one rule for "qualified", in SQL: a hand mark wins, otherwise the score must reach the threshold.
 
     threshold is the SQL placeholder (or a number). is_qualified() below is the same rule in Python.
-    Use these two everywhere; never write the rule out again.
+    Use these two everywhere; never write the rule out again. It is never NULL, so NOT in front of it works.
     """
-    return "(qualify_override = 'yes' OR (score >= {} AND COALESCE(qualify_override, '') <> 'no'))".format(threshold)
+    return "(COALESCE(qualify_override, '') = 'yes' OR (score >= {} AND COALESCE(qualify_override, '') <> 'no'))".format(threshold)
 
 
 def is_qualified(lead, thr):
