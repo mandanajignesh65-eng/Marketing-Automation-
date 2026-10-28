@@ -12,7 +12,10 @@ export const sq = (color, size = 8, radius = 2) =>
 
 export const dot = color => html`<span class="dot" style="background:${color}"></span>`;
 
-export const statusPill = status => html`<span class="pill">${dot(STATUS_COLOR[status] || 'var(--ink3)')}${status}</span>`;
+// Zoho's sales status. Its "Qualified" is the salesperson's call, shown as "Sales qualified" so it is never
+// mistaken for Meridian's Qualified (score at or above the threshold, or marked by hand).
+export const statusName = status => status === 'Qualified' ? 'Sales qualified' : status;
+export const statusPill = status => html`<span class="pill">${dot(STATUS_COLOR[status] || 'var(--ink3)')}${statusName(status)}</span>`;
 
 export const avatar = (initials, size = 28) =>
   html`<div class="avatar" style="width:${size}px;height:${size}px;font-size:${size >= 40 ? 14 : 10}px">${initials}</div>`;

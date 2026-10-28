@@ -102,6 +102,15 @@ def points(weight, fraction):
     return int(weight * fraction + 0.5)
 
 
+def qualified_sql(threshold="?"):
+    """The one rule for "qualified", in SQL: a hand mark wins, otherwise the score must reach the threshold.
+
+    threshold is the SQL placeholder (or a number). is_qualified() below is the same rule in Python.
+    Use these two everywhere; never write the rule out again.
+    """
+    return "(qualify_override = 'yes' OR (score >= {} AND COALESCE(qualify_override, '') <> 'no'))".format(threshold)
+
+
 def is_qualified(lead, thr):
     """Qualified by its score, unless someone marked the lead by hand (qualify_override 'yes' or 'no')."""
     mark = lead["qualify_override"] if "qualify_override" in lead.keys() else None

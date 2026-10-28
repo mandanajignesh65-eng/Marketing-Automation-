@@ -83,7 +83,7 @@ def series(conn, goal, first, last):
             "SELECT day, SUM(amount) AS n FROM goal_log WHERE goal_id = ? AND day BETWEEN ? AND ? GROUP BY day", (goal["id"], a, b))}
     if goal["metric"] == "qualified":
         return {r["day"]: r["n"] for r in conn.execute(
-            _leads("AND (score >= {} AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')".format(int(scoring.threshold(conn)))), (a, b))}
+            _leads("AND " + scoring.qualified_sql(int(scoring.threshold(conn)))), (a, b))}
     sql = METRICS.get(goal["metric"], (None, None, None, None))[3]
     return {r["day"]: r["n"] or 0 for r in conn.execute(sql, (a, b))} if sql else {}
 

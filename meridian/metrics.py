@@ -1,5 +1,6 @@
 """Core figures: per-channel funnel counts for a window, and the helpers built on them."""
 
+from . import scoring
 from .periods import scaled
 
 GROUPS = [("organic", "Inbound · organic"), ("paid", "Inbound · paid"), ("events", "Events"), ("outbound", "Outbound")]
@@ -51,7 +52,7 @@ def channel_stats(conn, window, threshold):
             "WHERE date BETWEEN ? AND ? GROUP BY channel_id", (s, e)):
         slot(r["channel_id"]).update(impressions=r["i"] or 0, clicks=r["c"] or 0, spend=r["sp"] or 0)
     for r in conn.execute(
-            "SELECT channel_id, COUNT(*) AS n, SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')) AS q FROM leads "
+            "SELECT channel_id, COUNT(*) AS n, SUM(" + scoring.qualified_sql() + ") AS q FROM leads "
             "WHERE created_at >= ? AND created_at < ? GROUP BY channel_id", (threshold, start_dt, end_dt)):
         slot(r["channel_id"]).update(leads=r["n"], qualified=r["q"] or 0)
     for r in conn.execute(

@@ -59,7 +59,7 @@ AUDIENCES = {
                     sql="SELECT email FROM leads WHERE created_at >= :recent"),
     "qualified": dict(name="Meridian · Qualified leads", use="lookalike",
                       why="Leads that fit the customer we want. Meta can look for more people like them.",
-                      sql="SELECT email FROM leads WHERE (score >= :threshold AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes') AND status <> 'Unqualified'"),
+                      sql="SELECT email FROM leads WHERE " + scoring.qualified_sql(":threshold") + " AND status <> 'Unqualified'"),
 }
 
 

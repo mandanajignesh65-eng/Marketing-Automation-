@@ -1,6 +1,6 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
-import { sq, avatar, statusPill, menu, switcher, info } from '../ui.js';
+import { sq, avatar, statusPill, statusName, menu, switcher, info } from '../ui.js';
 
 const WIDE = 'minmax(0,1.5fr) minmax(0,1.5fr) minmax(0,1.3fr) minmax(0,1.05fr) minmax(0,1.05fr) 84px 56px';
 const NARROW = 'minmax(0,1.4fr) minmax(0,1.4fr) minmax(0,1.2fr) minmax(0,1.1fr) 84px 56px';
@@ -10,7 +10,7 @@ const TIPS = {
   qualified: 'Leads that look like the customers we want: the right industry and a big enough company.',
   target: 'Leads whose company is in one of the industries we want most.',
   unknown: 'Leads where we do not know the company. We cannot tell if these are good or not. A company field on our forms would fix this.',
-  filters: 'Click the name at the top of a column, like Channel or Status, to choose which leads to see. You can filter several columns at once. Each filter you turn on shows here as a blue tag. Click the × on a tag to remove it.',
+  filters: 'Click the name at the top of a column, like Channel or Sales status, to choose which leads to see. You can filter several columns at once. Each filter you turn on shows here as a blue tag. Click the × on a tag to remove it.',
   score: 'A number from 0 to 100 that says how well this lead matches the customers we want. A green bar means it qualifies.',
   age: 'How long ago this lead came in.',
 };
@@ -36,7 +36,7 @@ function columnFilters(d, ctx) {
     channel: ['Channel', chName, [item('', 'All channels', !ch), ...fc.channels.map(c => item(c.id, ctx.channel(c.id).name, ch === c.id, c.n, ctx.channel(c.id).color))]],
     owner: ['Owner', ui.owner, [item('', 'All owners', !ui.owner), ...fc.owners.map(o => item(o.id, o.id, ui.owner === o.id, o.n)),
       ...app.shell.owners.filter(o => !fc.owners.some(x => x.id === o)).map(o => item(o, o, ui.owner === o, 0))]],
-    status: ['Status', ui.status, [item('', 'All statuses', !ui.status), ...app.shell.statuses.map(st => item(st, st, ui.status === st, countOf(fc.statuses, st)))]],
+    status: ['Sales status', statusName(ui.status), [item('', 'All sales statuses', !ui.status), ...app.shell.statuses.map(st => item(st, statusName(st), ui.status === st, countOf(fc.statuses, st)))]],
     score: ['Score', SCORE_NAMES[ui.score] || '', [item('', 'Any score', !ui.score), item('qualified', `Qualified (${L.threshold} or more)`, ui.score === 'qualified', L.period_qualified),
       item('unqualified', `Not qualified (under ${L.threshold})`, ui.score === 'unqualified', L.period_total - L.period_qualified), item('high', '80 and above', ui.score === 'high'), item('zero', 'Score 0 (company not known)', ui.score === 'zero')]],
     age: ['Age', AGE_NAMES[ui.age] || '', [item('', 'Any age', !ui.age), ...named(AGE_NAMES, ui.age)]],

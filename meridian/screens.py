@@ -239,7 +239,7 @@ def channels(conn, now, p):
     keys = ["{:04d}-{:02d}".format(*ym) for ym in months]
     trend = {k: {} for k in keys}
     for r in conn.execute(
-            "SELECT substr(created_at, 1, 7) AS month, channel_id, COUNT(*) AS n, SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')) AS q FROM leads "
+            "SELECT substr(created_at, 1, 7) AS month, channel_id, COUNT(*) AS n, SUM(" + scoring.qualified_sql() + ") AS q FROM leads "
             "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2",
             (thr, keys[0] + "-01", p.end_dt)):
         if r["month"] in trend:
@@ -249,8 +249,9 @@ def channels(conn, now, p):
     source = "COALESCE(NULLIF(TRIM(lead_source), ''), NULLIF(TRIM(utm_campaign), ''), 'Source not recorded')"
     inside = {}
     for r in conn.execute(
-            "SELECT channel_id, {} AS source, COUNT(*) AS n, SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')) AS q FROM leads "
-            "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2".format(source), (thr, p.start_dt, p.end_dt)):
+            "SELECT channel_id, {} AS source, COUNT(*) AS n, SUM({}) AS q FROM leads "
+            "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2".format(source, scoring.qualified_sql()),
+            (thr, p.start_dt, p.end_dt)):
         inside.setdefault(r["channel_id"], {})[r["source"]] = dict(source=r["source"], leads=r["n"], qualified=r["q"] or 0, deals=0, pipeline=0)
     for r in conn.execute(
             "SELECT channel_id, COALESCE(NULLIF(TRIM(lead_source), ''), 'Source not recorded') AS source, COUNT(*) AS n, SUM(amount) AS amt FROM deals "
@@ -472,7 +473,7 @@ def leads(conn, now, p, q="", channel="", owner="", status="", score="", needs_u
         where.append("status = ?")
         args.append(status)
     if score in ("qualified", "unqualified"):
-        where.append("((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes') AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')" if score == "qualified" else "NOT ((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes') AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')")
+        where.append(scoring.qualified_sql() if score == "qualified" else "NOT " + scoring.qualified_sql())
         args.append(thr)
     elif score == "high":
         where.append("score >= 80")
@@ -503,7 +504,7 @@ def leads(conn, now, p, q="", channel="", owner="", status="", score="", needs_u
 
     # what the period holds, for the numbers at the top and the counts on the filter buttons
     span = (p.start_dt, p.end_dt)
-    head = conn.execute("SELECT COUNT(*) AS n, COALESCE(SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')), 0) AS q FROM leads WHERE created_at >= ? AND created_at < ?",
+    head = conn.execute("SELECT COUNT(*) AS n, COALESCE(SUM(" + scoring.qualified_sql() + "), 0) AS q FROM leads WHERE created_at >= ? AND created_at < ?",
                         (thr,) + span).fetchone()
     by_kind = dict.fromkeys(kinds, 0)
     for r in conn.execute("SELECT industry, COUNT(*) AS n FROM leads WHERE created_at >= ? AND created_at < ? GROUP BY industry", span):
@@ -590,7 +591,7 @@ def quality(conn, now, p):
                           (p.start_dt, p.end_dt)):
         hist[r["b"]] = r["n"]
     by = {r["channel_id"]: r for r in conn.execute(
-        "SELECT channel_id, COUNT(*) AS n, AVG(score) AS avg, SUM((score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')) AS q FROM leads "
+        "SELECT channel_id, COUNT(*) AS n, AVG(score) AS avg, SUM(" + scoring.qualified_sql() + ") AS q FROM leads "
         "WHERE created_at >= ? AND created_at < ? GROUP BY channel_id", (thr, p.start_dt, p.end_dt))}
     chans = [dict(id=cid, avg=r["avg"], leads=r["n"], qualified=r["q"] or 0) for cid, r in by.items() if cid]
     changed_at = get_setting(conn, "scoring_changed_at")

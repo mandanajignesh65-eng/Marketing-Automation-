@@ -65,7 +65,7 @@ def _deals(conn, a, b, won=False):
 
 
 def _qualified(conn, a, b):
-    return _leads(conn, a, b, "AND (score >= ? AND COALESCE(qualify_override, '') <> 'no' OR qualify_override = 'yes')", (scoring.threshold(conn),))
+    return _leads(conn, a, b, "AND " + scoring.qualified_sql(), (scoring.threshold(conn),))
 
 
 # Each check: key, group, name, what it means in plain words, and how it is worked out.
