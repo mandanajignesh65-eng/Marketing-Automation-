@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ads, assistant, icp, alerts, backup, config, db, google, health, ingest, mailer, meta, metrics, money, narrative, outbound, people, reminders, research, rivals, scheduler, scoring, screens, semrush, team, website, zoho
+from . import accounts, ads, assistant, icp, alerts, backup, config, db, google, health, ingest, mailer, meta, money, narrative, outbound, people, reminders, research, rivals, scheduler, scoring, screens, semrush, team, website, zoho
 from .periods import Period, iso
 
 app = FastAPI(title="Meridian")
@@ -496,40 +496,24 @@ def get_lead(lead_id: int):
 
 
 class LeadPatch(BaseModel):
-    owner: Optional[str] = None
-    status: Optional[str] = None
-    qualify: Optional[str] = None  # "yes", "no", or "score" to go back to the score
+    qualify: str  # "yes", "no", or "score" to go back to the score
 
 
 @app.patch("/api/leads/{lead_id}")
 def patch_lead(lead_id: int, body: LeadPatch):
-    """Change a lead's owner or status here. This does not write back to Zoho CRM."""
+    """Mark a lead qualified or not by hand. Owner and stage belong to Zoho CRM and are only read from it, so they cannot drift apart."""
     with session() as conn:
         now = db.now(conn)
         lead = conn.execute("SELECT * FROM leads WHERE id = ?", (lead_id,)).fetchone()
         if not lead:
             raise HTTPException(404, "Lead not found")
-        if body.status and body.status not in metrics.STATUSES:
-            raise HTTPException(400, "Unknown status")
-        if body.qualify is not None:
-            if body.qualify not in ("yes", "no", "score"):
-                raise HTTPException(400, "Unknown choice")
-            value = None if body.qualify == "score" else body.qualify
-            scoring.mark(conn, lead_id, value)
-            conn.execute("INSERT INTO lead_events (lead_id, at, kind, title, detail) VALUES (?,?,?,?,?)",
-                         (lead_id, iso(now), "crm", {"yes": "Marked qualified", "no": "Marked unqualified", None: "Qualification back to the score"}[value],
-                          "In Meridian only. Zoho CRM is not changed."))
-        if body.owner and body.owner != lead["owner"]:
-            conn.execute("UPDATE leads SET owner = ? WHERE id = ?", (body.owner, lead_id))
-            conn.execute("INSERT INTO lead_events (lead_id, at, kind, title, detail) VALUES (?,?,?,?,?)",
-                         (lead_id, iso(now), "crm", "Reassigned to " + body.owner, "Was " + (lead["owner"] or "unassigned")))
-        if body.status and body.status != lead["status"]:
-            who = db.get_setting(conn, "current_user", "owner")
-            conn.execute("UPDATE leads SET status = ?, last_activity = ?, last_activity_at = ? WHERE id = ?",
-                         (body.status, "Status changed", iso(now), lead_id))
-            conn.execute("INSERT INTO lead_events (lead_id, at, kind, title, detail) VALUES (?,?,?,?,?)",
-                         (lead_id, iso(now), "crm", "Status → " + body.status, "Updated by " + who))
-            reminders.record_owner_update(conn, lead_id, now)
+        if body.qualify not in ("yes", "no", "score"):
+            raise HTTPException(400, "Unknown choice")
+        value = None if body.qualify == "score" else body.qualify
+        scoring.mark(conn, lead_id, value)
+        conn.execute("INSERT INTO lead_events (lead_id, at, kind, title, detail) VALUES (?,?,?,?,?)",
+                     (lead_id, iso(now), "crm", {"yes": "Marked qualified", "no": "Marked unqualified", None: "Qualification back to the score"}[value],
+                      "In Meridian only. Zoho CRM is not changed."))
         return screens.lead_detail(conn, now, lead_id)
 
 

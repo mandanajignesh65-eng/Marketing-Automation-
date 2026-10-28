@@ -137,8 +137,6 @@ function detail(L, ctx) {
     <div class="row" style="gap:8px;padding:0 24px 20px">
       ${L.zoho_url ? html`<a class="btn primary" href="${L.zoho_url}" target="_blank" rel="noopener" style="text-decoration:none">Open in Zoho CRM</a>`
         : html`<div class="btn primary" data-act="noZoho">Open in Zoho CRM</div>`}
-      <div class="menu-wrap" data-menu-trigger><div class="btn" data-act="menu" data-arg="reassign">Reassign</div>
-        ${app.menu === 'reassign' ? menu(app.shell.owners.map(o => ({ label: o, arg: o, on: o === L.owner })), 'reassign') : ''}</div>
     </div>
 
     <div class="inset stack" style="margin:0 24px;padding:18px;gap:12px">
@@ -238,10 +236,6 @@ export default {
       ctx.go('leads', { lead: ctx.app.params.lead });
     },
     noZoho: ctx => ctx.toast('This lead has no Zoho CRM record linked yet. Sample leads are not in Zoho.'),
-    async reassign(ctx, d) {
-      ctx.app.menu = null;
-      await ctx.save(() => ctx.api.patch('leads/' + ctx.app.params.lead, { owner: d.arg }), 'Reassigned to ' + d.arg + '. Zoho CRM is not updated from here.');
-    },
   },
 
   inputs: {
