@@ -148,7 +148,7 @@ function detail(L, ctx) {
       <div class="track"><div class="fill" style="width:${Math.min(100, L.score)}%;background:var(--${tone})"></div>
         <div class="mark" style="left:${L.threshold}%;top:-4px;bottom:-4px;background:var(--ink)"></div></div>
       <div class="between" style="gap:10px"><span class="tiny faint">${L.marked ? `Marked ${L.marked === 'yes' ? 'qualified' : 'unqualified'} by hand · score says ${L.score >= L.threshold ? 'qualified' : 'not qualified'}` : `Qualifies at ${L.threshold}`}</span>
-        ${L.marked ? html`<span class="btn xs" data-act="qualify" data-arg="score">Use the score</span>`
+        ${ctx.app.shell.user && ctx.app.shell.user.admin === false ? '' : L.marked ? html`<span class="btn xs" data-act="qualify" data-arg="score">Use the score</span>`
           : html`<span class="btn xs" data-act="qualify" data-arg="${L.qualified ? 'no' : 'yes'}">${L.qualified ? 'Mark as unqualified' : 'Mark as qualified'}</span>`}</div>
     </div>
 

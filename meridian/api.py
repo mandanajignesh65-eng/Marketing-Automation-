@@ -81,7 +81,9 @@ OPEN_PATHS = ("/api/login", "/api/logout", "/static/", "/webhooks/", "/tasks/", 
 
 WRITES = ("POST", "PUT", "PATCH", "DELETE")
 LEADER_ONLY = ("/api/people",)                                                                   # not even to look at
-MEMBER_WRITES = ("/api/login", "/api/logout", "/api/account/", "/api/targets", "/api/leads/", "/api/sources/")  # what a team member may change
+# what a team member may change: their own sign-in and their own targets. Marking leads qualified changes everyone's
+# counts and a sync loads the server, so both are for leaders.
+MEMBER_WRITES = ("/api/login", "/api/logout", "/api/account/", "/api/targets")
 
 
 @app.middleware("http")
