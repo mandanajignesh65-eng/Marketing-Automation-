@@ -8,6 +8,7 @@ import overview from './screens/overview.js';
 import paid from './screens/paid.js';
 import outbound from './screens/outbound.js';
 import web from './screens/web.js';
+import events from './screens/events.js';
 import leads from './screens/leads.js';
 import quality from './screens/quality.js';
 import icp from './screens/icp.js';
@@ -19,10 +20,10 @@ import targets from './screens/targets.js';
 import people from './screens/people.js';
 import settings from './screens/settings.js';
 
-const SCREENS = { overview, paid, outbound, web, leads, quality, icp, competitors, targets, people, subs, reports, alerts, settings };
+const SCREENS = { overview, paid, outbound, web, events, leads, quality, icp, competitors, targets, people, subs, reports, alerts, settings };
 const NAV = [
   { label: null, items: [['overview', 'Overview']] },
-  { label: 'Channels', items: [['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic']] },
+  { label: 'Channels', items: [['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic'], ['events', 'Events']] },
   { label: 'Leads & market', items: [['leads', 'Leads', 'leads'], ['competitors', 'Competitors']] },
   { label: 'Team', items: [['targets', 'Targets'], ['people', 'People']] },
   { label: 'Operations', items: [['subs', 'Subscriptions'], ['reports', 'Reports'], ['alerts', 'Alerts & reminders', 'alerts']] },
@@ -46,6 +47,7 @@ const ICON = {
 };
 ICON.icp = '<circle cx="12" cy="12" r="8.500"/><path d="M12 3.500v3M12 17.500v3M3.500 12h3M17.500 12h3"/><circle cx="12" cy="12" r="2.200"/>';
 ICON.competitors = '<path d="M4 20V10M10 20V4M16 20v-8M20.500 20H3.500"/><circle cx="16" cy="7.500" r="1.700"/>';
+ICON.events = '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/><path d="M9 14.5l2 2 4-4"/>';
 ICON.people = '<circle cx="12" cy="8" r="3.400"/><path d="M5.200 19.500c.7-3.700 3.400-5.800 6.800-5.800s6.100 2.100 6.800 5.800"/>';
 // Pages only a leader may open. With sign-in off there is no signed-in person, and everything is open.
 const LEADER_SCREENS = ['people', 'settings'];

@@ -3,7 +3,7 @@ import * as f from '../format.js';
 import { deltaLine, avatar, sq, switcher } from '../ui.js';
 
 // Where each channel row opens. "No channel" has no list of its own; its note points to Settings instead.
-const TO = { paid: '#/paid', outbound: '#/outbound', organic: '#/web', events: '#/leads?channel=events' };
+const TO = { paid: '#/paid', outbound: '#/outbound', organic: '#/web', events: '#/events' };
 const MAX_PEOPLE = 6;
 const initials = name => name.split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
 const money = (key, v) => (key === 'spend' || key === 'pipeline' ? f.moneyShort(v) : f.num(v));

@@ -158,6 +158,32 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS benchmarks (
   key TEXT PRIMARY KEY, value REAL, watch INTEGER NOT NULL DEFAULT 1  -- value NULL = use the built-in starting figure
 );
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, starts TEXT NOT NULL, ends TEXT, city TEXT, venue TEXT, partner TEXT, booth TEXT,
+  goal TEXT, decision TEXT NOT NULL DEFAULT 'Considering', lessons TEXT, budget REAL,
+  target_leads REAL, target_meetings REAL, target_qualified REAL, target_pipeline REAL,
+  visitors REAL, meetings_held REAL,  -- typed in after the event: people captured at the booth, meetings actually held
+  lead_sources TEXT NOT NULL DEFAULT '[]',  -- JSON list of Zoho lead sources that name this event; a source belongs to one event
+  created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS event_steps (
+  id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, phase TEXT NOT NULL, workstream TEXT, title TEXT NOT NULL, owner TEXT,
+  due TEXT, status TEXT NOT NULL DEFAULT 'Not started', done_when TEXT, note TEXT, sort INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS playbook_steps (  -- the standard plan copied into every new event
+  id INTEGER PRIMARY KEY, phase TEXT NOT NULL, workstream TEXT, title TEXT NOT NULL, offset_days INTEGER NOT NULL DEFAULT 0,
+  done_when TEXT, owner TEXT, sort INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS event_promos (
+  id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, channel TEXT NOT NULL, what TEXT NOT NULL, day TEXT, owner TEXT,
+  status TEXT NOT NULL DEFAULT 'Not started'
+);
+CREATE TABLE IF NOT EXISTS event_creatives (
+  id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, url TEXT NOT NULL, platform TEXT, title TEXT, image TEXT, posted_on TEXT, caption TEXT
+);
+CREATE TABLE IF NOT EXISTS event_costs (
+  id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, category TEXT NOT NULL, item TEXT NOT NULL, amount REAL NOT NULL, paid INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS team_members (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, focus TEXT, email TEXT, active INTEGER NOT NULL DEFAULT 1, sort INTEGER NOT NULL DEFAULT 0
 );

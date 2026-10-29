@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ads, assistant, icp, alerts, backup, config, db, google, health, ingest, mailer, meta, money, narrative, outbound, people, reminders, research, rivals, scheduler, scoring, screens, semrush, team, website, zoho
+from . import accounts, ads, assistant, icp, alerts, backup, config, db, events, google, health, ingest, mailer, meta, money, narrative, outbound, people, reminders, research, rivals, scheduler, scoring, screens, semrush, team, website, zoho
 from .periods import Period, iso
 
 app = FastAPI(title="Meridian")
@@ -437,6 +437,40 @@ def label_customer(body: CustomerLabel):
 def get_quality(range: str = "month", start: Optional[str] = None, end: Optional[str] = None):
     with session() as conn:
         return screens.quality(conn, db.now(conn), period(conn, range, start, end))
+
+
+# ------------------------------------------------------------------------------- events
+
+class EventChange(BaseModel):
+    """One change on the Events screens. `what` names it; `data` holds that change's fields."""
+    what: str
+    id: Optional[int] = None
+    event_id: Optional[int] = None
+    data: dict = {}
+
+
+@app.get("/api/events")
+def get_events():
+    with session() as conn:
+        return events.listing(conn, db.now(conn), scoring.threshold(conn))
+
+
+@app.get("/api/events/{event_id}")
+def get_event(event_id: int):
+    with session() as conn:
+        try:
+            return events.detail(conn, db.now(conn), event_id, scoring.threshold(conn))
+        except events.EventError as err:
+            raise HTTPException(404, str(err))
+
+
+@app.post("/api/events")
+def change_events(b: EventChange):
+    with session() as conn:
+        try:
+            return dict(event_id=events.change(conn, db.now(conn), b.what, b.id, b.event_id, b.data or {}))
+        except events.EventError as err:
+            raise HTTPException(400, str(err))
 
 
 @app.get("/api/subscriptions")
