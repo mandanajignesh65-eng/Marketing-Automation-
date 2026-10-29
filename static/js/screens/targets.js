@@ -2,17 +2,9 @@ import { html } from '../html.js';
 import * as f from '../format.js';
 import { pageHead, info, segmented, switcher, avatar } from '../ui.js';
 
-const TABS = [['progress', 'Progress'], ['today', 'Today'], ['report', 'Week report'], ['blockers', 'Blockers']];
-const BLURB = {
-  progress: 'How far along each target is, for the week and for the month',
-  today: 'What each person needs to do today to stay on track, and what they have done',
-  report: 'One week, day by day: what was done on each target, what was written, and what got in the way',
-  blockers: 'Things that are stopping work. They stay here until someone marks them solved',
-};
+const TABS = [['progress', 'Progress'], ['today', 'Today'], ['report', 'Week report']];
 const STATUS = { done: ['Done', 'pos'], on_track: ['On track', 'pos'], behind: ['A little behind', 'warn'], far_behind: ['Far behind', 'neg'] };
 const TIPS = {
-  onTrack: 'How many targets are where they should be by today, or already finished.',
-  today: 'Each target asks for a share of the work every working day. This is how many of today’s shares are already done.',
   blockers: 'Problems that someone has reported and nobody has marked as solved yet.',
   person: 'One row for each target. The bar fills up as work is done. The small line on the bar is where it should be by today. If the bar is past the line, the target is on track.',
   days: 'One bar for each working day this week. A taller bar means more was done that day.',
@@ -47,14 +39,7 @@ export default {
     const name = id => (d.members.find(m => m.id === id) || { name: 'Someone' }).name;
     const goalsOf = (m, p) => d.goals.filter(g => g.member_id === m.id && (!p || g.period === p));
     const pill = status => html`<span class="pill sm" style="color:var(--${STATUS[status][1]})"><span class="dot" style="background:var(--${STATUS[status][1]})"></span>${STATUS[status][0]}</span>`;
-    const kpi = (value, label, tip, sub, end, tone) => html`<div class="card kpi" style="padding:16px 18px">
-      <span class="kpi-v md" style="${tone ? `color:var(--${tone})` : ''}">${value}</span><span class="row eyebrow" style="gap:7px">${label}${info(tip, { end })}</span><span class="kpi-d faint">${sub}</span></div>`;
     const whoSwitch = d.members.length > 1 ? switcher([{ arg: '', label: 'Everyone', on: !who }, ...d.members.map(m => ({ arg: m.id, label: m.name, on: who === m.id }))], 'who') : '';
-    const shown = d.goals.filter(g => (!who || g.member_id === who));
-    const onTrack = shown.filter(g => g.status === 'done' || g.status === 'on_track').length;
-    const dueToday = shown.filter(g => g.today_share > 0), metToday = dueToday.filter(g => g.today_met).length;
-    const tasksToday = d.tasks.filter(t => !who || t.member_id === who);
-    const itemsDone = metToday + tasksToday.filter(t => t.done).length, itemsAll = dueToday.length + tasksToday.length;
 
     const nobody = html`<div class="card pad small muted">${lead ? 'Nobody has targets yet. Click “Add person” to start.' : 'No targets have been set for you yet. Ask a leader to add them.'}</div>`;
 
@@ -74,18 +59,16 @@ export default {
           <span class="micro faint">${x.label[0]}</span></div>`; })}</div>` : ''}
     </div>`;
     const progress = () => html`
-      <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
-        ${kpi(shown.length ? `${onTrack} of ${shown.length}` : '—', 'Targets on track', TIPS.onTrack, shown.length ? `${shown.length - onTrack} need attention` : 'No targets set yet', false, shown.length && onTrack < shown.length ? '' : '')}
-        ${kpi(itemsAll ? `${itemsDone} of ${itemsAll}` : '—', 'Done today', TIPS.today, d.working_day ? 'tasks for today' : 'Not a working day')}
-        ${kpi(f.num(open.length), 'Open blockers', TIPS.blockers, open.length ? `oldest reported ${ago(Math.max(...open.map(b => b.age_days)))}` : 'Nothing is in the way', true, open.length ? 'warn' : '')}
-      </div>
+      ${open.length ? html`<div class="card" style="padding:16px 22px 8px">
+        <div class="row" style="gap:8px;margin-bottom:8px"><span class="title">Open blockers · ${open.length}</span>${info(TIPS.blockers)}</div>
+        ${open.map(blockerRow)}</div>` : ''}
       <div class="row" style="gap:12px;flex-wrap:wrap">${segmented([{ arg: 'week', label: `This week · ${d.week_label}`, on: period === 'week' }, { arg: 'month', label: `This month · ${d.month_label}`, on: period === 'month' }], 'period', 14)}
         <span style="flex:1"></span>${whoSwitch}</div>
       ${members.map(m => { const list = goalsOf(m, period); return html`<div class="card" style="padding:16px 22px 8px">
         <div class="between" style="align-items:center;margin-bottom:6px">
           <div class="row" style="gap:12px">${avatar(initials(m.name), 34)}<div class="stack" style="gap:1px"><span class="row" style="gap:8px"><span class="title">${m.name}</span>${info(TIPS.person)}</span>
             <span class="small muted">${m.focus || 'No focus written yet'}</span></div></div>
-          ${lead ? html`<div class="row" style="gap:8px"><span class="btn xs" data-act="editMember" data-arg="${m.id}">Edit</span>${d.members.length > 1 ? html`<span class="btn xs" data-act="copyFrom" data-arg="${m.id}" title="Give ${m.name} the same targets as someone else">Copy targets from…</span>` : ''}<span class="btn xs primary" data-act="addGoal" data-arg="${m.id}">Add target</span></div>` : ''}
+          ${lead ? html`<div class="row" style="gap:8px"><span class="btn xs" data-act="editMember" data-arg="${m.id}">Edit</span>${d.members.length > 1 ? html`<span class="btn xs" data-act="copyFrom" data-arg="${m.id}" title="Give ${m.name} the same targets as someone else">Copy</span>` : ''}<span class="btn xs primary" data-act="addGoal" data-arg="${m.id}">Add target</span></div>` : ''}
         </div>
         ${list.length ? list.map(goalRow) : html`<div class="small muted" style="padding:14px 0 16px;border-top:1px solid var(--line2)">No ${period === 'week' ? 'weekly' : 'monthly'} targets for ${m.name} yet.${lead ? ' Click “Add target” to set the first one.' : ''}</div>`}
       </div>`; })}
@@ -176,22 +159,14 @@ export default {
         <span class="tiny muted">${name(b.member_id)} · reported ${ago(b.age_days)}${b.resolved_at ? ' · solved' : ''}</span></div>
       ${b.resolved_at ? html`<span class="btn xs" data-act="reopen" data-arg="${b.id}">Open again</span>` : html`<span class="btn xs primary" data-act="solve" data-arg="${b.id}">Mark solved</span>`}
     </div>`;
-    const blockers = () => { const mineOpen = open.filter(b => !who || b.member_id === who), solved = d.blockers.filter(b => b.resolved_at && (!who || b.member_id === who)); return html`
-      <div class="row" style="gap:12px;flex-wrap:wrap"><span class="muted">${mineOpen.length} open · ${solved.length} solved</span><span style="flex:1"></span>${whoSwitch}</div>
-      <div class="card" style="padding:16px 22px 8px">
-        <div class="title" style="margin-bottom:8px">Open now</div>
-        ${mineOpen.length ? mineOpen.map(blockerRow) : html`<div class="small muted" style="padding:10px 0 14px;border-top:1px solid var(--line2)">Nothing is blocking anyone. A blocker is added from the Today tab.</div>`}
-      </div>
-      ${solved.length ? html`<div class="card" style="padding:16px 22px 8px"><div class="title" style="margin-bottom:8px">Solved</div>${solved.slice(0, 20).map(blockerRow)}</div>` : ''}`; };
 
     return html`
-    ${pageHead(`${d.week_label} · ${d.month_label}`, 'Targets', html`<div class="row" style="gap:10px">${segmented(TABS.map(([arg, label]) => ({ arg, label: arg === 'blockers' && open.length ? `${label} · ${open.length}` : label, on: view === arg })), 'view', 16)}
-      ${lead ? html`<a class="btn" href="#/people" style="text-decoration:none">Add person</a>` : ''}</div>`)}
+    ${pageHead(`${d.week_label} · ${d.month_label}`, 'Targets', html`<div class="row" style="gap:10px">${segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16)}</div>`)}
     ${d.demo ? html`<div class="row small" style="gap:12px;padding:9px 14px;border-radius:10px;background:color-mix(in oklch, var(--warn) 12%, var(--surface))">
       <span><span class="semi">Example data.</span> The hand-counted numbers, notes, tasks and blockers on this page are made up to show how it works.</span>
       <span style="flex:1"></span><span class="btn xs" data-act="clearDemo">Remove example data</span></div>` : ''}
     <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span></div>
-    ${{ progress, today, report, blockers }[view]()}`;
+    ${{ progress, today, report }[view]()}`;
   },
 
   modal(m, ctx) {
@@ -199,7 +174,7 @@ export default {
     if (m.kind === 'copy') {
       const to = d.members.find(p => p.id === m.member_id), others = d.members.filter(p => p.id !== m.member_id && d.goals.some(g => g.member_id === p.id));
       return html`<form class="modal" data-submit="copyGoals">
-        <span class="section">Copy targets to ${to.name}</span>
+        <span class="section">Copy targets</span>
         <span class="small muted">${to.name} gets the same targets, with the same numbers. Change any of them afterwards by clicking its name.</span>
         ${others.length ? html`<label class="field">Copy from<select class="input" name="from" data-autofocus>${others.map(p => html`<option value="${p.id}">${p.name} (${d.goals.filter(g => g.member_id === p.id).length} targets)</option>`)}</select></label>
           <label class="field">Which targets<select class="input" name="period"><option value="">Weekly and monthly</option><option value="week">Weekly only</option><option value="month">Monthly only</option></select></label>`

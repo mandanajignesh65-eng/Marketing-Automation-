@@ -121,7 +121,7 @@ export default {
           <span class="small muted nowrap">${p.targets ? html`<span class="ink medium">${p.on_track}</span> of ${p.targets} on track` : 'No weekly targets'}</span></div>`)}
         ${t.people.length > MAX_PEOPLE ? html`<a class="link small" href="#/targets" style="text-decoration:none">See all ${t.people.length} on Targets</a>` : ''}
         ${t.people.length ? '' : html`<div class="small muted">Nobody has targets yet.</div>`}
-        ${t.blockers ? html`<a href="#/targets?view=blockers" class="small" style="color:var(--warn);text-decoration:none">${t.blockers} open blocker${t.blockers === 1 ? '' : 's'} →</a>` : ''}
+        ${t.blockers ? html`<a href="#/targets" class="small" style="color:var(--warn);text-decoration:none">${t.blockers} open blocker${t.blockers === 1 ? '' : 's'} →</a>` : ''}
       </div>
     </div>
 
