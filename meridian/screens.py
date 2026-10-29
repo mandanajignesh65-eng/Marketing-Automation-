@@ -150,6 +150,38 @@ def kind_rows(conn, cur_by, prev_by):
     return rank_rows(rows)
 
 
+def daily_leads(conn, now, p):
+    """Leads per day in the period, split by channel (a single day shows the last seven)."""
+    first = now.date() - timedelta(days=6) if p.rng == "day" else p.s
+    counts = {}
+    for r in conn.execute("SELECT substr(created_at, 1, 10) AS d, channel_id, COUNT(*) AS n FROM leads "
+                          "WHERE created_at >= ? AND created_at < ? GROUP BY d, channel_id", (iso(midnight(first)), p.end_dt)):
+        counts.setdefault(r["d"], {})[r["channel_id"]] = r["n"]
+    chart = []
+    for i in range((p.e - first).days + 1):
+        d = first + timedelta(days=i)
+        segs = counts.get(d.isoformat(), {})
+        chart.append(dict(date=d.isoformat(), day=d.day, month=MONTHS[d.month - 1], total=sum(segs.values()),
+                          partial=d == now.date(), segs=[dict(id=k or "unmapped", n=n) for k, n in segs.items()]))
+    return chart
+
+
+def kind_trend(conn, p, thr):
+    """Leads and qualified leads per calendar month for each channel group, the six months up to the period's end."""
+    y, m = p.e.year, p.e.month
+    months = [((y * 12 + m - 1 - back) // 12, (y * 12 + m - 1 - back) % 12 + 1) for back in range(5, -1, -1)]
+    keys = ["{:04d}-{:02d}".format(*ym) for ym in months]
+    kinds = {r["id"]: r["grp"] for r in conn.execute("SELECT id, grp FROM channels")}
+    by = {k: {g: dict(leads=0, qualified=0) for g, _ in KINDS} for k in keys}
+    for r in conn.execute("SELECT substr(created_at, 1, 7) AS month, channel_id, COUNT(*) AS n, SUM(" + scoring.qualified_sql() + ") AS q "
+                          "FROM leads WHERE created_at >= ? AND created_at < ? GROUP BY 1, 2", (thr, keys[0] + "-01", p.end_dt)):
+        if r["month"] in by:
+            slot = by[r["month"]][kinds.get(r["channel_id"]) or "none"]
+            slot["leads"] += r["n"]
+            slot["qualified"] += r["q"] or 0
+    return [dict(key=k, label=MONTHS[ym[1] - 1][:3], by=by[k]) for k, ym in zip(keys, months)]
+
+
 def overview(conn, now, p):
     thr = scoring.threshold(conn)
     cur_by, prev_by = metrics.channel_stats(conn, p.cur, thr), metrics.channel_stats(conn, p.prev, thr)
@@ -161,6 +193,7 @@ def overview(conn, now, p):
         leads=delta(cur["leads"], prev["leads"]), deals=delta(cur["deals"], prev["deals"]), won=delta(cur["won"], prev["won"]),
         kpis=dict(qualified=delta(cur["qualified"], prev["qualified"]), pipeline=delta(cur["pipeline"], prev["pipeline"])),
         channels=kind_rows(conn, cur_by, prev_by),
+        chart=daily_leads(conn, now, p), trend=kind_trend(conn, p, thr),
         month_targets=target_rows(conn, now),
         alerts=open_alerts(conn, now, 3),
     )
