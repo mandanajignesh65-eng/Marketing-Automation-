@@ -142,7 +142,12 @@ def results(conn, ev, threshold):
                               "WHERE TRIM(l.lead_source) IN ({}) GROUP BY 1".format(marks), sources):
             rows[r["s"]]["group"] = r["grp"]
     total = {k: sum(r[k] for r in rows.values()) for k in ("leads", "qualified", "deals", "pipeline", "won", "won_value")}
-    return dict(sources=list(rows.values()), total=total, speed=follow_up(conn, ev, sources))
+    by_day = []
+    if sources:
+        by_day = [dict(day=r["d"], leads=r["n"], qualified=r["q"] or 0) for r in conn.execute(
+            "SELECT substr(created_at, 1, 10) AS d, COUNT(*) AS n, SUM({}) AS q FROM leads WHERE TRIM(lead_source) IN ({}) GROUP BY 1 ORDER BY 1".format(
+                scoring.qualified_sql(), ",".join("?" for _ in sources)), [threshold] + sources)]
+    return dict(sources=list(rows.values()), total=total, by_day=by_day, speed=follow_up(conn, ev, sources))
 
 
 def follow_up(conn, ev, sources):
