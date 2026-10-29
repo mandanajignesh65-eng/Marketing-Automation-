@@ -305,7 +305,7 @@ export default {
       : html`<div class="card pad row" style="gap:8px"><span class="muted">${d.site && d.semrush ? `No Semrush export has been added for ${d.site} yet.` : 'No rankings have been added yet.'}</span>${info(TIPS.noRank)}</div>`}`;
 
     return html`
-    ${pageHead(`${show ? `${d.period.short} compared with ${d.period.prev_short}` : d.period.short}${d.ga_synced ? ` · Google Analytics data up to ${new Date(d.ga_synced + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}`, 'Website and organic', segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))}
+    ${pageHead(`${show ? `${d.period.short} compared with ${d.period.prev_short}` : d.period.short}${d.ga_synced ? ` · Google Analytics data up to ${new Date(d.ga_synced + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}`, 'Website & organic', segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))}
     <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span>
       <span style="flex:1"></span>${d.sites.length > 1 ? switcher([{ arg: '', label: 'All websites', on: !d.site }, ...d.sites.map(x => ({ arg: x, label: x, on: d.site === x }))], 'site') : ''}</div>
     ${{ summary, search, pages, rankings }[view]()}`;
