@@ -242,18 +242,6 @@ def get_overview(request: Request, range: str = "month", start: Optional[str] = 
         return data
 
 
-@app.get("/api/funnel")
-def get_funnel(range: str = "month", start: Optional[str] = None, end: Optional[str] = None, segment: str = "all"):
-    with session() as conn:
-        return screens.funnel(conn, db.now(conn), period(conn, range, start, end), segment)
-
-
-@app.get("/api/channels")
-def get_channels(range: str = "month", start: Optional[str] = None, end: Optional[str] = None):
-    with session() as conn:
-        return screens.channels(conn, db.now(conn), period(conn, range, start, end))
-
-
 @app.get("/api/paid")
 def get_paid(range: str = "month", start: Optional[str] = None, end: Optional[str] = None):
     with session() as conn:

@@ -3,7 +3,7 @@
 import json
 from datetime import date, datetime, timedelta
 
-from . import config, health, ingest, insights, metrics, money, narrative, research, scoring, semrush, mailer
+from . import config, health, ingest, insights, metrics, money, narrative, research, scoring, mailer
 from .db import get_setting, is_demo
 from .periods import (scaled, scale_all, MONTHS, MONTHS_LONG, WEEKDAYS, WEEKDAYS_LONG, Period, age_short, ago, day_label, days_in_month,
                       fired_label, iso, midnight, month_key, next_month, span_label, stamp)
@@ -166,122 +166,7 @@ def overview(conn, now, p):
     )
 
 
-# ------------------------------------------------------------------------------- funnel, channels
-
-def funnel(conn, now, p, segment):
-    thr = scoring.threshold(conn)
-    ids = metrics.resolve_channels(conn, segment)
-    cur = metrics.channel_stats(conn, p.cur, thr)
-    steps = ("leads", "qualified", "deals", "won")
-    # which channels fill each step, biggest first; leads with no channel yet are shown as unmapped
-    mix = sorted((dict(id=cid, pipeline=row["pipeline"], **{k: row[k] for k in steps}) for cid, row in cur.items()
-                  if (ids is None or cid in ids) and any(row[k] for k in steps)), key=lambda r: [-r[k] for k in steps])
-    # What sits above "Leads" depends on what is being looked at: website visits for the website, messages for outreach.
-    # For every channel together it is both, added up as "people reached".
-    top = "all" if segment == "all" else "web" if segment in ("organic", "website", "chatbot") else "outreach" if segment in OUTREACH_TOOLS else None
-
-    def with_top(stats, window):
-        a, b = window[2], window[3]
-        tools = OUTREACH_TOOLS.get(segment, OUTREACH_TOOLS["outbound"])
-        if top in ("web", "all"):
-            stats.update(visits=health._visits(conn, a, b), web_leads=health._web_leads(conn, a, b))
-        if top in ("outreach", "all"):
-            stats.update(sent=sum(health._outbound(conn, t, "sent", a, b) for t in tools),
-                         replied=sum(health._outbound(conn, t, "replied", a, b) for t in tools))
-        factor = getattr(window, "scale", None)
-        if factor:
-            for k in ("visits", "web_leads", "sent", "replied"):
-                if k in stats:
-                    stats[k] = scaled(stats[k], factor)
-        if top == "all":
-            stats["reached"] = stats["visits"] + stats["sent"]
-        return stats
-
-    return dict(period=p.as_json(), threshold=thr, mix=mix, audience=audience(conn, p, ids, thr), top=top,
-                cur=with_top(metrics.total(cur, ids), p.cur),
-                prev=with_top(metrics.total(metrics.channel_stats(conn, p.prev, thr), ids), p.prev))
-
-
-OUTREACH_TOOLS = {"outbound": ("heyreach", "apollo"), "heyreach": ("heyreach",), "apollo": ("apollo",)}
-
-
 OTHER_INDUSTRY, NO_COMPANY = "Other industries", "Company not known"
-
-
-def audience(conn, p, ids, thr):
-    """Who the period's leads are: how many fall in each target segment, overall and per channel."""
-    icp = scoring.profile(conn)
-    names = list(icp["segments"]) + [OTHER_INDUSTRY, NO_COMPANY]
-    clause, args = metrics.in_clause("channel_id", ids)
-    total = {n: dict(name=n, leads=0, qualified=0) for n in names}
-    by_channel = {}
-    for r in conn.execute("SELECT channel_id, industry, score, qualify_override FROM leads WHERE created_at >= ? AND created_at < ?" + clause,
-                          [p.start_dt, p.end_dt] + args):
-        industry = (r["industry"] or "").strip()
-        name = (scoring.in_segment(industry, icp) or OTHER_INDUSTRY) if industry else NO_COMPANY
-        total[name]["leads"] += 1
-        total[name]["qualified"] += scoring.is_qualified(r, thr)
-        row = by_channel.setdefault(r["channel_id"], dict(id=r["channel_id"], leads=0, parts=dict.fromkeys(names, 0)))
-        row["leads"] += 1
-        row["parts"][name] += 1
-    return dict(names=names, targets=len(icp["segments"]), total=[total[n] for n in names],
-                by_channel=sorted(by_channel.values(), key=lambda r: -r["leads"]))
-
-
-def lead_brief(r):
-    return dict(id=r["id"], name=r["name"], company=r["company"], score=r["score"], initials=initials(r["name"]))
-
-
-def channels(conn, now, p):
-    thr = scoring.threshold(conn)
-    stats, before = metrics.channel_stats(conn, p.cur, thr), metrics.channel_stats(conn, p.prev, thr)
-    rows = [dict(id=ch["id"], prev=before.get(ch["id"], metrics.empty_stats()), **stats.get(ch["id"], metrics.empty_stats()))
-            for ch in metrics.channels(conn)]
-
-    # the six calendar months up to the period's end, so the direction of each channel is visible
-    y, m = p.e.year, p.e.month
-    months = [((y * 12 + m - 1 - back) // 12, (y * 12 + m - 1 - back) % 12 + 1) for back in range(5, -1, -1)]
-    keys = ["{:04d}-{:02d}".format(*ym) for ym in months]
-    trend = {k: {} for k in keys}
-    for r in conn.execute(
-            "SELECT substr(created_at, 1, 7) AS month, channel_id, COUNT(*) AS n, SUM(" + scoring.qualified_sql() + ") AS q FROM leads "
-            "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2",
-            (thr, keys[0] + "-01", p.end_dt)):
-        if r["month"] in trend:
-            trend[r["month"]][r["channel_id"]] = dict(leads=r["n"], qualified=r["q"] or 0)
-
-    # what each channel is made of: the lead sources (an event, a form, a campaign) behind it
-    source = "COALESCE(NULLIF(TRIM(lead_source), ''), NULLIF(TRIM(utm_campaign), ''), 'Source not recorded')"
-    inside = {}
-    for r in conn.execute(
-            "SELECT channel_id, {} AS source, COUNT(*) AS n, SUM({}) AS q FROM leads "
-            "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2".format(source, scoring.qualified_sql()),
-            (thr, p.start_dt, p.end_dt)):
-        inside.setdefault(r["channel_id"], {})[r["source"]] = dict(source=r["source"], leads=r["n"], qualified=r["q"] or 0, deals=0, pipeline=0)
-    for r in conn.execute(
-            "SELECT channel_id, COALESCE(NULLIF(TRIM(lead_source), ''), 'Source not recorded') AS source, COUNT(*) AS n, SUM(amount) AS amt FROM deals "
-            "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2", (p.start_dt, p.end_dt)):
-        row = inside.setdefault(r["channel_id"], {}).setdefault(r["source"], dict(source=r["source"], leads=0, qualified=0, deals=0, pipeline=0))
-        row.update(deals=r["n"], pipeline=r["amt"] or 0)
-
-    # what the outreach tools themselves report (Apollo, HeyReach), to set beside the leads that reached the CRM
-    outreach = {}
-    for r in conn.execute(
-            "SELECT c.channel_id, c.name, COALESCE(SUM(d.sent), 0) AS sent, COALESCE(SUM(d.opened), 0) AS opened, COALESCE(SUM(d.replied), 0) AS replied "
-            "FROM outbound_campaigns c JOIN outbound_daily d ON d.campaign_id = c.id AND d.date BETWEEN ? AND ? "
-            "GROUP BY c.id HAVING sent + opened + replied > 0 ORDER BY sent DESC, replied DESC", (p.s.isoformat(), p.e.isoformat())):
-        tool = outreach.setdefault(r["channel_id"], dict(sent=0, opened=0, replied=0, campaigns=[]))
-        for k in ("sent", "opened", "replied"):
-            tool[k] += r[k]
-        tool["campaigns"].append(dict(name=r["name"], sent=r["sent"], opened=r["opened"], replied=r["replied"]))
-    connected = {r["key"] for r in conn.execute("SELECT key FROM sources WHERE status <> 'not_connected'")}
-
-    unmapped = stats.get(None)
-    return dict(period=p.as_json(), rows=rows, unmapped=unmapped["leads"] if unmapped else 0, threshold=thr,
-                outreach=outreach, connected=sorted(connected & {"apollo", "heyreach"}),
-                months=[dict(key=k, label=MONTHS[ym[1] - 1][:3], by=trend[k]) for k, ym in zip(keys, months)],
-                inside={cid: sorted(v.values(), key=lambda r: (-r["leads"], -r["deals"])) for cid, v in inside.items()},
-                range_name="Month to date" if p.rng == "month" else "Week to date" if p.rng == "week" else "Today" if p.rng == "day" else "Custom range")
 
 
 # ------------------------------------------------------------------------------- paid, outbound
@@ -372,66 +257,6 @@ def outbound(conn, now, p):
             months=[dict(label=MONTHS[ym[1] - 1][:3], **by_month[k]) for k, ym in zip(keys, months)]))
     return dict(period=p.as_json(), groups=groups, threshold=thr,
                 inside=metrics.sources_inside(conn, p.start_dt, p.end_dt, thr, metrics.resolve_channels(conn, "outbound")))
-
-
-# ------------------------------------------------------------------------------- website
-
-def web(conn, now, p):
-    thr = scoring.threshold(conn)
-    s, e, ps, pe = p.s.isoformat(), p.e.isoformat(), p.ps.isoformat(), p.pe.isoformat()
-
-    def sessions(a, b):
-        by = {r["date"]: r["n"] for r in conn.execute(
-            "SELECT date, SUM(sessions) AS n FROM traffic_daily WHERE date BETWEEN ? AND ? GROUP BY date", (a.isoformat(), b.isoformat()))}
-        return [by.get((a + timedelta(days=i)).isoformat(), 0) for i in range((b - a).days + 1)]
-
-    def one(sql, args):
-        return conn.execute(sql, args).fetchone()[0]
-
-    def inbound(window):
-        st = metrics.channel_stats(conn, window, thr)
-        return sum(v["leads"] for k, v in st.items() if k and k not in outbound_ids)
-
-    outbound_ids = set(metrics.resolve_channels(conn, "outbound"))
-    cur, prev = sessions(p.s, p.e), sessions(p.ps, p.pe)
-    # The chart compares day against day, so its earlier line is shifted by whole weeks to keep weekdays aligned.
-    weeks = -(-len(cur) // 7)
-    aligned = sessions(p.s - timedelta(weeks=weeks), p.e - timedelta(weeks=weeks))
-    clicks = "SELECT COALESCE(SUM(clicks), 0) FROM channel_daily WHERE channel_id = 'search' AND date BETWEEN ? AND ?"
-    pos = "SELECT AVG(position) FROM search_daily WHERE date BETWEEN ? AND ?"
-    leads_cur, leads_prev = inbound(p.cur), inbound(p.prev)
-
-    def recent_pos(end):
-        a = (end - timedelta(days=2)).isoformat()
-        return {r["query"]: r["p"] for r in conn.execute(
-            "SELECT query, AVG(position) AS p FROM query_daily WHERE date BETWEEN ? AND ? GROUP BY query", (a, end.isoformat()))}
-
-    now_pos, was_pos = recent_pos(p.e), recent_pos(p.pe)
-    queries = [dict(query=r["query"], clicks=r["clicks"], impressions=r["impressions"],
-                    position=now_pos.get(r["query"]), was=was_pos.get(r["query"]))
-               for r in conn.execute("SELECT query, SUM(clicks) AS clicks, SUM(impressions) AS impressions FROM query_daily "
-                                     "WHERE date BETWEEN ? AND ? GROUP BY query ORDER BY clicks DESC LIMIT 8", (s, e))]
-    pages = [dict(r) for r in conn.execute(
-        "SELECT path, MAX(title) AS title, SUM(views) AS views, SUM(leads) AS leads FROM page_daily "
-        "WHERE date BETWEEN ? AND ? GROUP BY path ORDER BY views DESC LIMIT 8", (s, e))]
-    forms = [dict(r) for r in conn.execute(
-        "SELECT form, SUM(views) AS views, SUM(submissions) AS submissions FROM form_daily "
-        "WHERE date BETWEEN ? AND ? GROUP BY form ORDER BY submissions DESC", (s, e))]
-
-    slip = insights.ranking_drop(conn, p.e - timedelta(days=45), p.e)
-    annotation = None
-    if slip and s <= slip["date"] <= e and len(cur) > 1:
-        annotation = dict(index=(date.fromisoformat(slip["date"]) - p.s).days, label=slip["label"],
-                          text="“{}” falls from {:.0f} to {:.0f}".format(slip["query"], slip["before"], slip["after"]))
-    return dict(
-        period=p.as_json(),
-        sessions=delta(sum(cur), sum(prev)), search_clicks=delta(one(clicks, (s, e)), one(clicks, (ps, pe))),
-        position=dict(value=one(pos, (s, e)), prev=one(pos, (ps, pe))),
-        visitor_to_lead=dict(value=metrics.ratio(leads_cur, sum(cur)), prev=metrics.ratio(leads_prev, sum(prev))),
-        series=dict(cur=cur, prev=aligned, start=s, prev_label="{} week{} earlier".format(weeks, "" if weeks == 1 else "s")),
-        annotation=annotation, pages=pages, queries=queries, forms=forms,
-        form_leads=sum(f["submissions"] for f in forms), inbound_leads=leads_cur, semrush=semrush.view(conn),
-    )
 
 
 # ------------------------------------------------------------------------------- leads

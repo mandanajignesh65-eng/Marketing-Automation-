@@ -1,3 +1,5 @@
+> Replaced by `docs/designs/simplify-screens.md`.
+
 # Simplify Meridian: brief for the design doc
 
 Written 2026-10-29 from the owner's answers. Input for `/egm:egm-brainstorm`.

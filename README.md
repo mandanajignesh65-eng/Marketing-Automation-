@@ -27,7 +27,7 @@ There are two databases, kept apart so one never pollutes the other:
 
 | Part | State |
 |---|---|
-| All twelve screens, date ranges, comparison, channel filter, light/dark | Working |
+| All screens (Overview; Paid ads, Outbound, Website & organic; Leads with Quality and Ideal customer; Competitors; Targets, People; Subscriptions, Reports, Alerts; Settings), date ranges, comparison, light/dark | Working |
 | Zoho CRM leads and deals | Working against the Chat360 account. Marketing leads only: cold calling, old lists and leads with no source are left out |
 | Lead scoring editor (weights, threshold, live preview, rescore) | Working. Live data is scored against Chat360's four segments (see below) |
 | Subscriptions, targets and budgets, lead-source and tracking-tag mapping, leaving sources out | Working |
@@ -61,7 +61,7 @@ How Zoho's data is read (all of it is recorded in `data/zoho_mapping.json`, whic
 
 - **Channel.** Chat360's Zoho has no UTM fields, so a lead's channel comes from its Lead Source. Each source is
   tied to a channel once: by its wording, by the `lead_source_channels` list in the mapping file, or by picking a
-  channel for it in Settings. A source nobody has placed shows as "Unmapped", at the top of that list.
+  channel for it in Settings. A source nobody has placed shows as "No channel", at the top of that list.
   A blank Lead Source appears there as "No lead source in Zoho".
 - **Channels.** Live data has five channels beyond the design's eight: Website forms, Website chatbot, Google ads,
   Events (its own group) and "Outbound · other". Apollo and HeyReach are named Email outreach and LinkedIn outreach.
@@ -318,7 +318,7 @@ Currency is `INR` (rupees with lakh and crore) or `USD`.
 meridian/
   api.py        HTTP endpoints and static files
   screens.py    builds the data each screen shows
-  metrics.py    per-channel funnel counts for a date window
+  metrics.py    per-channel counts for a date window
   periods.py    date ranges and comparison windows
   insights.py   week-on-week gap, cost spikes, budget pacing, ranking slips, source freshness
   alerts.py     alert rules          reminders.py  owner reminders       mailer.py  email outbox
