@@ -10,10 +10,10 @@ const money = (key, v) => (key === 'spend' || key === 'pipeline' ? f.moneyShort(
 // a channel group takes the colour of its first channel, so the graphs match the colours used elsewhere
 const groupColor = (ctx, key) => (ctx.app.shell.channels.find(c => c.grp === key) || { color: 'var(--ink3)' }).color;
 
-// Leads per day, every channel stacked, or only the one picked with the buttons above it.
+// Leads per day, every channel stacked, or only the channels of the group picked with the buttons above it.
 function daily(d, ctx, only) {
-  const order = [...ctx.app.shell.channels, ctx.channel('unmapped')].filter(c => !only || c.id === only);
-  const count = x => (only ? (x.segs.find(g => g.id === only) || { n: 0 }).n : x.total);
+  const order = [...ctx.app.shell.channels, ctx.channel('unmapped')].filter(c => !only || c.grp === only);
+  const count = x => (only ? x.segs.filter(g => ctx.channel(g.id).grp === only).reduce((t, g) => t + g.n, 0) : x.total);
   const ax = f.axis(Math.max(...d.chart.map(count), 1));
   const every = d.chart.length <= 10;
   const label = (x, i) => (x.partial ? 'Today' : i === 0 ? `${x.day} ${x.month}` : every || x.day % 7 === 0 ? x.day : '');
@@ -32,9 +32,9 @@ function daily(d, ctx, only) {
   </div>`;
 }
 
-function legend(d, ctx) {
+function legend(d, ctx, only) {
   const by = {};
-  d.chart.forEach(x => x.segs.forEach(s => { by[s.id] = (by[s.id] || 0) + s.n; }));
+  d.chart.forEach(x => x.segs.filter(s => !only || ctx.channel(s.id).grp === only).forEach(s => { by[s.id] = (by[s.id] || 0) + s.n; }));
   const rows = Object.entries(by).map(([id, n]) => ({ c: ctx.channel(id), id, n })).sort((a, b) => b.n - a.n);
   const all = rows.reduce((t, r) => t + r.n, 0);
   return html`<div class="stack" style="width:190px;flex:none;gap:5px">
@@ -52,33 +52,13 @@ function funnel(d, ctx) {
   const steps = [['leads', 'Leads'], ['qualified', 'Qualified'], ['deals', 'Deals started'], ['won', 'Deals won']];
   return html`<div class="card pad stack" style="gap:14px">
     <div class="baseline"><span class="title">From lead to won deal</span><span class="small muted">${d.range_name}</span></div>
-    ${rows.length ? rows.map(r => html`<div class="stack" style="gap:5px">
+    ${rows.length ? html`<div class="grid" style="grid-template-columns:repeat(${rows.length},minmax(0,1fr));gap:28px">${rows.map(r => html`<div class="stack" style="gap:5px">
       <span class="row small medium" style="gap:8px">${sq(groupColor(ctx, r.key))}${r.name}</span>
       ${steps.map(([key, label], i) => html`<div style="display:grid;grid-template-columns:92px minmax(0,1fr) 44px;gap:10px;align-items:center">
         <span class="tiny muted">${label}</span>
         <div class="track" style="height:8px;border-radius:4px"><div class="fill" style="width:${r[key] / top * 100}%;background:${groupColor(ctx, r.key)};opacity:${1 - i * 0.2}"></div></div>
         <span class="tiny medium right">${f.num(r[key])}</span></div>`)}
-    </div>`) : html`<div class="small muted">No leads or deals in this period.</div>`}
-  </div>`;
-}
-
-// The last six months, leads stacked by channel; the number under each month is how many qualified.
-function trend(d, ctx) {
-  const keys = d.channels.map(r => r.key);
-  const total = m => keys.reduce((t, k) => t + m.by[k].leads, 0);
-  const ax = f.axis(Math.max(...d.trend.map(total), 1));
-  return html`<div class="card pad stack" style="gap:12px">
-    <div class="baseline"><span class="title">Last six months</span><span class="small muted">Leads by channel</span></div>
-    <div style="display:flex;gap:14px;align-items:flex-end;height:170px">
-      ${d.trend.map(m => html`<div class="stack" style="flex:1;height:100%;justify-content:flex-end;align-items:center;gap:4px">
-        <span class="tiny medium">${f.num(total(m))}</span>
-        <div title="${m.label}: ${f.num(total(m))} leads" style="width:100%;max-width:48px;height:${total(m) / ax.max * 100}%;display:flex;flex-direction:column-reverse;gap:1px;border-radius:4px 4px 1px 1px;overflow:hidden">
-          ${keys.map(k => (m.by[k].leads ? html`<div style="height:${m.by[k].leads / total(m) * 100}%;background:${groupColor(ctx, k)};flex:none"></div>` : ''))}
-        </div></div>`)}
-    </div>
-    <div style="display:flex;gap:14px">${d.trend.map(m => html`<div class="stack" style="flex:1;align-items:center;gap:1px">
-      <span class="micro muted">${m.label}</span><span class="micro faint">${f.num(keys.reduce((t, k) => t + m.by[k].qualified, 0))} qualified</span></div>`)}</div>
-    <div class="row" style="gap:14px;flex-wrap:wrap">${d.channels.filter(r => d.trend.some(m => m.by[r.key].leads)).map(r => html`<span class="row tiny muted" style="gap:6px">${sq(groupColor(ctx, r.key))}${r.name}</span>`)}</div>
+    </div>`)}</div>` : html`<div class="small muted">No leads or deals in this period.</div>`}
   </div>`;
 }
 
@@ -100,13 +80,13 @@ export default {
     const dash = html`<span class="faint">—</span>`;
     const n = v => (v ? f.num(v) : dash);
     const change = (cur, prev) => (show && prev ? (ch => html`<span class="tiny" style="color:${f.tone(ch)}">${f.arrowShort(ch)}</span>`)((cur - prev) / prev * 100) : '');
-    const mark = r => (r.rank === 'best' ? html`<span class="pill sm" style="color:var(--pos)"><span class="dot" style="background:var(--pos)"></span>Best</span>`
-      : r.rank === 'weakest' ? html`<span class="pill sm" style="color:var(--neg)"><span class="dot" style="background:var(--neg)"></span>Weakest</span>` : '');
+    const mark = r => (r.rank === 'best' ? html`<span class="pill sm" style="color:var(--pos);align-self:flex-start"><span class="dot" style="background:var(--pos)"></span>Best</span>`
+      : r.rank === 'weakest' ? html`<span class="pill sm" style="color:var(--neg);align-self:flex-start"><span class="dot" style="background:var(--neg)"></span>Weakest</span>` : '');
     const cost = r => (r.spend_flag === 'spent_none' ? html`<span class="small" style="color:var(--neg)">spent, none qualified</span>`
       : r.spend_flag === 'no_spend' ? html`<span class="tiny faint">no spend recorded</span>` : r.cpql ? f.moneyShort(r.cpql) : dash);
     const people = t.people.slice(0, MAX_PEOPLE);
-    const present = [...new Set(d.chart.flatMap(x => x.segs.map(s => s.id)))].filter(id => id !== 'unmapped').map(id => ctx.channel(id));
-    const only = present.some(c => c.id === ctx.ui().only) ? ctx.ui().only : null;
+    const present = d.channels.filter(r => r.key !== 'none' && r.leads);
+    const only = present.some(r => r.key === ctx.ui().only) ? ctx.ui().only : null;
     const topLeads = Math.max(...d.channels.map(r => r.leads), 1);
 
     return html`
@@ -119,9 +99,9 @@ export default {
 
     <div class="grid start" style="grid-template-columns:minmax(0,1fr) 336px">
       <div class="card stack" style="padding:18px 20px 16px;gap:16px">
-        <div class="baseline" style="gap:16px;flex-wrap:wrap"><span class="title">${only ? `Leads from ${ctx.channel(only).name}` : 'Leads per day'}</span>
-          ${present.length > 1 ? switcher([{ arg: '', label: 'All together', on: !only }, ...present.map(c => ({ arg: c.id, label: c.name, color: c.color, on: only === c.id }))], 'only') : ''}</div>
-        <div style="display:flex;gap:28px">${daily(d, ctx, only)}${legend(d, ctx)}</div>
+        <div class="baseline" style="gap:16px;flex-wrap:wrap"><span class="title">${only ? `Leads per day · ${present.find(r => r.key === only).name}` : 'Leads per day'}</span>
+          ${present.length > 1 ? switcher([{ arg: '', label: 'All channels', on: !only }, ...present.map(r => ({ arg: r.key, label: r.name, color: groupColor(ctx, r.key), on: only === r.key }))], 'only') : ''}</div>
+        <div style="display:flex;gap:28px">${daily(d, ctx, only)}${legend(d, ctx, only)}</div>
       </div>
 
       <div class="card pad stack" style="gap:10px">
@@ -148,9 +128,9 @@ export default {
         <div class="thead right" style="border-top:1px solid var(--line)"><span></span><span>Leads</span><span>Qualified</span><span>Qualified %</span><span>Deals started</span><span>Deals won</span><span>Value of new deals</span><span>Spend</span><span>Cost per qualified lead</span></div>
         ${d.channels.map(r => html`<a class="trow right" ${TO[r.key] ? html`href="${TO[r.key]}"` : ''} style="color:inherit;text-decoration:none">
           <span class="stack" style="gap:4px;text-align:left;min-width:0;align-items:stretch">
-            <span class="row" style="gap:8px;min-width:0">${sq(groupColor(ctx, r.key))}<span class="medium clip">${r.name}</span>${mark(r)}</span>
+            <span class="row" style="gap:8px;min-width:0">${sq(groupColor(ctx, r.key))}<span class="medium nowrap">${r.name}</span></span>
             <span class="track" style="height:6px;border-radius:3px;display:block" title="Leads, with the qualified part darker"><span class="fill" style="display:block;width:${r.leads / topLeads * 100}%;background:color-mix(in oklch, ${groupColor(ctx, r.key)} 35%, var(--surface));position:relative">
-              <span style="position:absolute;left:0;top:0;bottom:0;width:${r.leads ? r.qualified / r.leads * 100 : 0}%;background:${groupColor(ctx, r.key)};border-radius:3px"></span></span></span></span>
+              <span style="position:absolute;left:0;top:0;bottom:0;width:${r.leads ? r.qualified / r.leads * 100 : 0}%;background:${groupColor(ctx, r.key)};border-radius:3px"></span></span></span>${mark(r)}</span>
           <span class="stack" style="gap:0"><span class="medium">${n(r.leads)}</span>${change(r.leads, r.prev.leads)}</span>
           <span class="stack" style="gap:0"><span>${n(r.qualified)}</span>${change(r.qualified, r.prev.qualified)}</span>
           <span>${r.qualified_pct == null ? dash : f.pct(r.qualified_pct)}</span>
@@ -169,10 +149,7 @@ export default {
       </div>
     </div>
 
-    <div class="grid start" style="grid-template-columns:repeat(2,minmax(0,1fr))">
-      ${funnel(d, ctx)}
-      ${trend(d, ctx)}
-    </div>`;
+    ${funnel(d, ctx)}`;
   },
 
   actions: {
