@@ -23,7 +23,7 @@ const SCREENS = { overview, paid, outbound, web, leads, quality, icp, competitor
 const NAV = [
   { label: null, items: [['overview', 'Overview']] },
   { label: 'Channels', items: [['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic']] },
-  { label: 'Leads & market', items: [['leads', 'Leads', 'leads'], ['icp', 'Ideal customer'], ['quality', 'Lead quality'], ['competitors', 'Competitors']] },
+  { label: 'Leads & market', items: [['leads', 'Leads', 'leads'], ['competitors', 'Competitors']] },
   { label: 'Team', items: [['targets', 'Targets'], ['people', 'People']] },
   { label: 'Operations', items: [['subs', 'Subscriptions'], ['reports', 'Reports'], ['alerts', 'Alerts & reminders', 'alerts']] },
 ];
@@ -49,6 +49,8 @@ ICON.competitors = '<path d="M4 20V10M10 20V4M16 20v-8M20.500 20H3.500"/><circle
 ICON.people = '<circle cx="12" cy="8" r="3.400"/><path d="M5.200 19.500c.7-3.700 3.400-5.800 6.800-5.800s6.100 2.100 6.800 5.800"/>';
 // Pages only a leader may open. With sign-in off there is no signed-in person, and everything is open.
 const LEADER_SCREENS = ['people', 'settings'];
+// Quality and Ideal customer are reached from the switcher on Leads, so the sidebar marks Leads while they are open.
+const LEADS_AREA = ['leads', 'quality', 'icp'];
 const leader = () => !app.shell || !app.shell.user || app.shell.user.admin !== false;
 const icon = id => html`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${raw(ICON[id] || '')}</svg>`;
 
@@ -176,7 +178,7 @@ function sidebar() {
       <div class="stack"><span class="semi" style="font-size:14px;letter-spacing:-0.01em">${s.product}</span><span class="tiny muted">${s.company}</span></div></div>
     ${NAV.map(g => html`<nav class="nav-group">
       ${g.label ? html`<div class="nav-label">${g.label}</div>` : ''}
-      ${g.items.filter(([id]) => leader() || !LEADER_SCREENS.includes(id)).map(([id, label, badge]) => html`<a class="nav-item ${app.screen === id ? 'on' : ''}" href="#/${id}">
+      ${g.items.filter(([id]) => leader() || !LEADER_SCREENS.includes(id)).map(([id, label, badge]) => html`<a class="nav-item ${(LEADS_AREA.includes(app.screen) ? 'leads' : app.screen) === id ? 'on' : ''}" href="#/${id}">
         <span class="row" style="gap:10px;min-width:0">${icon(id)}<span class="clip">${label}</span></span>${badge && s.badges[badge] ? html`<span class="badge">${s.badges[badge].toLocaleString(s.currency.locale)}</span>` : ''}</a>`)}
     </nav>`)}
     <div class="side-foot">
@@ -314,6 +316,7 @@ const actions = {
     load(true);
   },
   toggleCompare() { app.compare = !app.compare; render(); },
+  openScreen: (c, d) => ctx.go(d.arg),
   retry: () => load(false),
   closeModal(c, d, el, event) { if (event.target === el) ctx.closeModal(); },
   cancelModal: () => ctx.closeModal(),

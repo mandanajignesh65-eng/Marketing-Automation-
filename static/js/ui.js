@@ -18,6 +18,9 @@ export const segmented = (items, act, pad = 12) => html`<div class="seg">${items
   html`<div class="${i.on ? 'on' : ''}" data-act="${act}" data-arg="${i.arg}" style="padding:4px ${pad}px">${i.label}</div>`)}</div>`;
 
 // The same control with an optional colour square per choice, for switching what a chart shows. options: [{ label, on, arg, color }]
+// Leads, Quality and Ideal customer share one place in the sidebar; this row moves between them.
+export const leadsSwitch = current => html`<div style="display:flex;margin-bottom:-8px">${segmented([['leads', 'All leads'], ['quality', 'Quality'], ['icp', 'Ideal customer']]
+  .map(([arg, label]) => ({ arg, label, on: arg === current })), 'openScreen')}</div>`;
 export const switcher = (options, act) => html`<div class="seg wrap">${options.map(o =>
   html`<div class="${o.on ? 'on' : ''}" data-act="${act}" data-arg="${o.arg}">${o.color ? html`<span class="sq" style="width:9px;height:9px;border-radius:3px;background:${o.color}"></span>` : ''}${o.label}</div>`)}</div>`;
 
