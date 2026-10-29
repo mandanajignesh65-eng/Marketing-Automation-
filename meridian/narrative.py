@@ -48,31 +48,6 @@ def week_sentence(wk):
     return segs
 
 
-def overview_summary(conn, now, period, cur, prev, filtered):
-    """The Overview's one-paragraph read of the period, as [{t, tone?}] segments."""
-    leads = "{:,} lead{}".format(cur["leads"], "" if cur["leads"] == 1 else "s")
-    change = metrics.pct_change(cur["leads"], prev["leads"])
-    if change is not None:
-        leads += ", {} {:.0f}% on {}".format("up" if change >= 0 else "down", abs(change), period.prev_name())
-
-    if period.rng == "month":
-        month = MONTHS_LONG[now.month - 1]
-        pace = None if filtered else pace_phrase(cur["leads"], targets_for(conn, month_key(now.date())).get("leads"), now)
-        segs = [{"t": "{} is {}: ".format(month, pace) if pace else "{} so far: ".format(month)}, {"t": leads, "tone": "ink"}]
-    else:
-        segs = [{"t": {"day": "Today so far: ", "week": "This week so far: "}.get(period.rng, "In this range: ")},
-                {"t": leads, "tone": "ink"}]
-
-    a, b = metrics.ratio(cur["spend"], cur["qualified"]), metrics.ratio(prev["spend"], prev["qualified"])
-    if a and b and abs(a - b) / b >= 0.01:
-        segs.append({"t": ", at a {} cost per qualified lead.".format("lower" if a < b else "higher")})
-    else:
-        segs.append({"t": "."})
-    if period.rng == "month" and not filtered:
-        segs += week_sentence(insights.week_compare(conn, now))
-    return segs
-
-
 def weekly_draft(conn, now):
     """First draft of the weekly leadership report: headline, body paragraphs and next steps."""
     thr = scoring.threshold(conn)

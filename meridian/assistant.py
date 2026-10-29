@@ -104,8 +104,8 @@ def ready():
 
 
 # the screen each table is shown on, so an answer can say where its figures can be checked
-PAGES = {"leads": ("Leads", "leads"), "companies": ("Leads", "leads"), "deals": ("Funnel", "funnel"), "channels": ("Channels", "channels"),
-         "channel_daily": ("Channels", "channels"), "ad_campaigns": ("Paid ads", "paid"), "ad_creatives": ("Paid ads", "paid"), "ad_daily": ("Paid ads", "paid"),
+PAGES = {"leads": ("Leads", "leads"), "companies": ("Leads", "leads"), "deals": ("Overview", "overview"), "channels": ("Overview", "overview"),
+         "channel_daily": ("Overview", "overview"), "ad_campaigns": ("Paid ads", "paid"), "ad_creatives": ("Paid ads", "paid"), "ad_daily": ("Paid ads", "paid"),
          "meta_campaigns": ("Paid ads", "paid"), "meta_adsets": ("Paid ads", "paid"), "meta_ads": ("Paid ads", "paid"), "meta_ad_daily": ("Paid ads", "paid"),
          "outbound_campaigns": ("Outbound", "outbound"), "outbound_daily": ("Outbound", "outbound"),
          "traffic_daily": ("Website & organic", "web"), "traffic_site_daily": ("Website & organic", "web"), "search_daily": ("Website & organic", "web"),

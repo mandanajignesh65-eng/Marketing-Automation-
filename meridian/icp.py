@@ -92,7 +92,7 @@ def view(conn, now, p):
     for l in conn.execute("SELECT channel_id, industry, company_size, employees FROM leads WHERE created_at >= ? AND created_at < ?", (p.start_dt, p.end_dt)):
         text, band = (l["industry"] or "").strip(), size_band(l)
         kind = "unknown" if not text or not band else "match" if scoring.in_segment(text, profile) and band in SIZES[:2] else "other"
-        row = leads.setdefault(names.get(l["channel_id"], "Channel not known"), dict(match=0, other=0, unknown=0))
+        row = leads.setdefault(names.get(l["channel_id"], "No channel"), dict(match=0, other=0, unknown=0))
         row[kind] += 1
     by_channel = sorted((dict(name=k, total=sum(v.values()), **v) for k, v in leads.items()), key=lambda r: -r["total"])
     totals = {k: sum(r[k] for r in by_channel) for k in ("match", "other", "unknown", "total")}

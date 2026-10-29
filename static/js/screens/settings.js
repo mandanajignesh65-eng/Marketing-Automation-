@@ -15,7 +15,7 @@ export default {
     const unmapped = d.utm.filter(u => !u.channel_id && !u.excluded).length;
     const leftOut = d.utm.reduce((a, u) => a + u.left_out, 0);
     const themes = ['auto', 'light', 'dark'].map(t => ({ arg: t, label: t[0].toUpperCase() + t.slice(1), on: ctx.theme() === t }));
-    const channelItems = [...app.shell.channels.map(c => ({ label: c.name, arg: c.id, color: c.color })), { label: 'Leave unmapped', arg: '' }];
+    const channelItems = [...app.shell.channels.map(c => ({ label: c.name, arg: c.id, color: c.color })), { label: 'No channel', arg: '' }];
     const OUT = '!out';  // a lead source can also be left out altogether: sales activity, old lists, tests
     const itemsFor = u => [
       ...(u.is_source ? [{ label: 'Leave out · not marketing', arg: `${u.id}:${OUT}`, on: u.excluded }, { heading: 'Count under' }] : []),
@@ -44,14 +44,14 @@ export default {
     </div>
     <div class="grid start" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr);margin-top:12px">
       <div class="card" style="padding:18px 20px 8px;--cols:minmax(0,1.2fr) minmax(0,1fr) 64px 64px">
-        <div class="baseline" style="margin-bottom:8px"><span class="title">Lead sources and tags to channels</span>${unmapped ? html`<span class="small" style="color:var(--warn)">${unmapped} unmapped</span>` : ''}</div>
+        <div class="baseline" style="margin-bottom:8px"><span class="title">Lead sources and tags to channels</span>${unmapped ? html`<span class="small" style="color:var(--warn)">${unmapped} with no channel</span>` : ''}</div>
         <div class="thead" style="padding:0 0 6px;border:0;gap:12px"><span>Lead source or tracking tags</span><span>Channel</span><span class="right">Sessions</span><span class="right">Leads</span></div>
         <div data-scroll="utm" style="max-height:520px;overflow-y:auto;margin-right:-8px;padding-right:8px">
         ${d.utm.map(u => { const c = u.channel_id ? ctx.channel(u.channel_id) : null; const tone = u.excluded ? 'var(--ink3)' : c ? 'var(--ink)' : 'var(--warn)'; return html`<div class="trow" style="padding:8px 0;gap:12px">
           <span class="${u.is_source ? '' : 'mono'} clip ${u.excluded ? 'faint' : ''}" title="${u.label}">${u.label}</span>
           <div class="menu-wrap" data-menu-trigger>
             <span class="row editable" style="gap:8px;color:${tone};cursor:pointer" data-act="menu" data-arg="utm-${u.id}" title="Change channel">
-              ${c ? sq(c.color) : html`<span class="sq" style="border:1.5px ${u.excluded ? 'solid var(--line)' : 'dashed var(--warn)'}"></span>`}${u.excluded ? 'Left out' : c ? c.name : 'Unmapped'}</span>
+              ${c ? sq(c.color) : html`<span class="sq" style="border:1.5px ${u.excluded ? 'solid var(--line)' : 'dashed var(--warn)'}"></span>`}${u.excluded ? 'Left out' : c ? c.name : 'No channel'}</span>
             ${app.menu === 'utm-' + u.id ? menu(itemsFor(u), 'mapTag') : ''}</div>
           <span class="right muted">${u.sessions ? f.num(u.sessions) : '—'}</span>
           <span class="right ${u.excluded ? 'faint' : 'muted'}" title="${u.excluded ? 'Leads in Zoho that are left out' : ''}">${u.excluded ? (u.left_out ? f.num(u.left_out) : '—') : u.leads ? f.num(u.leads) : '—'}</span></div>`; })}

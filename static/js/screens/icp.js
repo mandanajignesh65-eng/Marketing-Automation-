@@ -1,6 +1,6 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
-import { pageHead, segmented, switcher } from '../ui.js';
+import { pageHead, segmented, switcher, leadsSwitch } from '../ui.js';
 
 const GREEN = 'var(--pos)', RED = 'var(--neg)';
 const or = list => (list.length > 1 ? list.slice(0, -1).join(', ') + ' or ' + list[list.length - 1] : list[0] || '');
@@ -141,8 +141,8 @@ export default {
 
   render(d, ctx) {
     const view = TABS.some(x => x[0] === ctx.app.params.view) ? ctx.app.params.view : 'summary';
-    const head = pageHead(view === 'summary' ? 'Based on all deals in Zoho' : 'Leads are the last 12 months · deals are every deal in Zoho', 'Ideal customer',
-      segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16));
+    const head = [leadsSwitch('icp'), pageHead(view === 'summary' ? 'Based on all deals in Zoho' : 'Leads are the last 12 months · deals are every deal in Zoho', 'Ideal customer',
+      segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))];
     if (d.seg) return html`${head}${profile(d.seg, ctx)}`;
     if (view === 'industries' && d.compare) return html`${head}${compareTable('Industries', d.compare.industry, 'industry', ctx)}`;
     if (view === 'personas' && d.compare) return html`${head}

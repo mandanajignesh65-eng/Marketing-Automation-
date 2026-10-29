@@ -3,7 +3,7 @@
 import json
 from datetime import date, datetime, timedelta
 
-from . import config, health, ingest, insights, metrics, money, narrative, research, scoring, semrush, mailer
+from . import config, health, ingest, insights, metrics, money, narrative, research, scoring, mailer
 from .db import get_setting, is_demo
 from .periods import (scaled, scale_all, MONTHS, MONTHS_LONG, WEEKDAYS, WEEKDAYS_LONG, Period, age_short, ago, day_label, days_in_month,
                       fired_label, iso, midnight, month_key, next_month, span_label, stamp)
@@ -77,21 +77,27 @@ def shell(conn, now):
 def target_rows(conn, now):
     """Month-to-date progress against this month's targets."""
     month = Period(now, "month")
-    cur = metrics.total(metrics.channel_stats(conn, month.cur, scoring.threshold(conn)))
+    stats = metrics.channel_stats(conn, month.cur, scoring.threshold(conn))
+    cur = metrics.total(stats)
     targets = narrative.targets_for(conn, month_key(now.date()))
     elapsed = now.day / days_in_month(now.date())
-    budget = sum(v for k, v in targets.items() if k.startswith("budget_"))
+    # spend comes in only from Meta and LinkedIn, so paid spend is set against those two budgets
+    budget = sum(targets.get(k) or 0 for k in ("budget_meta", "budget_li"))
+    paid_spend = metrics.total(stats, metrics.resolve_channels(conn, "paid"))["spend"]
+    labelled = now.day >= 7  # a pace label in the first days of a month is mostly noise
     rows = []
     for key, label, actual, target in (("leads", "Leads", cur["leads"], targets.get("leads")),
                                        ("qualified", "Qualified leads", cur["qualified"], targets.get("qualified")),
-                                       ("pipeline", "Pipeline", cur["pipeline"], targets.get("pipeline")),
+                                       ("pipeline", "Value of new deals", cur["pipeline"], targets.get("pipeline")),
                                        ("won", "Deals won", cur["won"], targets.get("won")),
-                                       ("spend", "Spend", cur["spend"], budget or None)):
+                                       ("spend", "Ad spend", paid_spend, budget or None)):
         if not target:
             continue
         projected = actual / elapsed
         share = projected / target
-        if key == "spend":
+        if not labelled:
+            status, tone = "", ""
+        elif key == "spend":
             status, tone = ("Over budget", "warn") if share > 1.05 else ("On budget", "ink2") if share > 1 else ("Under budget", "ink2")
         else:
             status, tone = ("On pace", "pos") if share >= 1 else ("Slightly behind", "warn") if share >= 0.9 else ("Behind", "neg")
@@ -100,18 +106,56 @@ def target_rows(conn, now):
     return dict(rows=rows, month=MONTHS_LONG[now.month - 1], pace_pct=elapsed * 100)
 
 
-def overview(conn, now, p, channel):
-    thr = scoring.threshold(conn)
-    ids = metrics.resolve_channels(conn, channel)
-    cur_by = metrics.channel_stats(conn, p.cur, thr)
-    cur, prev = metrics.total(cur_by, ids), metrics.total(metrics.channel_stats(conn, p.prev, thr), ids)
+# the Overview channel table: one row per channel group, in this order, under these names
+KINDS = (("paid", "Paid ads"), ("outbound", "Outbound"), ("organic", "Website & organic"), ("events", "Events"), ("none", "No channel"))
+RANK_MIN_LEADS, RANK_MIN_GAP = 20, 5   # a channel needs this many leads to be marked; marks need this many points between best and weakest
 
+
+def rank_rows(rows):
+    """Mark the best and weakest channel by qualified %. Rows with few leads, spend but nothing qualified, or no channel are left out."""
+    for r in rows:
+        r["rank"] = ""
+    taking = [r for r in rows if r["key"] != "none" and r["leads"] >= RANK_MIN_LEADS and r["spend_flag"] != "spent_none"]
+    if len(taking) < 2:
+        return rows
+    hi, lo = max(r["qualified_pct"] for r in taking), min(r["qualified_pct"] for r in taking)
+    if hi - lo < RANK_MIN_GAP:
+        return rows
+    for r in taking:
+        r["rank"] = "best" if r["qualified_pct"] == hi else "weakest" if r["qualified_pct"] == lo else ""
+    return rows
+
+
+def kind_rows(conn, cur_by, prev_by):
+    kinds = {r["id"]: r["grp"] for r in conn.execute("SELECT id, grp FROM channels")}
+    keys = ("leads", "qualified", "deals", "won", "pipeline", "spend")
+
+    def add_up(stats):
+        out = {k: dict.fromkeys(keys, 0) for k, _ in KINDS}
+        for cid, row in stats.items():
+            slot = out.get(kinds.get(cid) or "none", out["none"])
+            for k in keys:
+                slot[k] += row[k]
+        return out
+
+    cur, prev = add_up(cur_by), add_up(prev_by)
+    rows = []
+    for key, name in KINDS:
+        c = cur[key]
+        rows.append(dict(key=key, name=name, prev=prev[key], **c,
+                         qualified_pct=c["qualified"] / c["leads"] * 100 if c["leads"] else None,
+                         cpql=metrics.cost_per(c["spend"], c["qualified"]),
+                         spend_flag="spent_none" if c["spend"] and not c["qualified"] else "no_spend" if not c["spend"] else "normal",
+                         note="Some lead sources have no channel, so their leads are counted here." if key == "none" and c["leads"] else ""))
+    return rank_rows(rows)
+
+
+def daily_leads(conn, now, p):
+    """Leads per day in the period, split by channel (a single day shows the last seven)."""
     first = now.date() - timedelta(days=6) if p.rng == "day" else p.s
-    clause, args = metrics.in_clause("channel_id", ids)
     counts = {}
     for r in conn.execute("SELECT substr(created_at, 1, 10) AS d, channel_id, COUNT(*) AS n FROM leads "
-                          "WHERE created_at >= ? AND created_at < ?" + clause + " GROUP BY d, channel_id",
-                          [iso(midnight(first)), p.end_dt] + args):
+                          "WHERE created_at >= ? AND created_at < ? GROUP BY d, channel_id", (iso(midnight(first)), p.end_dt)):
         counts.setdefault(r["d"], {})[r["channel_id"]] = r["n"]
     chart = []
     for i in range((p.e - first).days + 1):
@@ -119,164 +163,27 @@ def overview(conn, now, p, channel):
         segs = counts.get(d.isoformat(), {})
         chart.append(dict(date=d.isoformat(), day=d.day, month=MONTHS[d.month - 1], total=sum(segs.values()),
                           partial=d == now.date(), segs=[dict(id=k or "unmapped", n=n) for k, n in segs.items()]))
+    return chart
 
+
+def overview(conn, now, p):
+    thr = scoring.threshold(conn)
+    cur_by, prev_by = metrics.channel_stats(conn, p.cur, thr), metrics.channel_stats(conn, p.prev, thr)
+    cur, prev = metrics.total(cur_by), metrics.total(prev_by)
     range_name = {"month": "Month to date", "week": "Week to date", "day": "Today"}.get(p.rng, span_label(p.s, p.e))
-
-    def outreach(window):
-        a, b = window[2], window[3]
-        return dict(linkedin=dict(sent=health._outbound(conn, "heyreach", "sent", a, b), accepted=health._outbound(conn, "heyreach", "opened", a, b),
-                                  replied=health._outbound(conn, "heyreach", "replied", a, b)),
-                    email=dict(sent=health._outbound(conn, "apollo", "sent", a, b), opened=health._outbound(conn, "apollo", "opened", a, b),
-                               replied=health._outbound(conn, "apollo", "replied", a, b)))
-
-    out_cur, out_prev = outreach(p.cur), scale_all(outreach(p.prev), p.scale)
-    visits = health._visits(conn, p.cur[2], p.cur[3])
-    by_channel = {cid or "unmapped": s["leads"] for cid, s in cur_by.items() if s["leads"] and (ids is None or cid in ids)}
-    # the same results split by the kind of marketing that brought them
-    kinds = {r["id"]: r["grp"] for r in conn.execute("SELECT id, grp FROM channels")}
-    by_kind = {k: dict(key=k, name=n, leads=0, qualified=0, deals=0, won=0, spend=0)
-               for k, n in (("organic", "Inbound"), ("outbound", "Outbound"), ("paid", "Paid ads"), ("events", "Events"), ("none", "Not known"))}
-    for cid, row in cur_by.items():
-        if ids is None or cid in ids:
-            slot = by_kind.get(kinds.get(cid) or "none", by_kind["none"])
-            for key in ("leads", "qualified", "deals", "won", "spend"):
-                slot[key] += row[key]
     return dict(
-        visits=delta(visits, scaled(health._visits(conn, p.prev[2], p.prev[3]), p.scale)),
-        replies=delta(out_cur["linkedin"]["replied"] + out_cur["email"]["replied"], out_prev["linkedin"]["replied"] + out_prev["email"]["replied"]),
-        deals=delta(cur["deals"], prev["deals"]), outreach=out_cur,
-        journey=dict(visits=visits, web_leads=health._web_leads(conn, p.cur[2], p.cur[3]), leads=cur["leads"], qualified=cur["qualified"],
-                     deals=cur["deals"], won=cur["won"]),
-        period=p.as_json(),
+        period=p.as_json(), range_name=range_name,
         date_line="{}, {} {} · {}".format(WEEKDAYS_LONG[now.weekday()], now.day, MONTHS_LONG[now.month - 1], range_name),
-        day_of="Day {} of {}".format(now.day, days_in_month(now.date())),
-        leads=delta(cur["leads"], prev["leads"]), won=delta(cur["won"], prev["won"]),
-        kpis=dict(qualified=delta(cur["qualified"], prev["qualified"]), spend=delta(cur["spend"], prev["spend"]),
-                  cpql=delta(metrics.cost_per(cur["spend"], cur["qualified"]), metrics.cost_per(prev["spend"], prev["qualified"])),
-                  pipeline=delta(cur["pipeline"], prev["pipeline"])),
-        chart=chart, chart_label="Daily · " + span_label(first, p.e),
-        by_channel=by_channel,
-        by_kind=[k for k in by_kind.values() if k["key"] in ("organic", "outbound", "paid") or k["leads"] or k["deals"]],
-        funnel=cur, alerts=open_alerts(conn, now, 4),
+        leads=delta(cur["leads"], prev["leads"]), deals=delta(cur["deals"], prev["deals"]), won=delta(cur["won"], prev["won"]),
+        kpis=dict(qualified=delta(cur["qualified"], prev["qualified"]), pipeline=delta(cur["pipeline"], prev["pipeline"])),
+        channels=kind_rows(conn, cur_by, prev_by),
+        chart=daily_leads(conn, now, p),
+        month_targets=target_rows(conn, now),
+        alerts=open_alerts(conn, now, 3),
     )
 
 
-# ------------------------------------------------------------------------------- funnel, channels
-
-def funnel(conn, now, p, segment):
-    thr = scoring.threshold(conn)
-    ids = metrics.resolve_channels(conn, segment)
-    cur = metrics.channel_stats(conn, p.cur, thr)
-    steps = ("leads", "qualified", "deals", "won")
-    # which channels fill each step, biggest first; leads with no channel yet are shown as unmapped
-    mix = sorted((dict(id=cid, pipeline=row["pipeline"], **{k: row[k] for k in steps}) for cid, row in cur.items()
-                  if (ids is None or cid in ids) and any(row[k] for k in steps)), key=lambda r: [-r[k] for k in steps])
-    # What sits above "Leads" depends on what is being looked at: website visits for the website, messages for outreach.
-    # For every channel together it is both, added up as "people reached".
-    top = "all" if segment == "all" else "web" if segment in ("organic", "website", "chatbot") else "outreach" if segment in OUTREACH_TOOLS else None
-
-    def with_top(stats, window):
-        a, b = window[2], window[3]
-        tools = OUTREACH_TOOLS.get(segment, OUTREACH_TOOLS["outbound"])
-        if top in ("web", "all"):
-            stats.update(visits=health._visits(conn, a, b), web_leads=health._web_leads(conn, a, b))
-        if top in ("outreach", "all"):
-            stats.update(sent=sum(health._outbound(conn, t, "sent", a, b) for t in tools),
-                         replied=sum(health._outbound(conn, t, "replied", a, b) for t in tools))
-        factor = getattr(window, "scale", None)
-        if factor:
-            for k in ("visits", "web_leads", "sent", "replied"):
-                if k in stats:
-                    stats[k] = scaled(stats[k], factor)
-        if top == "all":
-            stats["reached"] = stats["visits"] + stats["sent"]
-        return stats
-
-    return dict(period=p.as_json(), threshold=thr, mix=mix, audience=audience(conn, p, ids, thr), top=top,
-                cur=with_top(metrics.total(cur, ids), p.cur),
-                prev=with_top(metrics.total(metrics.channel_stats(conn, p.prev, thr), ids), p.prev))
-
-
-OUTREACH_TOOLS = {"outbound": ("heyreach", "apollo"), "heyreach": ("heyreach",), "apollo": ("apollo",)}
-
-
 OTHER_INDUSTRY, NO_COMPANY = "Other industries", "Company not known"
-
-
-def audience(conn, p, ids, thr):
-    """Who the period's leads are: how many fall in each target segment, overall and per channel."""
-    icp = scoring.profile(conn)
-    names = list(icp["segments"]) + [OTHER_INDUSTRY, NO_COMPANY]
-    clause, args = metrics.in_clause("channel_id", ids)
-    total = {n: dict(name=n, leads=0, qualified=0) for n in names}
-    by_channel = {}
-    for r in conn.execute("SELECT channel_id, industry, score, qualify_override FROM leads WHERE created_at >= ? AND created_at < ?" + clause,
-                          [p.start_dt, p.end_dt] + args):
-        industry = (r["industry"] or "").strip()
-        name = (scoring.in_segment(industry, icp) or OTHER_INDUSTRY) if industry else NO_COMPANY
-        total[name]["leads"] += 1
-        total[name]["qualified"] += scoring.is_qualified(r, thr)
-        row = by_channel.setdefault(r["channel_id"], dict(id=r["channel_id"], leads=0, parts=dict.fromkeys(names, 0)))
-        row["leads"] += 1
-        row["parts"][name] += 1
-    return dict(names=names, targets=len(icp["segments"]), total=[total[n] for n in names],
-                by_channel=sorted(by_channel.values(), key=lambda r: -r["leads"]))
-
-
-def lead_brief(r):
-    return dict(id=r["id"], name=r["name"], company=r["company"], score=r["score"], initials=initials(r["name"]))
-
-
-def channels(conn, now, p):
-    thr = scoring.threshold(conn)
-    stats, before = metrics.channel_stats(conn, p.cur, thr), metrics.channel_stats(conn, p.prev, thr)
-    rows = [dict(id=ch["id"], prev=before.get(ch["id"], metrics.empty_stats()), **stats.get(ch["id"], metrics.empty_stats()))
-            for ch in metrics.channels(conn)]
-
-    # the six calendar months up to the period's end, so the direction of each channel is visible
-    y, m = p.e.year, p.e.month
-    months = [((y * 12 + m - 1 - back) // 12, (y * 12 + m - 1 - back) % 12 + 1) for back in range(5, -1, -1)]
-    keys = ["{:04d}-{:02d}".format(*ym) for ym in months]
-    trend = {k: {} for k in keys}
-    for r in conn.execute(
-            "SELECT substr(created_at, 1, 7) AS month, channel_id, COUNT(*) AS n, SUM(" + scoring.qualified_sql() + ") AS q FROM leads "
-            "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2",
-            (thr, keys[0] + "-01", p.end_dt)):
-        if r["month"] in trend:
-            trend[r["month"]][r["channel_id"]] = dict(leads=r["n"], qualified=r["q"] or 0)
-
-    # what each channel is made of: the lead sources (an event, a form, a campaign) behind it
-    source = "COALESCE(NULLIF(TRIM(lead_source), ''), NULLIF(TRIM(utm_campaign), ''), 'Source not recorded')"
-    inside = {}
-    for r in conn.execute(
-            "SELECT channel_id, {} AS source, COUNT(*) AS n, SUM({}) AS q FROM leads "
-            "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2".format(source, scoring.qualified_sql()),
-            (thr, p.start_dt, p.end_dt)):
-        inside.setdefault(r["channel_id"], {})[r["source"]] = dict(source=r["source"], leads=r["n"], qualified=r["q"] or 0, deals=0, pipeline=0)
-    for r in conn.execute(
-            "SELECT channel_id, COALESCE(NULLIF(TRIM(lead_source), ''), 'Source not recorded') AS source, COUNT(*) AS n, SUM(amount) AS amt FROM deals "
-            "WHERE created_at >= ? AND created_at < ? AND channel_id IS NOT NULL GROUP BY 1, 2", (p.start_dt, p.end_dt)):
-        row = inside.setdefault(r["channel_id"], {}).setdefault(r["source"], dict(source=r["source"], leads=0, qualified=0, deals=0, pipeline=0))
-        row.update(deals=r["n"], pipeline=r["amt"] or 0)
-
-    # what the outreach tools themselves report (Apollo, HeyReach), to set beside the leads that reached the CRM
-    outreach = {}
-    for r in conn.execute(
-            "SELECT c.channel_id, c.name, COALESCE(SUM(d.sent), 0) AS sent, COALESCE(SUM(d.opened), 0) AS opened, COALESCE(SUM(d.replied), 0) AS replied "
-            "FROM outbound_campaigns c JOIN outbound_daily d ON d.campaign_id = c.id AND d.date BETWEEN ? AND ? "
-            "GROUP BY c.id HAVING sent + opened + replied > 0 ORDER BY sent DESC, replied DESC", (p.s.isoformat(), p.e.isoformat())):
-        tool = outreach.setdefault(r["channel_id"], dict(sent=0, opened=0, replied=0, campaigns=[]))
-        for k in ("sent", "opened", "replied"):
-            tool[k] += r[k]
-        tool["campaigns"].append(dict(name=r["name"], sent=r["sent"], opened=r["opened"], replied=r["replied"]))
-    connected = {r["key"] for r in conn.execute("SELECT key FROM sources WHERE status <> 'not_connected'")}
-
-    unmapped = stats.get(None)
-    return dict(period=p.as_json(), rows=rows, unmapped=unmapped["leads"] if unmapped else 0, threshold=thr,
-                outreach=outreach, connected=sorted(connected & {"apollo", "heyreach"}),
-                months=[dict(key=k, label=MONTHS[ym[1] - 1][:3], by=trend[k]) for k, ym in zip(keys, months)],
-                inside={cid: sorted(v.values(), key=lambda r: (-r["leads"], -r["deals"])) for cid, v in inside.items()},
-                range_name="Month to date" if p.rng == "month" else "Week to date" if p.rng == "week" else "Today" if p.rng == "day" else "Custom range")
 
 
 # ------------------------------------------------------------------------------- paid, outbound
@@ -301,7 +208,8 @@ def paid(conn, now, p):
                 camp[k] += r[k]
         platforms.append(dict(id=platform, label=label, campaigns=list(camps.values()),
                               pacing=insights.pacing(conn, now, platform)))
-    return dict(period=p.as_json(), platforms=platforms, month=MONTHS[now.month - 1],
+    inside = metrics.sources_inside(conn, p.start_dt, p.end_dt, scoring.threshold(conn), metrics.resolve_channels(conn, "paid"))
+    return dict(period=p.as_json(), platforms=platforms, month=MONTHS[now.month - 1], inside=inside,
                 sub="{} · day {} of {}".format(span_label(p.s, p.e), now.day, days_in_month(now.date())))
 
 
@@ -364,67 +272,8 @@ def outbound(conn, now, p):
             totals=[cur[k] for k in steps], prev=[scaled(totals(p.ps, p.pe)[k], p.scale) for k in steps],
             leads=st["leads"], qualified=st["qualified"], deals=st["deals"], prev_leads=pst["leads"], spend=st["spend"],
             months=[dict(label=MONTHS[ym[1] - 1][:3], **by_month[k]) for k, ym in zip(keys, months)]))
-    return dict(period=p.as_json(), groups=groups, threshold=thr)
-
-
-# ------------------------------------------------------------------------------- website
-
-def web(conn, now, p):
-    thr = scoring.threshold(conn)
-    s, e, ps, pe = p.s.isoformat(), p.e.isoformat(), p.ps.isoformat(), p.pe.isoformat()
-
-    def sessions(a, b):
-        by = {r["date"]: r["n"] for r in conn.execute(
-            "SELECT date, SUM(sessions) AS n FROM traffic_daily WHERE date BETWEEN ? AND ? GROUP BY date", (a.isoformat(), b.isoformat()))}
-        return [by.get((a + timedelta(days=i)).isoformat(), 0) for i in range((b - a).days + 1)]
-
-    def one(sql, args):
-        return conn.execute(sql, args).fetchone()[0]
-
-    def inbound(window):
-        st = metrics.channel_stats(conn, window, thr)
-        return sum(v["leads"] for k, v in st.items() if k and k not in outbound_ids)
-
-    outbound_ids = set(metrics.resolve_channels(conn, "outbound"))
-    cur, prev = sessions(p.s, p.e), sessions(p.ps, p.pe)
-    # The chart compares day against day, so its earlier line is shifted by whole weeks to keep weekdays aligned.
-    weeks = -(-len(cur) // 7)
-    aligned = sessions(p.s - timedelta(weeks=weeks), p.e - timedelta(weeks=weeks))
-    clicks = "SELECT COALESCE(SUM(clicks), 0) FROM channel_daily WHERE channel_id = 'search' AND date BETWEEN ? AND ?"
-    pos = "SELECT AVG(position) FROM search_daily WHERE date BETWEEN ? AND ?"
-    leads_cur, leads_prev = inbound(p.cur), inbound(p.prev)
-
-    def recent_pos(end):
-        a = (end - timedelta(days=2)).isoformat()
-        return {r["query"]: r["p"] for r in conn.execute(
-            "SELECT query, AVG(position) AS p FROM query_daily WHERE date BETWEEN ? AND ? GROUP BY query", (a, end.isoformat()))}
-
-    now_pos, was_pos = recent_pos(p.e), recent_pos(p.pe)
-    queries = [dict(query=r["query"], clicks=r["clicks"], impressions=r["impressions"],
-                    position=now_pos.get(r["query"]), was=was_pos.get(r["query"]))
-               for r in conn.execute("SELECT query, SUM(clicks) AS clicks, SUM(impressions) AS impressions FROM query_daily "
-                                     "WHERE date BETWEEN ? AND ? GROUP BY query ORDER BY clicks DESC LIMIT 8", (s, e))]
-    pages = [dict(r) for r in conn.execute(
-        "SELECT path, MAX(title) AS title, SUM(views) AS views, SUM(leads) AS leads FROM page_daily "
-        "WHERE date BETWEEN ? AND ? GROUP BY path ORDER BY views DESC LIMIT 8", (s, e))]
-    forms = [dict(r) for r in conn.execute(
-        "SELECT form, SUM(views) AS views, SUM(submissions) AS submissions FROM form_daily "
-        "WHERE date BETWEEN ? AND ? GROUP BY form ORDER BY submissions DESC", (s, e))]
-
-    slip = insights.ranking_drop(conn, p.e - timedelta(days=45), p.e)
-    annotation = None
-    if slip and s <= slip["date"] <= e and len(cur) > 1:
-        annotation = dict(index=(date.fromisoformat(slip["date"]) - p.s).days, label=slip["label"],
-                          text="“{}” falls from {:.0f} to {:.0f}".format(slip["query"], slip["before"], slip["after"]))
-    return dict(
-        period=p.as_json(),
-        sessions=delta(sum(cur), sum(prev)), search_clicks=delta(one(clicks, (s, e)), one(clicks, (ps, pe))),
-        position=dict(value=one(pos, (s, e)), prev=one(pos, (ps, pe))),
-        visitor_to_lead=dict(value=metrics.ratio(leads_cur, sum(cur)), prev=metrics.ratio(leads_prev, sum(prev))),
-        series=dict(cur=cur, prev=aligned, start=s, prev_label="{} week{} earlier".format(weeks, "" if weeks == 1 else "s")),
-        annotation=annotation, pages=pages, queries=queries, forms=forms,
-        form_leads=sum(f["submissions"] for f in forms), inbound_leads=leads_cur, semrush=semrush.view(conn),
-    )
+    return dict(period=p.as_json(), groups=groups, threshold=thr,
+                inside=metrics.sources_inside(conn, p.start_dt, p.end_dt, thr, metrics.resolve_channels(conn, "outbound")))
 
 
 # ------------------------------------------------------------------------------- leads
@@ -511,7 +360,9 @@ def leads(conn, now, p, q="", channel="", owner="", status="", score="", needs_u
         by_kind[company_kind(r["industry"], icp)] += r["n"]
     count = lambda column: [dict(id=r[0], n=r[1]) for r in conn.execute(
         "SELECT {0}, COUNT(*) FROM leads WHERE created_at >= ? AND created_at < ? AND {0} IS NOT NULL GROUP BY 1 ORDER BY 2 DESC".format(column), span)]
-    return dict(period=p.as_json(), rows=[lead_row(r, now, thr, icp) for r in rows], total=total,
+    # a whole channel group picked (Overview's Events row opens this): show what is inside it, source by source
+    inside = metrics.sources_inside(conn, p.start_dt, p.end_dt, thr, ids) if channel in metrics.GROUP_LABEL else None
+    return dict(period=p.as_json(), rows=[lead_row(r, now, thr, icp) for r in rows], total=total, inside=inside,
                 period_total=head["n"], period_qualified=head["q"], waiting=metrics.count_needs_update(conn, now, 3),
                 threshold=thr, targets=len(icp["segments"]),
                 facets=dict(channels=count("channel_id"), statuses=count("status"), owners=count("owner"),
@@ -769,7 +620,7 @@ def settings(conn, now, p):
     this, nxt = now.date().replace(day=1), next_month(now.date())
     months = [dict(key=month_key(d), label=MONTHS_LONG[d.month - 1]) for d in (this, nxt)]
     values = {m["key"]: narrative.targets_for(conn, m["key"]) for m in months}
-    labels = [("leads", "Leads", "int", None), ("qualified", "Qualified leads", "int", None), ("pipeline", "Pipeline", "money_m", None),
+    labels = [("leads", "Leads", "int", None), ("qualified", "Qualified leads", "int", None), ("pipeline", "Value of new deals", "money_m", None),
               ("won", "Deals won", "int", None), ("budget_meta", "Meta ads", "money", "meta"), ("budget_li", "LinkedIn ads", "money", "li"),
               ("budget_organic", "Organic and content", "money", "search"), ("budget_outbound", "Outbound", "money", "apollo")]
     targets = dict(months=months, rows=[dict(key=k, label=label, kind=kind, channel_id=ch, values=[values[m["key"]].get(k) for m in months])

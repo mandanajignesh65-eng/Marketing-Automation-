@@ -18,6 +18,17 @@ export const segmented = (items, act, pad = 12) => html`<div class="seg">${items
   html`<div class="${i.on ? 'on' : ''}" data-act="${act}" data-arg="${i.arg}" style="padding:4px ${pad}px">${i.label}</div>`)}</div>`;
 
 // The same control with an optional colour square per choice, for switching what a chart shows. options: [{ label, on, arg, color }]
+// Leads, Quality and Ideal customer share one place in the sidebar; this row moves between them.
+export const leadsSwitch = current => html`<div style="display:flex;margin-bottom:-8px">${segmented([['leads', 'All leads'], ['quality', 'Quality'], ['icp', 'Ideal customer']]
+  .map(([arg, label]) => ({ arg, label, on: arg === current })), 'openScreen')}</div>`;
+// What a channel is made of: one row per lead source. Shown on the channel pages and on Leads when a channel group is picked.
+export const sourcesCard = inside => (inside ? html`<div class="card clipped" style="--cols:minmax(0,2fr) 80px 80px 100px 120px">
+  <div class="baseline" style="padding:16px 16px 12px"><span class="title">Sources inside</span><span class="small muted">One row per lead source</span></div>
+  <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Source</span><span>Leads</span><span>Qualified</span><span>Deals started</span><span>Value of new deals</span></div>
+  ${inside.length ? inside.map(r => html`<div class="trow right"><span class="clip medium" style="text-align:left" title="${r.source}">${r.source}</span>
+    <span class="medium">${f.num(r.leads)}</span><span>${f.num(r.qualified)}</span><span>${f.num(r.deals)}</span><span>${r.pipeline ? f.moneyShort(r.pipeline) : '—'}</span></div>`)
+    : html`<div class="small muted" style="padding:12px 16px 16px">No leads from this channel in the period.</div>`}
+</div>` : '');
 export const switcher = (options, act) => html`<div class="seg wrap">${options.map(o =>
   html`<div class="${o.on ? 'on' : ''}" data-act="${act}" data-arg="${o.arg}">${o.color ? html`<span class="sq" style="width:9px;height:9px;border-radius:3px;background:${o.color}"></span>` : ''}${o.label}</div>`)}</div>`;
 

@@ -5,8 +5,6 @@ import { segmented, toggle, avatar, menu } from './ui.js';
 import { setCurrency } from './format.js';
 import { mountAssistant } from './assistant.js';
 import overview from './screens/overview.js';
-import funnel from './screens/funnel.js';
-import channels from './screens/channels.js';
 import paid from './screens/paid.js';
 import outbound from './screens/outbound.js';
 import web from './screens/web.js';
@@ -21,11 +19,11 @@ import targets from './screens/targets.js';
 import people from './screens/people.js';
 import settings from './screens/settings.js';
 
-const SCREENS = { overview, funnel, channels, paid, outbound, web, leads, quality, icp, competitors, targets, people, subs, reports, alerts, settings };
+const SCREENS = { overview, paid, outbound, web, leads, quality, icp, competitors, targets, people, subs, reports, alerts, settings };
 const NAV = [
   { label: null, items: [['overview', 'Overview']] },
-  { label: 'Performance', items: [['funnel', 'Funnel'], ['channels', 'Channels'], ['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic'], ['competitors', 'Competitors']] },
-  { label: 'Leads', items: [['leads', 'Leads', 'leads'], ['icp', 'Ideal customer'], ['quality', 'Lead quality']] },
+  { label: 'Channels', items: [['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic']] },
+  { label: 'Leads & market', items: [['leads', 'Leads', 'leads'], ['competitors', 'Competitors']] },
   { label: 'Team', items: [['targets', 'Targets'], ['people', 'People']] },
   { label: 'Operations', items: [['subs', 'Subscriptions'], ['reports', 'Reports'], ['alerts', 'Alerts & reminders', 'alerts']] },
 ];
@@ -51,13 +49,15 @@ ICON.competitors = '<path d="M4 20V10M10 20V4M16 20v-8M20.500 20H3.500"/><circle
 ICON.people = '<circle cx="12" cy="8" r="3.400"/><path d="M5.200 19.500c.7-3.700 3.400-5.800 6.800-5.800s6.100 2.100 6.800 5.800"/>';
 // Pages only a leader may open. With sign-in off there is no signed-in person, and everything is open.
 const LEADER_SCREENS = ['people', 'settings'];
+// Quality and Ideal customer are reached from the switcher on Leads, so the sidebar marks Leads while they are open.
+const LEADS_AREA = ['leads', 'quality', 'icp'];
 const leader = () => !app.shell || !app.shell.user || app.shell.user.admin !== false;
 const icon = id => html`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${raw(ICON[id] || '')}</svg>`;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const app = {
-  shell: null, screen: 'overview', params: {}, range: 'month', start: null, end: null, compare: true, channel: 'all',
+  shell: null, screen: 'overview', params: {}, range: 'month', start: null, end: null, compare: true,
   data: null, loading: false, error: null, ui: {}, menu: null, modal: null, seq: 0,
 };
 
@@ -109,7 +109,7 @@ function onRoute() {
 
 const ctx = {
   app, api,
-  channel: id => app.shell.channels.find(c => c.id === id) || { id, name: 'Unmapped', color: 'var(--ink3)', grp: null },
+  channel: id => app.shell.channels.find(c => c.id === id) || { id, name: 'No channel', color: 'var(--ink3)', grp: null },
   rangeParams: () => (app.range === 'custom' ? { range: 'custom', start: app.start, end: app.end } : { range: app.range }),
   go(screen, params = {}) {
     const hash = toHash(screen, params);
@@ -178,7 +178,7 @@ function sidebar() {
       <div class="stack"><span class="semi" style="font-size:14px;letter-spacing:-0.01em">${s.product}</span><span class="tiny muted">${s.company}</span></div></div>
     ${NAV.map(g => html`<nav class="nav-group">
       ${g.label ? html`<div class="nav-label">${g.label}</div>` : ''}
-      ${g.items.filter(([id]) => leader() || !LEADER_SCREENS.includes(id)).map(([id, label, badge]) => html`<a class="nav-item ${app.screen === id ? 'on' : ''}" href="#/${id}">
+      ${g.items.filter(([id]) => leader() || !LEADER_SCREENS.includes(id)).map(([id, label, badge]) => html`<a class="nav-item ${(LEADS_AREA.includes(app.screen) ? 'leads' : app.screen) === id ? 'on' : ''}" href="#/${id}">
         <span class="row" style="gap:10px;min-width:0">${icon(id)}<span class="clip">${label}</span></span>${badge && s.badges[badge] ? html`<span class="badge">${s.badges[badge].toLocaleString(s.currency.locale)}</span>` : ''}</a>`)}
     </nav>`)}
     <div class="side-foot">
@@ -188,22 +188,6 @@ function sidebar() {
         ${s.user.signed_in ? html`<span class="tiny muted" data-act="signOut" style="cursor:pointer" title="Sign out of Meridian">Sign out</span>` : ''}</div>` : ''}
     </div>
   </aside>`;
-}
-
-function channelMenu() {
-  const items = [{ label: 'All channels', arg: 'all', on: app.channel === 'all' }];
-  app.shell.groups.forEach(g => {
-    items.push({ heading: g.label });
-    items.push({ label: 'All ' + g.label.toLowerCase(), arg: g.id, on: app.channel === g.id });
-    app.shell.channels.filter(c => c.grp === g.id).forEach(c => items.push({ label: c.name, arg: c.id, color: c.color, on: app.channel === c.id }));
-  });
-  return menu(items, 'setChannel');
-}
-
-function channelLabel() {
-  if (app.channel === 'all') return 'All channels';
-  const g = app.shell.groups.find(x => x.id === app.channel);
-  return g ? g.label : ctx.channel(app.channel).name;
 }
 
 function topbar(screen) {
@@ -220,10 +204,6 @@ function topbar(screen) {
     <div class="medium ${uses.range ? '' : 'off'}">${periodLabel()}</div>
     <div class="vr"></div>
     <div class="row small muted ${uses.compare ? '' : 'off'}" style="gap:8px" data-act="toggleCompare">${toggle(app.compare, 'toggleCompare')}<span>Compare to 3-month average</span></div>
-    <div class="menu-wrap ${uses.channel ? '' : 'off'}" data-menu-trigger>
-      <div class="select" data-act="menu" data-arg="channel">${channelLabel()}<span class="caret"></span></div>
-      ${app.menu === 'channel' ? channelMenu() : ''}
-    </div>
     <div style="flex:1"></div>
     ${s.demo ? html`<span class="pill sm" title="The figures come from the built-in sample company, pinned to ${s.today}.">Sample data</span>` : ''}
     <div class="row small muted" style="gap:7px"><span class="dot" style="width:7px;height:7px;background:var(--${s.sync.tone})"></span>${app.loading && !app.data ? 'Loading…' : s.sync.text}</div>
@@ -336,7 +316,7 @@ const actions = {
     load(true);
   },
   toggleCompare() { app.compare = !app.compare; render(); },
-  setChannel(c, d) { app.channel = d.arg; app.menu = null; load(true); },
+  openScreen: (c, d) => ctx.go(d.arg),
   retry: () => load(false),
   closeModal(c, d, el, event) { if (event.target === el) ctx.closeModal(); },
   cancelModal: () => ctx.closeModal(),

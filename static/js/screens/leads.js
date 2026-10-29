@@ -1,6 +1,6 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
-import { sq, avatar, qualifiedPill, menu, switcher, info } from '../ui.js';
+import { sq, avatar, qualifiedPill, menu, switcher, info, leadsSwitch, sourcesCard } from '../ui.js';
 
 const WIDE = 'minmax(0,1.5fr) minmax(0,1.5fr) minmax(0,1.3fr) minmax(0,1.05fr) minmax(0,1.05fr) 84px 56px';
 const NARROW = 'minmax(0,1.4fr) minmax(0,1.4fr) minmax(0,1.2fr) minmax(0,1.1fr) 84px 56px';
@@ -203,11 +203,13 @@ export default {
     const scope = ui.needs ? 'waiting on an owner update' : ctx.app.range === 'month' ? 'this month' : 'in ' + list.period.short;
     return html`<div style="display:flex;flex:1;min-height:0">
       <div class="page ${ctx.app.loading ? 'stale' : ''}" style="flex:1;min-width:0;width:auto;padding:28px 28px 40px 32px">
+        ${leadsSwitch('leads')}
         <div class="page-head" style="margin-bottom:0">
           <div class="stack" style="gap:6px"><div class="eyebrow">${ui.needs ? `${f.num(list.total)} ${scope}` : `${f.num(list.period_total)} ${scope} · ${f.num(list.period_qualified)} qualified`}</div><h1 class="h1">Leads</h1></div>
           <label class="search"><i></i><input id="lead-search" type="search" placeholder="Search name, company or lead source" value="${ui.q || ''}" data-input="search" autocomplete="off"></label>
         </div>
         ${summary(d)}
+        ${sourcesCard(list.inside)}
         ${table(d, ctx)}
       </div>
       ${lead ? detail(lead, ctx) : ''}

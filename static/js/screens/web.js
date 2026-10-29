@@ -1,6 +1,6 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
-import { pageHead, info, segmented, switcher, sq } from '../ui.js';
+import { pageHead, info, segmented, switcher, sq, sourcesCard } from '../ui.js';
 
 const rate = (a, b) => (b ? a / b * 100 : null);
 const change = (a, b) => (b ? (a - b) / b * 100 : null);
@@ -108,7 +108,9 @@ export default {
   uses: { range: true, compare: true },
   load: ctx => ctx.api.get('web', { ...ctx.rangeParams(), site: ctx.app.params.site }),
 
-  render(d, ctx) {
+  render(d, ctx) { return html`${this.page(d, ctx)}${!ctx.app.params.view || ctx.app.params.view === 'summary' ? sourcesCard(d.inside) : ''}`; },
+
+  page(d, ctx) {
     const { params, compare: show } = ctx.app, ui = ctx.ui();
     const view = TABS.some(t => t[0] === params.view) ? params.view : 'summary';
     const kpi = (value, label, tip, delta, sub, { end = false, mode = 'up' } = {}) => html`<div class="card kpi" style="padding:16px 18px">
@@ -140,7 +142,7 @@ export default {
       </div>
       <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr))">
         ${kpi(f.num(d.clicks.value), 'Clicks from Google', TIPS.clicks, change(d.clicks.value, d.clicks.prev), d.search_through && d.search_through < d.period.end ? `Google data up to ${new Date(d.search_through + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : '')}
-        ${kpi(f.num(d.leads.value), 'Website leads', TIPS.leads, change(d.leads.value, d.leads.prev), `${f.num(d.leads.qualified)} qualified`)}
+        ${kpi(f.num(d.leads.value), 'Website form leads', TIPS.leads, change(d.leads.value, d.leads.prev), `${f.num(d.leads.qualified)} qualified`)}
         ${kpi(f.orDash(toLead, f.pct), 'Conversion rate', TIPS.toLead, null, show && toLeadPrev != null ? `was ${f.pct(toLeadPrev)}` : '', { end: true })}
       </div>
       ${d.visits.value >= 200 && d.visits.direct / d.visits.value >= 0.6 ? html`<div class="row small" style="gap:10px;padding:10px 14px;border-radius:10px;background:color-mix(in oklch, var(--warn) 12%, var(--surface))">
@@ -303,7 +305,7 @@ export default {
       : html`<div class="card pad row" style="gap:8px"><span class="muted">${d.site && d.semrush ? `No Semrush export has been added for ${d.site} yet.` : 'No rankings have been added yet.'}</span>${info(TIPS.noRank)}</div>`}`;
 
     return html`
-    ${pageHead(`${show ? `${d.period.short} compared with ${d.period.prev_short}` : d.period.short}${d.ga_synced ? ` · Google Analytics data up to ${new Date(d.ga_synced + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}`, 'Website and organic', segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))}
+    ${pageHead(`${show ? `${d.period.short} compared with ${d.period.prev_short}` : d.period.short}${d.ga_synced ? ` · Google Analytics data up to ${new Date(d.ga_synced + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}` : ''}`, 'Website & organic', segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))}
     <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(t => t[0] === view)[1]}</span>
       <span style="flex:1"></span>${d.sites.length > 1 ? switcher([{ arg: '', label: 'All websites', on: !d.site }, ...d.sites.map(x => ({ arg: x, label: x, on: d.site === x }))], 'site') : ''}</div>
     ${{ summary, search, pages, rankings }[view]()}`;

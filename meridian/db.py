@@ -7,7 +7,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 
 CREATE TABLE IF NOT EXISTS channels (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, grp TEXT NOT NULL,  -- organic | paid | outbound
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, grp TEXT NOT NULL,  -- organic | paid | events | outbound
   color TEXT NOT NULL, narrative TEXT NOT NULL, sort INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS utm_map (
@@ -321,7 +321,7 @@ ADDED_COLUMNS = [("deals", "industry", "TEXT"), ("deals", "company_size", "TEXT"
 
 
 def init_schema(conn):
-    conn.executescript(SCHEMA)
+    upgrade(conn)  # a new database also needs the columns added after the first release
 
 
 def upgrade(conn):

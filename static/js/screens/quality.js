@@ -1,6 +1,6 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
-import { sq, pageHead, stepper, bar, info, segmented, switcher } from '../ui.js';
+import { sq, pageHead, stepper, bar, info, segmented, switcher, leadsSwitch } from '../ui.js';
 
 let previewTimer;
 
@@ -177,7 +177,7 @@ export default {
 
     const view = TABS.some(x => x[0] === ctx.app.params.view) ? ctx.app.params.view : 'picture';
     return html`
-    ${pageHead(`${f.num(d.total)} leads · ${d.period.short}`, 'Lead quality', segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))}
+    ${leadsSwitch('quality')}${pageHead(`${f.num(d.total)} leads · ${d.period.short}`, 'Lead quality', segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'view', 16))}
     <div class="row" style="gap:10px;margin:2px 0 -2px;flex-wrap:wrap"><span class="section">${TABS.find(x => x[0] === view)[1]}</span></div>
     ${view === 'rules' ? rules() : picture()}`;
   },

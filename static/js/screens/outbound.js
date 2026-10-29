@@ -1,6 +1,6 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
-import { sq, pageHead, info, segmented } from '../ui.js';
+import { sq, pageHead, info, segmented, sourcesCard } from '../ui.js';
 
 const rate = (a, b) => (b ? a / b * 100 : null);
 const change = (a, b) => (b ? (a - b) / b * 100 : null);
@@ -60,7 +60,9 @@ export default {
   uses: { range: true, compare: true },
   load: ctx => ctx.api.get('outbound', ctx.rangeParams()),
 
-  render(d, ctx) {
+  render(d, ctx) { return html`${this.page(d, ctx)}${sourcesCard(d.inside)}`; },
+
+  page(d, ctx) {
     const { params, compare: show } = ctx.app;
     // A tool is shown when it is connected or has anything to show; LinkedIn first, since it carries the most.
     const groups = d.groups.filter(g => KINDS[g.id] || g.campaigns.length || g.leads).sort((a, b) => (b.totals[0] + b.leads) - (a.totals[0] + a.leads));
