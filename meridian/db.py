@@ -321,7 +321,7 @@ ADDED_COLUMNS = [("deals", "industry", "TEXT"), ("deals", "company_size", "TEXT"
 
 
 def init_schema(conn):
-    conn.executescript(SCHEMA)
+    upgrade(conn)  # a new database also needs the columns added after the first release
 
 
 def upgrade(conn):
