@@ -47,20 +47,28 @@ function legend(d, ctx, only, one) {
   </div>`;
 }
 
-// Each channel's path from lead to won deal, as bars on one scale so channels can be compared.
+// Each step from lead to won deal, with one bar per channel, so the channels can be compared step by step.
 function funnel(d, ctx) {
   const rows = d.channels.filter(r => r.leads || r.deals);
-  const top = Math.max(...rows.map(r => r.leads), 1);
   const steps = [['leads', 'Leads'], ['qualified', 'Qualified'], ['deals', 'Deals started'], ['won', 'Deals won']];
+  const ax = f.axis(Math.max(...rows.flatMap(r => steps.map(([k]) => r[k])), 1));
   return html`<div class="card pad stack" style="gap:14px">
     <div class="baseline"><span class="title">From lead to won deal</span><span class="small muted">${d.range_name}</span></div>
-    ${rows.length ? html`<div class="grid" style="grid-template-columns:repeat(${rows.length},minmax(0,1fr));gap:28px">${rows.map(r => html`<div class="stack" style="gap:5px">
-      <span class="row small medium" style="gap:8px">${sq(groupColor(ctx, r.key))}${r.name}</span>
-      ${steps.map(([key, label], i) => html`<div style="display:grid;grid-template-columns:92px minmax(0,1fr) 44px;gap:10px;align-items:center">
-        <span class="tiny muted">${label}</span>
-        <div class="track" style="height:8px;border-radius:4px"><div class="fill" style="width:${r[key] / top * 100}%;background:${groupColor(ctx, r.key)};opacity:${1 - i * 0.2}"></div></div>
-        <span class="tiny medium right">${f.num(r[key])}</span></div>`)}
-    </div>`)}</div>` : html`<div class="small muted">No leads or deals in this period.</div>`}
+    ${rows.length ? html`<div class="stack" style="gap:6px">
+      <div style="position:relative;height:220px">
+        ${ax.ticks.map(t => html`<div class="row" style="position:absolute;left:0;right:0;bottom:${t / ax.max * 100}%;gap:8px">
+          <span class="micro faint right" style="width:28px;transform:translateY(50%)">${f.num(t)}</span><div style="flex:1;height:1px;background:var(--grid)"></div></div>`)}
+        <div style="position:absolute;left:38px;right:0;top:0;bottom:0;display:flex;gap:28px">
+          ${steps.map(([key]) => html`<div style="flex:1;display:flex;align-items:flex-end;justify-content:center;gap:6px">
+            ${rows.map(r => html`<div class="stack" title="${r.name}: ${f.num(r[key])}" style="flex:1;max-width:44px;height:100%;justify-content:flex-end;align-items:center;gap:3px">
+              <span class="tiny medium">${f.num(r[key])}</span>
+              <div style="width:100%;height:${r[key] / ax.max * 100}%;min-height:${r[key] ? 2 : 0}px;border-radius:4px 4px 1px 1px;background:${groupColor(ctx, r.key)}"></div></div>`)}
+          </div>`)}
+        </div>
+      </div>
+      <div style="display:flex;gap:28px;margin-left:38px">${steps.map(([, label]) => html`<span class="small muted" style="flex:1;text-align:center">${label}</span>`)}</div>
+      <div class="row" style="gap:16px;flex-wrap:wrap;margin:6px 0 0 38px">${rows.map(r => html`<span class="row small muted" style="gap:6px">${sq(groupColor(ctx, r.key), 10, 3)}${r.name}</span>`)}</div>
+    </div>` : html`<div class="small muted">No leads or deals in this period.</div>`}
   </div>`;
 }
 
