@@ -47,20 +47,26 @@ function legend(d, ctx, only, one) {
   </div>`;
 }
 
-// Each channel's path from lead to won deal, as bars on one scale so channels can be compared.
+// Each channel's path from lead to won deal, drawn as a funnel. Every channel uses its own scale, so a small channel
+// is as readable as a big one; the percentage between two steps is how many made it from one step to the next.
 function funnel(d, ctx) {
   const rows = d.channels.filter(r => r.leads || r.deals);
-  const top = Math.max(...rows.map(r => r.leads), 1);
   const steps = [['leads', 'Leads'], ['qualified', 'Qualified'], ['deals', 'Deals started'], ['won', 'Deals won']];
-  return html`<div class="card pad stack" style="gap:14px">
-    <div class="baseline"><span class="title">From lead to won deal</span><span class="small muted">${d.range_name}</span></div>
-    ${rows.length ? html`<div class="grid" style="grid-template-columns:repeat(${rows.length},minmax(0,1fr));gap:28px">${rows.map(r => html`<div class="stack" style="gap:5px">
-      <span class="row small medium" style="gap:8px">${sq(groupColor(ctx, r.key))}${r.name}</span>
-      ${steps.map(([key, label], i) => html`<div style="display:grid;grid-template-columns:92px minmax(0,1fr) 44px;gap:10px;align-items:center">
-        <span class="tiny muted">${label}</span>
-        <div class="track" style="height:8px;border-radius:4px"><div class="fill" style="width:${r[key] / top * 100}%;background:${groupColor(ctx, r.key)};opacity:${1 - i * 0.2}"></div></div>
-        <span class="tiny medium right">${f.num(r[key])}</span></div>`)}
-    </div>`)}</div>` : html`<div class="small muted">No leads or deals in this period.</div>`}
+  const step = (r, i) => { const a = r[steps[i - 1][0]], b = r[steps[i][0]]; return a && b <= a ? f.pct(b / a * 100) : null; };
+  return html`<div class="card pad stack" style="gap:16px">
+    <div class="baseline"><span class="title">From lead to won deal</span><span class="small muted">${d.range_name} · each channel on its own scale</span></div>
+    ${rows.length ? html`<div class="grid" style="grid-template-columns:repeat(${rows.length},minmax(0,1fr));gap:16px">${rows.map(r => {
+      const color = groupColor(ctx, r.key), top = Math.max(...steps.map(([k]) => r[k]), 1);
+      return html`<div class="stack" style="gap:0;padding:14px 14px 12px;border-radius:12px;background:color-mix(in oklch, ${color} 7%, var(--surface));border:1px solid color-mix(in oklch, ${color} 22%, var(--line))">
+        <div class="between" style="margin-bottom:12px"><span class="row medium" style="gap:8px">${sq(color, 10, 3)}${r.name}</span>
+          <span class="tiny muted" title="Deals won out of leads">${r.leads ? f.pct(r.won / r.leads * 100) + ' won' : ''}</span></div>
+        ${steps.map(([key, label], i) => html`
+          ${i ? html`<div class="tiny faint" style="text-align:center;height:16px;line-height:16px">${step(r, i) ? html`↓ ${step(r, i)}` : ''}</div>` : ''}
+          <div class="stack" style="gap:3px;align-items:center">
+            <div style="width:${Math.max(r[key] / top * 100, 4)}%;height:22px;border-radius:6px;background:${color};opacity:${1 - i * 0.18}"></div>
+            <span class="tiny muted"><span class="semi ink" style="font-size:13px">${f.num(r[key])}</span> ${label.toLowerCase()}</span>
+          </div>`)}
+      </div>`; })}</div>` : html`<div class="small muted">No leads or deals in this period.</div>`}
   </div>`;
 }
 
