@@ -7,13 +7,8 @@ const STATUS = { done: ['Done', 'pos'], on_track: ['On track', 'pos'], behind: [
 const TIPS = {
   blockers: 'Problems that someone has reported and nobody has marked as solved yet.',
   person: 'One row for each target. The bar fills up as work is done. The small line on the bar is where it should be by today. If the bar is past the line, the target is on track.',
-  days: 'One bar for each working day this week. A taller bar means more was done that day.',
-  checklist: 'What this person needs to do today to stay on track. The number is today’s share: what is left, split evenly over the working days that remain. Targets counted from connected tools tick themselves.',
   auto: 'Meridian counts this by itself from the connected tool. Nobody needs to type it in.',
   manual: 'Nobody can count this automatically, so the person presses + each time they do one.',
-  week: 'How many of each day’s tasks were finished, over the last five working days.',
-  note: 'A short note about today: what was done, or anything worth knowing. It saves when you click away.',
-  goalNote: 'A few words about this target today: what you did, or why it did not happen. It shows in the week report.',
   reportTable: 'One row for each target and one column for each working day. The number is what was done that day. Total is the week added up. A dash means nothing was done.',
   dayByDay: 'What the person wrote each day, the one-off tasks they had, and any blockers they reported.',
   metric: 'Choose what to count. If Meridian is connected to the tool it can count it for you. Otherwise choose "We will count it by hand".',
@@ -75,48 +70,29 @@ export default {
       ${d.members.length ? '' : nobody}`;
 
     // ------------------------------------------------------------ today's checklist
-    const tick = (on, act, arg) => html`<span ${act ? html`data-act="${act}" data-arg="${arg}"` : ''} style="width:20px;height:20px;border-radius:6px;flex:none;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;
-      border:1.5px solid ${on ? 'var(--pos)' : 'var(--ink3)'};background:${on ? 'var(--pos)' : 'transparent'};${act ? 'cursor:pointer' : ''}">${on ? '✓' : ''}</span>`;
     const today = () => html`
-      <div class="row" style="gap:12px;flex-wrap:wrap"><span class="muted">${d.working_day ? 'Today' : 'Today is not a working day, so nothing is due'}</span><span style="flex:1"></span>${whoSwitch}</div>
+      <div class="row" style="gap:12px;flex-wrap:wrap"><span class="muted">What each person did today for their weekly targets${d.working_day ? '' : ' (today is not a working day)'}</span><span style="flex:1"></span>${whoSwitch}</div>
       <div class="grid start" style="grid-template-columns:repeat(${Math.min(members.length, 2) || 1},minmax(0,1fr))">
-      ${members.map(m => { const due = goalsOf(m).filter(g => g.today_share > 0), tasks = d.tasks.filter(t => t.member_id === m.id);
-        const done = due.filter(g => g.today_met).length + tasks.filter(t => t.done).length, all = due.length + tasks.length;
-        const mine = open.filter(b => b.member_id === m.id), hist = d.history[m.id] || [];
+      ${members.map(m => { const weekly = goalsOf(m, 'week'), monthly = goalsOf(m, 'month'), mine = open.filter(b => b.member_id === m.id);
+        // monthly targets come after the weekly ones, so hand-counted monthly work can still be logged day by day
+        const logRow = g => html`<div class="stack" style="gap:8px;padding:12px 0;border-top:1px solid var(--line2)">
+          <div class="row" style="gap:12px">
+            <div class="stack" style="flex:1;min-width:0;gap:1px"><span class="medium">${g.title}</span>
+              <span class="tiny muted">${amount(g.done)} of ${amount(g.target)} ${g.unit} this ${g.period} · ${g.auto ? `counted from ${g.source}` : 'counted by hand'}</span></div>
+            ${g.auto ? html`<span class="small muted nowrap">${amount(g.today_done)} today</span>`
+              : html`<div class="row" style="gap:8px"><span class="tiny muted">Today</span><div class="stepper"><span data-act="log" data-arg="${g.id}" data-step="-1">−</span><b style="width:34px">${amount(g.today_done)}</b><span data-act="log" data-arg="${g.id}" data-step="1">+</span></div></div>`}
+          </div>
+          <input class="input" id="gnote-${g.id}" value="${g.today_note || ''}" placeholder="What did you do on this today?" data-change="goalNote" data-goal="${g.id}" autocomplete="off" style="font-size:12px;padding:6px 9px">
+        </div>`;
         return html`<div class="card" style="padding:16px 22px 16px">
-        <div class="between" style="align-items:center;margin-bottom:10px">
-          <div class="row" style="gap:12px">${avatar(initials(m.name), 34)}<div class="stack" style="gap:1px"><span class="row" style="gap:8px"><span class="title">${m.name}</span>${info(TIPS.checklist)}</span>
-            <span class="small muted">${m.focus || ''}</span></div></div>
-          <span class="small muted"><span class="ink semi" style="font-size:16px">${done}</span> of ${all} done</span>
-        </div>
-        ${due.map(g => html`<div class="row" style="gap:12px;padding:10px 0;border-top:1px solid var(--line2)">
-          ${tick(g.today_met)}
-          <div class="stack" style="flex:1;min-width:0;gap:1px"><span class="${g.today_met ? 'muted' : 'medium'}">${g.title}: ${amount(g.today_share)} today</span>
-            <span class="tiny muted">${amount(g.today_done)} done today · ${amount(g.done)} of ${amount(g.target)} this ${g.period} · ${g.auto ? `counted from ${g.source}` : 'counted by hand'}</span></div>
-          ${g.auto ? '' : html`<div class="stepper"><span data-act="log" data-arg="${g.id}" data-step="-1">−</span><b style="width:34px">${amount(g.today_done)}</b><span data-act="log" data-arg="${g.id}" data-step="1">+</span></div>`}
-        </div>
-        <div class="row" style="gap:8px;padding:0 0 10px 32px"><input class="input" id="gnote-${g.id}" value="${g.today_note || ''}" placeholder="What did you do on this today? (optional)" data-change="goalNote" data-goal="${g.id}" autocomplete="off" style="font-size:12px;padding:5px 9px">${info(TIPS.goalNote, { end: true })}</div>`)}
-        ${tasks.map(t => html`<div class="row" style="gap:12px;padding:10px 0;border-top:1px solid var(--line2)">
-          ${tick(!!t.done, 'toggleTask', t.id)}<span class="${t.done ? 'muted' : 'medium'}" style="flex:1;min-width:0;${t.done ? 'text-decoration:line-through' : ''}">${t.title}</span>
-          <span class="tiny faint" data-act="removeTask" data-arg="${t.id}" style="cursor:pointer" title="Remove this task">Remove</span></div>`)}
-        ${all ? '' : html`<div class="small muted" style="padding:10px 0;border-top:1px solid var(--line2)">Nothing is due today. ${lead ? 'Add a target on the Progress tab, or a one-off task below.' : 'You can add a one-off task below.'}</div>`}
-        <form class="row" data-submit="addTask" style="gap:8px;padding:10px 0 0;border-top:1px solid var(--line2)">
-          <input type="hidden" name="member_${m.id}" value="${m.id}">
-          <input class="input" name="task_${m.id}" placeholder="Add a one-off task for today" autocomplete="off" style="flex:1"><button class="btn" type="submit" name="for" value="${m.id}">Add</button></form>
-        <div class="stack" style="gap:6px;margin-top:14px">
-          <span class="row small muted" style="gap:7px">Note for today${info(TIPS.note)}</span>
-          <textarea class="input" id="note-${m.id}" rows="2" placeholder="What got done, or anything worth knowing" data-change="note" data-member="${m.id}">${d.notes[m.id] || ''}</textarea>
-        </div>
-        <form class="row" data-submit="addBlocker" style="gap:8px;margin-top:10px">
+        <div class="row" style="gap:12px;margin-bottom:10px">${avatar(initials(m.name), 34)}<div class="stack" style="gap:1px"><span class="title">${m.name}</span>
+          <span class="small muted">${m.focus || ''}</span></div></div>
+        ${weekly.map(logRow)}
+        ${monthly.length ? html`<div class="tiny faint medium" style="padding:12px 0 2px;border-top:1px solid var(--line2)">Monthly targets</div>${monthly.map(logRow)}` : ''}
+        ${weekly.length ? '' : html`<div class="small muted" style="padding:10px 0;border-top:1px solid var(--line2)">No weekly targets yet.${lead ? ' Add one on the Progress tab.' : ''}</div>`}
+        <form class="row" data-submit="addBlocker" style="gap:8px;padding-top:12px;border-top:1px solid var(--line2)">
           <input class="input" name="blocker_${m.id}" placeholder="Is anything stopping the work? Write it here" autocomplete="off" style="flex:1"><button class="btn" type="submit" name="for" value="${m.id}">Report blocker</button></form>
         ${mine.length ? html`<div class="small" style="margin-top:8px;color:var(--warn)">${mine.length} open blocker${mine.length === 1 ? '' : 's'}: ${mine.map(b => b.text).join(' · ')}</div>` : ''}
-        <div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line2)">
-          <div class="row small muted" style="gap:7px;margin-bottom:6px">Last five working days${info(TIPS.week)}</div>
-          <div style="display:flex;gap:10px;align-items:flex-end;height:70px">${hist.map(x => html`<div class="stack" style="flex:1;height:100%;justify-content:flex-end;align-items:center;gap:3px">
-            <span class="tiny medium">${x.total ? `${x.met}/${x.total}` : '—'}</span>
-            <div style="width:100%;max-width:56px;height:${x.total ? x.met / x.total * 100 : 0}%;min-height:3px;border-radius:5px 5px 0 0;background:${!x.total ? 'var(--track)' : x.met >= x.total ? 'var(--pos)' : x.met ? 'oklch(0.70 0.14 65)' : 'var(--neg)'}"></div></div>`)}</div>
-          <div style="display:flex;gap:10px;margin-top:4px">${hist.map(x => html`<span class="micro muted" style="flex:1;text-align:center">${x.label}</span>`)}</div>
-        </div>
       </div>`; })}
       </div>${d.members.length ? '' : nobody}`;
 
@@ -229,15 +205,12 @@ export default {
     copyFrom: (ctx, d) => ctx.openModal({ kind: 'copy', member_id: Number(d.arg) }),
     async removeGoal(ctx, d) { ctx.app.modal = null; await ctx.save(() => ctx.api.post('targets', { what: 'remove_goal', id: Number(d.arg) }), 'Target removed.'); },
     log: (ctx, d) => ctx.save(() => ctx.api.post('targets', { what: 'log', id: Number(d.arg), amount: Number(d.step) })),
-    toggleTask: (ctx, d) => ctx.save(() => ctx.api.post('targets', { what: 'toggle_task', id: Number(d.arg) })),
-    removeTask: (ctx, d) => ctx.save(() => ctx.api.post('targets', { what: 'remove_task', id: Number(d.arg) })),
     solve: (ctx, d) => ctx.save(() => ctx.api.post('targets', { what: 'resolve', id: Number(d.arg), solved: true }), 'Marked as solved.'),
     reopen: (ctx, d) => ctx.save(() => ctx.api.post('targets', { what: 'resolve', id: Number(d.arg), solved: false })),
   },
 
   changes: {
     goalNote: (ctx, value, el) => ctx.save(() => ctx.api.post('targets', { what: 'goal_note', id: Number(el.dataset.goal), text: value }), 'Saved.'),
-    note: (ctx, value, el) => ctx.save(() => ctx.api.post('targets', { what: 'note', member_id: Number(el.dataset.member), text: value }), 'Note saved.'),
   },
 
   submits: {
@@ -260,12 +233,6 @@ export default {
       ctx.app.modal = null;
       await ctx.save(() => ctx.api.post('targets', { what: 'goal', id: goal ? goal.id : null, member_id: Number(v.member_id), title: v.title, metric: v.metric,
         period: v.period, target: Number(v.target), unit: v.unit }), goal ? 'Target saved.' : 'Target added.');
-    },
-    // the forms repeat once per person, so each field carries the person's id in its name
-    addTask(ctx, v, form) {
-      const id = Number(Object.keys(v).find(k => k.startsWith('member_')).slice(7)), title = v['task_' + id];
-      form.reset();
-      return ctx.save(() => ctx.api.post('targets', { what: 'task', member_id: id, title }));
     },
     addBlocker(ctx, v, form) {
       const key = Object.keys(v).find(k => k.startsWith('blocker_')), id = Number(key.slice(8)), text = v[key];
