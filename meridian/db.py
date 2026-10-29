@@ -181,6 +181,9 @@ CREATE TABLE IF NOT EXISTS event_promos (
 CREATE TABLE IF NOT EXISTS event_creatives (
   id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, url TEXT NOT NULL, platform TEXT, title TEXT, image TEXT, posted_on TEXT, caption TEXT
 );
+CREATE TABLE IF NOT EXISTS event_targets (  -- companies the event is meant to reach; company names only, never people
+  id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, company TEXT NOT NULL, tier INTEGER NOT NULL DEFAULT 2, domain TEXT
+);
 CREATE TABLE IF NOT EXISTS event_costs (
   id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, category TEXT NOT NULL, item TEXT NOT NULL, amount REAL NOT NULL, paid INTEGER NOT NULL DEFAULT 0
 );
@@ -334,7 +337,11 @@ def connect(path=None):
 
 
 # Columns added after the first release: (table, column, type). upgrade() adds any that are missing.
-ADDED_COLUMNS = [("deals", "industry", "TEXT"), ("deals", "company_size", "TEXT"),  # labels given on the ideal customer page
+ADDED_COLUMNS = [("events", "kind", "TEXT NOT NULL DEFAULT 'booth'"), ("event_steps", "critical", "INTEGER NOT NULL DEFAULT 0"),
+                 ("playbook_steps", "kinds", "TEXT"),  # comma list of event kinds the step is for; empty = every kind
+                 ("playbook_steps", "critical", "INTEGER NOT NULL DEFAULT 0"), ("event_costs", "planned", "REAL"),
+                 ("leads", "first_touch_at", "TEXT"),  # the first time an owner touched the lead; written once, for follow-up speed
+                 ("deals", "industry", "TEXT"), ("deals", "company_size", "TEXT"),  # labels given on the ideal customer page
                  ("traffic_daily", "engaged", "INTEGER NOT NULL DEFAULT 0"), ("traffic_site_daily", "engaged", "INTEGER NOT NULL DEFAULT 0"),
                  ("leads", "company_size", "TEXT"), ("deals", "lead_source", "TEXT"),
                  ("utm_map", "excluded", "INTEGER NOT NULL DEFAULT 0"),

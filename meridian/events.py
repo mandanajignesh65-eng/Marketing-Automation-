@@ -9,7 +9,7 @@ who came.
 import json
 import re
 import urllib.request
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from html import unescape
 
 from . import scoring
@@ -21,6 +21,13 @@ STATUSES = ["Not started", "In progress", "Waiting on others", "Done"]
 CHANNELS = ["LinkedIn post", "LinkedIn ads", "Meta ads", "Instagram post", "Email", "Personal invites", "Landing page", "WhatsApp", "PR", "Other"]
 COST_KINDS = ["Space or sponsorship", "Booth build and graphics", "Screen, power and Wi-Fi", "Travel and stay", "Print and swag", "Ads", "Other"]
 DECISIONS = ["Considering", "Go", "No-go"]
+KINDS = [("booth", "Booth / exhibition"), ("sponsor", "Sponsorship + speaking slot"), ("partner", "Partner co-hosted event"),
+         ("roundtable", "Roundtable / dinner"), ("webinar", "Webinar")]
+IN_PERSON = "booth,sponsor,partner,roundtable"
+BOOTH = "booth,sponsor,partner"
+RESULT_DAYS = 90      # an event is compared with others only once its deals have had this long to move
+RISK_DAYS = 7        # a critical task due within this many days and not done is at risk
+OWNER_LOAD = 6       # more open tasks than this due in the next two weeks means an owner is overloaded
 
 
 class EventError(ValueError):
@@ -28,55 +35,68 @@ class EventError(ValueError):
 
 
 # The standard plan, made general from the SFF 2026 tracker: (phase, workstream, step, days from the first day, done when)
+# The standard plan, generalised from the SFF 2026 tracker:
+# (phase, workstream, task, days from the first day (follow-up: from the last day), done when, event kinds ("" = all), critical)
 PLAYBOOK = [
-    ("plan", "Planning", "Write the event brief: goal, audience, targets and budget", -42, "Brief agreed by the leaders"),
-    ("plan", "Planning", "Decide go or no-go with the leaders", -40, "Decision written down"),
-    ("plan", "Booth & logistics", "Book the space, booth or sponsorship package and pay the invoice", -35, "Invoice paid; organiser confirms"),
-    ("plan", "Message", "Agree the message and value proposition (joint with the partner, if any)", -30, "One page signed off"),
-    ("plan", "Customer outreach", "Build the target-account list, with an owner for each account", -30, "List with an owner per row"),
-    ("plan", "Booth & logistics", "Register passes and confirm the attendee process with the organiser", -21, "Passes issued"),
-    ("promote", "Lead capture", "Build the lead form (QR) with consent wording", -21, "Form live and tested"),
-    ("promote", "Lead capture", "Agree lead rules: hot, warm, cold, who follows up and how fast", -21, "Rules written down"),
-    ("promote", "Landing page", "Launch the event landing page with a meeting-booking form", -21, "Page live and tracked"),
-    ("promote", "Customer outreach", "Set up a meeting calendar so invitees can book a slot", -21, "Booking link on the page and invites"),
-    ("promote", "Promotion", "Publish the content calendar and the teaser post", -21, "Calendar agreed; first post live"),
-    ("promote", "Customer outreach", "Send personal invites to every target account (email and LinkedIn)", -18, "Every target account invited"),
-    ("promote", "Promotion", "Start paid ads to the event audience", -18, "Campaign live"),
-    ("promote", "Promotion", "Add event banners and email signatures for the team", -18, "Whole team updated"),
-    ("promote", "Booth & logistics", "Order booth graphics and get the artwork accepted", -18, "Written confirmation from the printer"),
-    ("promote", "Booth & logistics", "Book furniture, screen, power and Wi-Fi", -18, "Order confirmed"),
-    ("promote", "Message", "Make the one-pager, booth videos and the demo script", -10, "Print files sent; demo rehearsed"),
-    ("promote", "Promotion", "Submit a media or PR announcement, if the organiser offers it", -10, "Submitted before the deadline"),
-    ("promote", "Booth & logistics", "Send the pass list and access names to the organiser", -7, "Access confirmed"),
-    ("promote", "Customer outreach", "Send reminders and confirm booked meetings", -3, "Confirmed meeting list shared"),
-    ("promote", "Booth team", "Brief the booth team: message, demo, lead form and rota", -3, "Rota and briefing note shared"),
-    ("promote", "Booth & logistics", "Pack swag and printed material", -2, "Ready to bring"),
-    ("live", "Booth & logistics", "Set up and check the booth: graphics, screen, power, Wi-Fi", -1, "Booth signed off the evening before"),
-    ("live", "Booth team", "Run the booked meetings and live demos", 0, "Every booked meeting held"),
-    ("live", "Lead capture", "Capture every visitor through the lead form, no paper", 0, "No untracked leads"),
-    ("live", "Lead capture", "Sync leads each evening: tag hot leads and assign an owner", 0, "Lead list updated each evening"),
-    ("live", "Promotion", "Post live updates, photos and short videos each day", 0, "At least one post a day"),
-    ("live", "Booth team", "Hold a 15-minute team debrief at the end of each day", 0, "Actions written down daily"),
-    ("follow", "Lead capture", "Clean the lead list and load it into Zoho", 1, "All leads in Zoho within 24 hours"),
-    ("follow", "Follow-up", "Send thank-you and follow-up emails; personal follow-up for hot leads", 3, "Every lead contacted on time"),
-    ("follow", "Promotion", "Publish the recap post", 4, "Recap live with photos"),
-    ("follow", "Promotion", "Run retargeting ads to visitors", 5, "Campaign live"),
-    ("follow", "Results", "Review results against targets and share them", 7, "Results shared"),
-    ("follow", "Results", "Review pipeline: which deals moved", 28, "Pipeline value agreed"),
+    ("plan", "Planning", "Event brief: objective, audience, KPIs and budget", -42, "Brief approved", "", 1),
+    ("plan", "Planning", "Go / no-go decision", -40, "Decision recorded", "", 1),
+    ("plan", "Booth & logistics", "Book space or sponsorship package; pay the invoice", -35, "Invoice paid, organiser confirms", BOOTH, 1),
+    ("plan", "Planning", "Book the venue and agree the menu", -35, "Venue confirmed", "roundtable", 1),
+    ("plan", "Planning", "Set up the webinar platform and registration page", -30, "Registration page live", "webinar", 1),
+    ("plan", "Messaging", "Value proposition and key messages (joint with the partner, if any)", -30, "One-pager signed off", "", 0),
+    ("plan", "Speaking", "Submit the talk abstract and speaker bio", -30, "Accepted by the organiser", "sponsor", 1),
+    ("plan", "ABM", "Target account list with tiers and an account owner each", -30, "List complete", "", 1),
+    ("plan", "Booth & logistics", "Register passes; confirm the attendee process", -21, "Passes issued", IN_PERSON, 0),
+    ("promote", "Lead capture", "Lead capture form (QR) with consent wording", -21, "Form live and tested", IN_PERSON, 1),
+    ("promote", "Lead capture", "Lead routing rules: hot / warm / cold, owner and follow-up SLA", -21, "Rules shared with sales", "", 1),
+    ("promote", "Landing page", "Event landing page with meeting booking", -21, "Page live and tracked", "", 0),
+    ("promote", "ABM", "Meeting booking calendar", -21, "Booking link live", IN_PERSON, 0),
+    ("promote", "Promotion", "Content calendar and teaser post", -21, "First post live", "", 0),
+    ("promote", "ABM", "Personal invites to every target account (email + LinkedIn)", -18, "100% of target accounts invited", "", 1),
+    ("promote", "Promotion", "Paid campaign to the event audience", -18, "Campaign live", "", 0),
+    ("promote", "Promotion", "Event banners and email signatures", -18, "Team updated", IN_PERSON, 0),
+    ("promote", "Booth & logistics", "Booth graphics ordered; artwork approved", -18, "Printer confirms artwork", BOOTH, 1),
+    ("promote", "Booth & logistics", "Furniture, screen, power and Wi-Fi ordered", -18, "Order confirmed", BOOTH, 0),
+    ("promote", "Speaking", "Slides for the talk; rehearsal", -10, "Slides final, rehearsed", "sponsor,webinar", 1),
+    ("promote", "Messaging", "Collateral: one-pager, booth video, demo script", -10, "Files final; demo rehearsed", BOOTH, 0),
+    ("promote", "Promotion", "PR / media announcement (if offered)", -10, "Submitted", BOOTH, 0),
+    ("promote", "Planning", "Guest list confirmed; RSVPs chased", -7, "Seats filled", "roundtable", 1),
+    ("promote", "Booth & logistics", "Pass list and access names to the organiser", -7, "Access confirmed", IN_PERSON, 0),
+    ("promote", "ABM", "Meeting reminders; confirm booked meetings", -3, "Meeting list confirmed", "", 1),
+    ("promote", "Promotion", "Registration reminders", -2, "Reminders sent", "webinar", 0),
+    ("promote", "Booth team", "Booth team briefing: messaging, demo, lead form, rota", -3, "Rota shared", IN_PERSON, 1),
+    ("promote", "Booth & logistics", "Pack swag and print", -2, "Packed", BOOTH, 0),
+    ("live", "Booth & logistics", "Booth build and check: graphics, screen, power, Wi-Fi", -1, "Booth signed off", BOOTH, 1),
+    ("live", "ABM", "Booked meetings and live demos", 0, "Every booked meeting held", "", 1),
+    ("live", "Lead capture", "Capture every visitor through the form", 0, "No paper or untracked leads", IN_PERSON, 1),
+    ("live", "Lead capture", "Daily lead sync: tag hot leads, assign owners", 0, "Leads updated each evening", "", 1),
+    ("live", "Promotion", "Live posts: photos and short video each day", 0, "One post per day", "", 0),
+    ("live", "Booth team", "End-of-day debrief", 0, "Actions logged", IN_PERSON, 0),
+    ("follow", "Lead capture", "Leads cleaned and loaded into Zoho", 1, "All leads in Zoho within 24 hours", "", 1),
+    ("follow", "Follow-up", "Thank-you emails; personal follow-up on hot leads", 2, "Every lead contacted within SLA", "", 1),
+    ("follow", "Promotion", "Recap post", 3, "Recap live", "", 0),
+    ("follow", "Promotion", "Send the recording to registrants", 2, "Recording sent", "webinar", 0),
+    ("follow", "Promotion", "Retargeting campaign", 5, "Campaign live", "", 0),
+    ("follow", "Reporting", "Post-event report against KPIs", 7, "Report shared", "", 1),
+    ("follow", "Reporting", "Pipeline review", 30, "Pipeline agreed with sales", "", 0),
 ]
 
-EVENT_FIELDS = ("name", "starts", "ends", "city", "venue", "partner", "booth", "goal", "budget", "decision", "lessons",
+EVENT_FIELDS = ("name", "kind", "starts", "ends", "city", "venue", "partner", "booth", "goal", "budget", "decision", "lessons",
                 "target_leads", "target_meetings", "target_qualified", "target_pipeline", "visitors", "meetings_held")
 NUMBERS = ("budget", "target_leads", "target_meetings", "target_qualified", "target_pipeline", "visitors", "meetings_held")
 
 
+PLAYBOOK_VERSION = "2"
+
+
 def seed_playbook(conn):
     """The standard plan goes in once; after that it is the team's to change."""
-    if get_setting(conn, "playbook_seeded"):
+    if get_setting(conn, "playbook_seeded") == PLAYBOOK_VERSION:
         return
-    conn.executemany("INSERT INTO playbook_steps (phase, workstream, title, offset_days, done_when, sort) VALUES (?,?,?,?,?,?)",
-                     [(p, w, t, o, d, i) for i, (p, w, t, o, d) in enumerate(PLAYBOOK)])
-    set_setting(conn, "playbook_seeded", "1")
+    conn.execute("DELETE FROM playbook_steps")  # version 1 was never used live
+    conn.executemany("INSERT INTO playbook_steps (phase, workstream, title, offset_days, done_when, kinds, critical, sort) VALUES (?,?,?,?,?,?,?,?)",
+                     [row + (i,) for i, row in enumerate(PLAYBOOK)])
+    set_setting(conn, "playbook_seeded", PLAYBOOK_VERSION)
 
 
 def need(text, what):
@@ -122,11 +142,82 @@ def results(conn, ev, threshold):
                               "WHERE TRIM(l.lead_source) IN ({}) GROUP BY 1".format(marks), sources):
             rows[r["s"]]["group"] = r["grp"]
     total = {k: sum(r[k] for r in rows.values()) for k in ("leads", "qualified", "deals", "pipeline", "won", "won_value")}
-    return dict(sources=list(rows.values()), total=total)
+    return dict(sources=list(rows.values()), total=total, speed=follow_up(conn, ev, sources))
+
+
+def follow_up(conn, ev, sources):
+    """How fast an owner first touched the event's leads, counted from the later of the lead's arrival and the event's last day.
+    Only leads Meridian saw first touched (first_touch_at) can be timed; the rest are counted as not yet timed."""
+    out = dict(leads=0, timed=0, h24=0, h72=0, d7=0, untouched=0)
+    if not sources:
+        return out
+    ends = (ev["ends"] or ev["starts"]) + "T23:59:59"
+    for r in conn.execute("SELECT created_at, first_touch_at FROM leads WHERE TRIM(lead_source) IN ({})".format(",".join("?" for _ in sources)), sources):
+        out["leads"] += 1
+        if not r["first_touch_at"]:
+            out["untouched"] += 1
+            continue
+        start = datetime.fromisoformat(max(r["created_at"], ends)[:19])
+        hours = (datetime.fromisoformat(r["first_touch_at"][:19]) - start).total_seconds() / 3600
+        out["timed"] += 1
+        out["h24"] += hours <= 24
+        out["h72"] += hours <= 72
+        out["d7"] += hours <= 168
+    return out
+
+
+def squash(name):
+    words = re.sub(r"[^a-z0-9]+", " ", (name or "").lower().replace("&", " and ")).split()
+    noise = {"ltd", "limited", "pvt", "private", "inc", "llc", "plc", "co", "corp", "corporation", "company", "group", "the", "bhd", "berhad", "pte", "sa", "ag"}
+    return " ".join(w for w in words if w not in noise)
+
+
+def accounts(conn, ev, threshold):
+    """Target accounts by tier: engaged at this event (a lead with the event's source), already in Zoho, and with an open or won deal.
+    Matched by company name with legal suffixes removed, or by email / website domain when the list gives one."""
+    targets = [dict(r) for r in conn.execute("SELECT * FROM event_targets WHERE event_id = ? ORDER BY tier, company", (ev["id"],))]
+    if not targets:
+        return dict(targets=[], tiers=[], influenced=0, influenced_deals=0)
+    sources = set(json.loads(ev["lead_sources"] or "[]"))
+    starts, ends = ev["starts"], (ev["ends"] or ev["starts"]) + "T23:59:59"
+    by_name, by_domain = {}, {}
+    for t in targets:
+        t.update(engaged=False, known=False, deal=None, pipeline=0)
+        by_name.setdefault(squash(t["company"]), []).append(t)
+        if t["domain"]:
+            by_domain.setdefault(t["domain"].lower().lstrip("@").replace("www.", ""), []).append(t)
+    lead_target = {}
+    for l in conn.execute("SELECT id, company, email, website, lead_source FROM leads WHERE COALESCE(company, '') <> '' OR COALESCE(email, '') <> ''"):
+        dom = (l["email"] or "").split("@")[-1].lower() if "@" in (l["email"] or "") else re.sub(r"^https?://(www\.)?", "", (l["website"] or "").lower()).split("/")[0]
+        hits = by_name.get(squash(l["company"]), []) + by_domain.get(dom, [])
+        for t in hits:
+            t["known"] = True
+            if (l["lead_source"] or "").strip() in sources:
+                t["engaged"] = True
+            lead_target[l["id"]] = t
+    influenced, deals = 0, 0
+    if lead_target:
+        ids = list(lead_target)
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            for d in conn.execute("SELECT lead_id, amount, stage, created_at, closed_at FROM deals WHERE lead_id IN ({})".format(",".join("?" for _ in chunk)), chunk):
+                t = lead_target[d["lead_id"]]
+                t["deal"] = "won" if d["stage"] == "won" else t["deal"] or d["stage"]
+                # influenced: the account's deal was open while the event ran
+                if d["created_at"] <= ends and (d["closed_at"] is None or d["closed_at"] >= starts):
+                    t["pipeline"] += d["amount"] or 0
+                    influenced += d["amount"] or 0
+                    deals += 1
+    tiers = []
+    for tier in sorted({t["tier"] for t in targets}):
+        group = [t for t in targets if t["tier"] == tier]
+        tiers.append(dict(tier=tier, total=len(group), engaged=sum(t["engaged"] for t in group), known=sum(t["known"] for t in group),
+                          deals=sum(bool(t["deal"]) for t in group)))
+    return dict(targets=targets, tiers=tiers, influenced=influenced, influenced_deals=deals)
 
 
 def money_back(total, cost):
-    """Cost per lead, per qualified lead, and what came back for each rupee spent. None where it cannot be worked out."""
+    """Cost per lead (CPL), cost per qualified lead, pipeline and revenue for each rupee spent (ROI). None where it cannot be worked out."""
     per = lambda n: cost / n if cost and n else None
     times = lambda v: v / cost if cost else None
     return dict(per_lead=per(total["leads"]), per_qualified=per(total["qualified"]),
@@ -147,9 +238,46 @@ def phase_now(ev, today):
 
 
 def progress(steps, today):
+    """Readiness is the share of tasks due by today that are done; overdue tasks and critical tasks at risk are counted apart."""
+    t = today.isoformat()
+    soon = (today + timedelta(days=RISK_DAYS)).isoformat()
     done = sum(s["status"] == "Done" for s in steps)
-    late = sum(s["status"] != "Done" and s["due"] and s["due"] < today.isoformat() for s in steps)
-    return dict(done=done, total=len(steps), overdue=late)
+    due = [s for s in steps if s["due"] and s["due"] <= t]
+    late = sum(s["status"] != "Done" for s in due)
+    risk = [s for s in steps if s.get("critical") and s["status"] != "Done" and s["due"] and s["due"] <= soon]
+    return dict(done=done, total=len(steps), overdue=late, due=len(due), due_done=len(due) - late,
+                readiness=round((len(due) - late) / len(due) * 100) if due else (100 if not steps else round(done / len(steps) * 100)),
+                at_risk=len(risk))
+
+
+def owner_load(steps, today):
+    """Open tasks per owner due in the next two weeks (overdue included), heaviest first."""
+    until = (today + timedelta(days=14)).isoformat()
+    load = {}
+    for s in steps:
+        if s["status"] != "Done" and s["due"] and s["due"] <= until:
+            row = load.setdefault(s["owner"] or "Unassigned", dict(owner=s["owner"] or "Unassigned", open=0, overdue=0, critical=0))
+            row["open"] += 1
+            row["overdue"] += s["due"] < today.isoformat()
+            row["critical"] += bool(s.get("critical"))
+    return sorted(load.values(), key=lambda r: -r["open"])
+
+
+EMBEDS = [
+    (r"linkedin\.com/.*(?:activity|ugcPost|share)[-:](\d{15,})", lambda m, u: "https://www.linkedin.com/embed/feed/update/urn:li:{}:{}".format(
+        "ugcPost" if "ugcPost" in u else "share" if "share" in u and "activity" not in u else "activity", m.group(1))),
+    (r"instagram\.com/(?:[\w.]+/)?(p|reel|tv)/([\w-]+)", lambda m, u: "https://www.instagram.com/{}/{}/embed/captioned/".format(m.group(1), m.group(2))),
+    (r"(?:youtube\.com/(?:watch\?v=|shorts/|live/)|youtu\.be/)([\w-]{6,})", lambda m, u: "https://www.youtube.com/embed/" + m.group(1)),
+]
+
+
+def embed_url(url):
+    """The platform's own embed for a public post, shown in a locked-down frame. None when the platform needs a token or script."""
+    for pattern, build in EMBEDS:
+        m = re.search(pattern, url or "")
+        if m:
+            return build(m, url)
+    return None
 
 
 # ------------------------------------------------------------------------------- views
@@ -159,17 +287,19 @@ def listing(conn, now, threshold):
     today = now.date()
     out = []
     for ev in conn.execute("SELECT * FROM events ORDER BY starts"):
-        steps = [dict(r) for r in conn.execute("SELECT status, due FROM event_steps WHERE event_id = ?", (ev["id"],))]
+        steps = [dict(r) for r in conn.execute("SELECT status, due, critical, owner FROM event_steps WHERE event_id = ?", (ev["id"],))]
         cost = conn.execute("SELECT COALESCE(SUM(amount), 0) FROM event_costs WHERE event_id = ?", (ev["id"],)).fetchone()[0]
         res = results(conn, ev, threshold)
         out.append(dict(id=ev["id"], name=ev["name"], starts=ev["starts"], ends=ev["ends"], city=ev["city"], partner=ev["partner"],
                         phase=phase_now(ev, today), days_to_go=(date.fromisoformat(ev["starts"]) - today).days,
+                        kind=dict(KINDS).get(ev["kind"], "Booth / exhibition"), ends_on=ev["ends"] or ev["starts"],
+                        result_age=(today - date.fromisoformat(ev["ends"] or ev["starts"])).days,
                         progress=progress(steps, today), cost=cost, budget=ev["budget"], total=res["total"],
                         money=money_back(res["total"], cost), has_sources=bool(json.loads(ev["lead_sources"] or "[]"))))
     # upcoming and live first (soonest first), then the finished ones (latest first)
     out.sort(key=lambda e: (e["phase"] == "Done", e["days_to_go"] if e["phase"] != "Done" else -e["days_to_go"]))
     playbook = [dict(r) for r in conn.execute("SELECT * FROM playbook_steps ORDER BY sort, id")]
-    return dict(events=out, playbook=playbook, phases=PHASES, today=today.isoformat())
+    return dict(events=out, playbook=playbook, phases=PHASES, kinds=KINDS, today=today.isoformat(), result_days=RESULT_DAYS)
 
 
 def source_options(conn):
@@ -185,7 +315,7 @@ def detail(conn, now, event_id, threshold):
     if not ev:
         raise EventError("That event is not there any more.")
     today = now.date()
-    steps = [dict(r) for r in conn.execute("SELECT * FROM event_steps WHERE event_id = ? ORDER BY sort, due, id", (event_id,))]
+    steps = [dict(r) for r in conn.execute("SELECT * FROM event_steps WHERE event_id = ? ORDER BY due, sort, id", (event_id,))]
     costs = [dict(r) for r in conn.execute("SELECT * FROM event_costs WHERE event_id = ? ORDER BY id", (event_id,))]
     cost = sum(c["amount"] or 0 for c in costs)
     res = results(conn, ev, threshold)
@@ -198,8 +328,10 @@ def detail(conn, now, event_id, threshold):
         steps=steps, progress=progress(steps, today),
         by_phase=[dict(key=k, label=l, **progress([s for s in steps if s["phase"] == k], today)) for k, l in PHASES],
         promos=[dict(r) for r in conn.execute("SELECT * FROM event_promos WHERE event_id = ? ORDER BY day, id", (event_id,))],
-        creatives=[dict(r) for r in conn.execute("SELECT * FROM event_creatives WHERE event_id = ? ORDER BY COALESCE(posted_on, '') DESC, id DESC", (event_id,))],
-        costs=costs, cost=cost, results=res, money=money_back(res["total"], cost), taken=taken, decisions=DECISIONS,
+        creatives=[dict(r, embed=embed_url(r["url"])) for r in conn.execute("SELECT * FROM event_creatives WHERE event_id = ? ORDER BY COALESCE(posted_on, '') DESC, id DESC", (event_id,))],
+        costs=costs, cost=cost, planned=sum(c["planned"] or 0 for c in costs) or ev["budget"], results=res, money=money_back(res["total"], cost),
+        accounts=accounts(conn, ev, threshold), load=owner_load(steps, today), kinds=KINDS,
+        taken=taken, decisions=DECISIONS,
         team=[r["name"] for r in conn.execute("SELECT name FROM team_members WHERE active = 1 ORDER BY sort, name")],
         phases=PHASES, statuses=STATUSES, channels=CHANNELS, cost_kinds=COST_KINDS, source_options=source_options(conn),
     )
@@ -219,6 +351,7 @@ def save_event(conn, now, event_id, d):
     for k in ("city", "venue", "partner", "booth", "goal", "lessons"):
         values[k] = (values[k] or "").strip() or None
     values["decision"] = values["decision"] if values.get("decision") in DECISIONS else "Considering"
+    values["kind"] = values["kind"] if values.get("kind") in dict(KINDS) else "booth"
     if event_id:
         old = conn.execute("SELECT starts FROM events WHERE id = ?", (event_id,)).fetchone()
         conn.execute("UPDATE events SET {} WHERE id = ?".format(", ".join(k + " = ?" for k in EVENT_FIELDS)),
@@ -234,15 +367,17 @@ def save_event(conn, now, event_id, d):
     new_id = cur.lastrowid
     if d.get("from_playbook", True):
         seed_playbook(conn)
-        first = date.fromisoformat(values["starts"])
-        conn.executemany("INSERT INTO event_steps (event_id, phase, workstream, title, owner, due, status, done_when, sort) VALUES (?,?,?,?,?,?,?,?,?)",
-                         [(new_id, r["phase"], r["workstream"], r["title"], r["owner"], (first + timedelta(days=r["offset_days"])).isoformat(),
-                           "Not started", r["done_when"], i) for i, r in enumerate(conn.execute("SELECT * FROM playbook_steps ORDER BY sort, id"))])
+        first, last = date.fromisoformat(values["starts"]), date.fromisoformat(values["ends"])
+        rows = [r for r in conn.execute("SELECT * FROM playbook_steps ORDER BY sort, id") if not r["kinds"] or values["kind"] in r["kinds"].split(",")]
+        conn.executemany("INSERT INTO event_steps (event_id, phase, workstream, title, owner, due, status, done_when, critical, sort) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                         [(new_id, r["phase"], r["workstream"], r["title"], r["owner"],
+                           ((last if r["phase"] == "follow" else first) + timedelta(days=r["offset_days"])).isoformat(),
+                           "Not started", r["done_when"], r["critical"], i) for i, r in enumerate(rows)])
     return new_id
 
 
 def remove_event(conn, event_id):
-    for table in ("event_steps", "event_promos", "event_creatives", "event_costs"):
+    for table in ("event_steps", "event_promos", "event_creatives", "event_costs", "event_targets"):
         conn.execute("DELETE FROM {} WHERE event_id = ?".format(table), (event_id,))
     conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
 
@@ -261,12 +396,13 @@ def save_step(conn, step_id, event_id, d):
     phase = d.get("phase") if d.get("phase") in dict(PHASES) else "plan"
     status = d.get("status") if d.get("status") in STATUSES else "Not started"
     values = (phase, (d.get("workstream") or "").strip() or None, need(d.get("title"), "What the step is"), (d.get("owner") or "").strip() or None,
-              day_of(d["due"], "The due date") if d.get("due") else None, status, (d.get("done_when") or "").strip() or None, (d.get("note") or "").strip() or None)
+              day_of(d["due"], "The due date") if d.get("due") else None, status, (d.get("done_when") or "").strip() or None, (d.get("note") or "").strip() or None,
+              1 if d.get("critical") else 0)
     if step_id:
-        conn.execute("UPDATE event_steps SET phase = ?, workstream = ?, title = ?, owner = ?, due = ?, status = ?, done_when = ?, note = ? WHERE id = ?", values + (step_id,))
+        conn.execute("UPDATE event_steps SET phase = ?, workstream = ?, title = ?, owner = ?, due = ?, status = ?, done_when = ?, note = ?, critical = ? WHERE id = ?", values + (step_id,))
     else:
-        conn.execute("INSERT INTO event_steps (phase, workstream, title, owner, due, status, done_when, note, event_id, sort) "
-                     "VALUES (?,?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM event_steps WHERE event_id = ?))", values + (event_id, event_id))
+        conn.execute("INSERT INTO event_steps (phase, workstream, title, owner, due, status, done_when, note, critical, event_id, sort) "
+                     "VALUES (?,?,?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM event_steps WHERE event_id = ?))", values + (event_id, event_id))
 
 
 def set_status(conn, step_id, status):
@@ -282,12 +418,13 @@ def save_playbook_step(conn, step_id, d):
     except (TypeError, ValueError):
         raise EventError("Days from the event need a whole number, for example -21 or 3.")
     values = (phase, (d.get("workstream") or "").strip() or None, need(d.get("title"), "What the step is"), offset,
-              (d.get("done_when") or "").strip() or None, (d.get("owner") or "").strip() or None)
+              (d.get("done_when") or "").strip() or None, (d.get("owner") or "").strip() or None,
+              ",".join(k for k, _ in KINDS if d.get("kind_" + k)) or None, 1 if d.get("critical") else 0)
     if step_id:
-        conn.execute("UPDATE playbook_steps SET phase = ?, workstream = ?, title = ?, offset_days = ?, done_when = ?, owner = ? WHERE id = ?", values + (step_id,))
+        conn.execute("UPDATE playbook_steps SET phase = ?, workstream = ?, title = ?, offset_days = ?, done_when = ?, owner = ?, kinds = ?, critical = ? WHERE id = ?", values + (step_id,))
     else:
-        conn.execute("INSERT INTO playbook_steps (phase, workstream, title, offset_days, done_when, owner, sort) "
-                     "VALUES (?,?,?,?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM playbook_steps))", values)
+        conn.execute("INSERT INTO playbook_steps (phase, workstream, title, offset_days, done_when, owner, kinds, critical, sort) "
+                     "VALUES (?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM playbook_steps))", values)
 
 
 def save_promo(conn, promo_id, event_id, d):
@@ -302,14 +439,26 @@ def save_promo(conn, promo_id, event_id, d):
 
 def save_cost(conn, cost_id, event_id, d):
     kind = d.get("category") if d.get("category") in COST_KINDS else "Other"
-    amount = number(d.get("amount"))
-    if amount is None:
-        raise EventError("An amount is needed.")
-    values = (kind, need(d.get("item"), "What the cost is for"), amount, 1 if d.get("paid") else 0)
+    amount, planned = number(d.get("amount")) or 0, number(d.get("planned"))
+    values = (kind, need(d.get("item"), "What the cost is for"), amount, planned, 1 if d.get("paid") else 0)
     if cost_id:
-        conn.execute("UPDATE event_costs SET category = ?, item = ?, amount = ?, paid = ? WHERE id = ?", values + (cost_id,))
+        conn.execute("UPDATE event_costs SET category = ?, item = ?, amount = ?, planned = ?, paid = ? WHERE id = ?", values + (cost_id,))
     else:
-        conn.execute("INSERT INTO event_costs (category, item, amount, paid, event_id) VALUES (?,?,?,?,?)", values + (event_id,))
+        conn.execute("INSERT INTO event_costs (category, item, amount, planned, paid, event_id) VALUES (?,?,?,?,?,?)", values + (event_id,))
+
+
+def save_targets(conn, event_id, text):
+    """The target account list, pasted as lines: company, tier (1-3), optional domain. Only company names are kept, never people."""
+    rows = []
+    for line in (text or "").splitlines():
+        parts = [p.strip() for p in re.split(r"\t|,|;", line) if p.strip()]
+        if not parts or parts[0].lower() in ("company", "#", "name"):
+            continue
+        tier = next((int(p[-1]) for p in parts[1:] if re.fullmatch(r"(tier\s*)?[1-3]", p.lower())), 2)
+        domain = next((p.lower() for p in parts[1:] if re.fullmatch(r"[\w.-]+\.[a-z]{2,}", p.lower())), None)
+        rows.append((event_id, parts[0][:120], tier, domain))
+    conn.execute("DELETE FROM event_targets WHERE event_id = ?", (event_id,))
+    conn.executemany("INSERT INTO event_targets (event_id, company, tier, domain) VALUES (?,?,?,?)", rows)
 
 
 # ------------------------------------------------------------------------------- creatives
@@ -355,7 +504,7 @@ def save_creative(conn, creative_id, event_id, d):
         conn.execute("INSERT INTO event_creatives (url, platform, title, image, posted_on, caption, event_id) VALUES (?,?,?,?,?,?,?)", values + (event_id,))
 
 
-REMOVE = {"remove_step": "event_steps", "remove_promo": "event_promos", "remove_creative": "event_creatives", "remove_cost": "event_costs",
+REMOVE = {"remove_target": "event_targets", "remove_step": "event_steps", "remove_promo": "event_promos", "remove_creative": "event_creatives", "remove_cost": "event_costs",
           "remove_playbook_step": "playbook_steps"}
 
 
@@ -373,6 +522,10 @@ def change(conn, now, what, item_id, event_id, d):
         set_status(conn, item_id, d.get("status"))
     elif what == "playbook_step":
         save_playbook_step(conn, item_id, d)
+    elif what == "targets":
+        save_targets(conn, event_id, d.get("text"))
+    elif what == "critical":
+        conn.execute("UPDATE event_steps SET critical = ? WHERE id = ?", (1 if d.get("critical") else 0, item_id))
     elif what == "promo":
         save_promo(conn, item_id, event_id, d)
     elif what == "cost":

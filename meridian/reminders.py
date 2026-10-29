@@ -53,6 +53,6 @@ def record_owner_update(conn, lead_id, when):
     """An owner touched the lead (at `when`, a datetime or ISO string): reset its quiet clock and
     mark the reminders sent before then as answered."""
     at = when if isinstance(when, str) else iso(when)
-    conn.execute("UPDATE leads SET owner_updated_at = ? WHERE id = ?", (at, lead_id))
+    conn.execute("UPDATE leads SET owner_updated_at = ?, first_touch_at = COALESCE(first_touch_at, ?) WHERE id = ?", (at, at, lead_id))
     conn.execute("UPDATE reminders SET owner_updated_at = ? WHERE lead_id = ? AND owner_updated_at IS NULL AND sent_at <= ?",
                  (at, lead_id, at))

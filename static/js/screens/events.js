@@ -2,293 +2,420 @@ import { html } from '../html.js';
 import * as f from '../format.js';
 import { pageHead, segmented, info, switcher } from '../ui.js';
 
-// Events: the list of events (and the standard plan every event starts from), and one page per event.
-// The page answers, in order: what is it, are we ready, what are we putting out, what did it cost, what came back.
+// Event Hub. The home screen shows every event on one calendar and ranks finished events by return. Each event opens as a
+// room: a pinned event pass (who, when, countdown, stage, headline KPIs) beside sections for readiness, promotion,
+// content, target accounts, and results and ROI. Figures come from Zoho and are worked out here; typed status is the minority.
 
-const LIST_TABS = [['events', 'Events'], ['playbook', 'Standard plan']];
-const TABS = [['summary', 'Summary'], ['plan', 'Plan'], ['marketing', 'Marketing'], ['creatives', 'Creatives'], ['results', 'Cost & results']];
+const HOME_TABS = [['calendar', 'Calendar'], ['performance', 'Performance'], ['playbook', 'Playbook']];
+const STAGES = [['Planning', 'Planning'], ['Promoting', 'Promotion'], ['Live', 'Event days'], ['Follow-up', 'Follow-up'], ['Done', 'Results']];
 const STATUS_TONE = { 'Not started': 'ink3', 'In progress': 'warn', 'Waiting on others': 'neg', Done: 'pos' };
-const PHASE_TONE = { Planning: 'ink3', Promoting: 'accent', Live: 'pos', 'Follow-up': 'warn', Done: 'ink3' };
-const PLATFORM_COLOR = { Instagram: '#d6249f', LinkedIn: '#0a66c2', Facebook: '#1877f2', X: '#111', YouTube: '#ff0000', Web: 'var(--ink3)' };
+const PLATFORM_COLOR = { Instagram: '#d6249f', LinkedIn: '#0a66c2', Facebook: '#1877f2', X: '#111111', YouTube: '#ff0000', Web: '#6e6e73' };
+const KIND_COLOR = { booth: 'var(--accent)', sponsor: 'var(--violet)', partner: 'oklch(0.62 0.13 175)', roundtable: 'oklch(0.66 0.14 60)', webinar: 'oklch(0.6 0.15 25)' };
 const TIPS = {
-  money: 'Value of new deals and money won, each divided by the total cost. 3× means three rupees came back for every rupee spent.',
-  sources: 'Pick the lead sources in Zoho that name this event, for example "GFF 2026". Every lead and deal with that source counts for this event. A source can belong to one event only.',
-  playbook: 'Every new event gets a copy of these steps. The due date is the event\'s first day plus the number of days shown (minus means before). Changes here only affect events made afterwards.',
-  creatives: 'Paste the link to a post. Meridian reads the post\'s picture and title where the site allows it; Instagram and LinkedIn often do not, and then the card shows the link.',
+  readiness: 'Share of tasks due by today that are done. A critical task is at risk when it is not done and due within 7 days.',
+  sourced: 'Leads and opportunities whose Lead Source in Zoho is this event.',
+  influenced: 'Open or won opportunities of target accounts that were already open while the event ran.',
+  sla: 'Time from a lead reaching Zoho (or the event\'s last day, whichever is later) to the owner\'s first update. Leads Meridian has not seen touched yet are counted as untouched.',
+  accounts: 'Engaged: a lead from this company came in with this event\'s Lead Source. In CRM: the company exists in Zoho. Matched by company name without legal suffixes, or by domain.',
+  roi: 'Pipeline ROI: sourced pipeline divided by event cost. Revenue ROI: closed-won value divided by event cost.',
+  playbook: 'Every new event gets these tasks for its type. Due dates count from the first day; follow-up tasks count from the last day. Diamonds mark critical tasks.',
 };
 
-const day = iso => (iso ? new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—');
+const day = iso => (iso ? new Date(iso.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—');
 const span = e => (e.ends && e.ends !== e.starts ? `${day(e.starts)} – ${day(e.ends)}` : day(e.starts));
-const pill = (text, tone) => html`<span class="pill sm" style="color:var(--${tone})"><span class="dot" style="background:var(--${tone})"></span>${text}</span>`;
-const bar = (done, total, tone = 'pos') => html`<div class="track" style="height:6px;border-radius:3px"><div class="fill" style="width:${total ? done / total * 100 : 0}%;background:var(--${tone})"></div></div>`;
+const toDays = iso => Math.round(new Date(iso.slice(0, 10) + 'T00:00:00') / 864e5);
+const addDays = (iso, n) => new Date((toDays(iso) + n) * 864e5).toISOString().slice(0, 10);
+const moneyOr = v => (v == null || !isFinite(v) ? '—' : f.moneyShort(v));
 const times = x => (x == null ? '—' : x.toFixed(1) + '×');
-const money = v => (v == null ? '—' : f.moneyShort(v));
-const toGo = n => (n > 1 ? `${n} days to go` : n === 1 ? 'Tomorrow' : n === 0 ? 'Starts today' : `${-n} days ago`);
+const pct = (a, b) => (b ? Math.round(a / b * 100) : 0);
 
-// ------------------------------------------------------------------------------- the list
+// ------------------------------------------------------------------------------- home: calendar, performance, playbook
 
-function listView(d, ctx) {
-  const view = ctx.ui().list === 'playbook' ? 'playbook' : 'events';
-  const head = pageHead(`${d.events.length} event${d.events.length === 1 ? '' : 's'}`, 'Events', html`<div class="row" style="gap:10px">
-    ${segmented(LIST_TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'listTab', 16)}
-    ${view === 'events' ? html`<span class="btn primary" data-act="newEvent">New event</span>` : html`<span class="btn primary" data-act="newPlaybookStep">Add step</span>`}</div>`);
+function home(d, ctx) {
+  const view = HOME_TABS.some(t => t[0] === ctx.ui().home) ? ctx.ui().home : 'calendar';
+  const head = pageHead('', 'Events', html`<div class="row" style="gap:10px">
+    ${segmented(HOME_TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'home', 16)}
+    ${view === 'playbook' ? html`<span class="btn primary" data-act="newPlaybookStep">Add task</span>` : html`<span class="btn primary" data-act="newEvent">New event</span>`}</div>`);
   if (view === 'playbook') return html`${head}${playbook(d)}`;
-  const cols = 'minmax(0,2fr) 120px 110px minmax(150px,1fr) 70px 90px 90px';
-  return html`${head}
-    ${d.events.length ? html`<div class="card clipped" style="--cols:${cols}">
-      <div class="thead right"><span style="text-align:left">Event</span><span style="text-align:left">When</span><span style="text-align:left">Stage</span><span style="text-align:left">Plan</span><span>Leads</span><span>Cost</span><span>Value back</span></div>
-      ${d.events.map(e => html`<a class="trow right" href="#/events?id=${e.id}" style="color:inherit;text-decoration:none">
-        <span class="stack" style="gap:2px;text-align:left;min-width:0"><span class="medium clip">${e.name}</span><span class="tiny muted clip">${[e.city, e.partner && 'with ' + e.partner].filter(Boolean).join(' · ') || '—'}</span></span>
-        <span class="stack" style="gap:2px;text-align:left"><span class="small">${span(e)}</span><span class="tiny muted">${e.phase === 'Done' ? '' : toGo(e.days_to_go)}</span></span>
-        <span style="text-align:left">${pill(e.phase, PHASE_TONE[e.phase])}</span>
-        <span class="stack" style="gap:4px;text-align:left"><span class="tiny muted">${e.progress.done} of ${e.progress.total} steps${e.progress.overdue ? html` · <span style="color:var(--neg)">${e.progress.overdue} overdue</span>` : ''}</span>${bar(e.progress.done, e.progress.total)}</span>
-        <span class="medium">${e.has_sources ? f.num(e.total.leads) : html`<span class="faint" title="No lead sources picked yet">—</span>`}</span>
-        <span>${e.cost ? f.moneyShort(e.cost) : '—'}</span><span>${times(e.money.pipeline_x)}</span></a>`)}
-    </div>` : html`<div class="card pad stack" style="gap:8px"><span class="title">No events yet</span>
-      <span class="small muted">Click “New event”. It gets the standard plan, with due dates counted from its first day.</span></div>`}`;
+  if (view === 'performance') return html`${head}${performance(d)}`;
+  return html`${head}${calendar(d)}`;
+}
+
+function calendar(d) {
+  if (!d.events.length) return html`<div class="ev-gantt stack" style="gap:8px;padding:28px"><span class="title">No events yet</span>
+    <span class="small muted">Create an event and pick its type. It gets the standard playbook for that type, with every due date set from the event dates.</span>
+    <span><span class="btn primary" data-act="newEvent">New event</span></span></div>`;
+  // the window: from the earliest planning start to the latest follow-up end, clipped around today
+  const starts = d.events.map(e => toDays(e.starts) - 42), ends = d.events.map(e => toDays(e.ends_on) + 30);
+  const lo = Math.min(...starts, toDays(d.today) - 14), hi = Math.max(...ends, toDays(d.today) + 30);
+  const x = iso => ((toDays(iso) - lo) / (hi - lo)) * 100;
+  const months = [];
+  for (let t = lo; t <= hi; t++) { const dt = new Date(t * 864e5); if (dt.getUTCDate() === 1 || t === lo) months.push([t, dt.toLocaleDateString('en-GB', { month: 'short' })]); }
+  const seg = (a, b, color, op) => html`<span class="ev-gseg" style="left:${x(a)}%;width:${Math.max(x(b) - x(a), 0.6)}%;background:${color};opacity:${op}"></span>`;
+  // across every event: what is coming, what is committed, what came back
+  const upcoming = d.events.filter(e => e.days_to_go > 0), next = [...upcoming].sort((a, b) => a.days_to_go - b.days_to_go)[0];
+  const sum = k => d.events.reduce((t, e) => t + (k(e) || 0), 0);
+  const cost = sum(e => e.cost), qualified = sum(e => e.total.qualified), pipeline = sum(e => e.total.pipeline);
+  return html`<div class="ev-sec" style="padding:20px 24px"><div class="ev-stats">
+      <div class="ev-stat"><b>${next ? next.days_to_go : '—'}<span class="muted" style="font-size:15px"> days</span></b><span>${next ? 'to ' + next.name : 'No upcoming event'}</span></div>
+      <div class="ev-stat"><b>${upcoming.length}</b><span>Upcoming events</span></div>
+      <div class="ev-stat"><b style="color:var(--${sum(e => e.progress.overdue) ? 'neg' : 'ink'})">${sum(e => e.progress.overdue)}</b><span>Overdue tasks across events</span></div>
+      <div class="ev-stat"><b>${moneyOr(sum(e => e.budget))}</b><span>Budget committed</span></div>
+      <div class="ev-stat"><b>${moneyOr(qualified ? cost / qualified : null)}</b><span>Blended cost per qualified lead</span></div>
+      <div class="ev-stat"><b>${moneyOr(pipeline)}</b><span>Sourced pipeline</span></div>
+    </div></div>
+    <div class="ev-gantt">
+    <div style="display:grid;grid-template-columns:220px minmax(0,1fr) 250px;gap:18px;padding:0 8px 8px">
+      <span class="small muted">${d.events.length} event${d.events.length === 1 ? '' : 's'}</span>
+      <div style="position:relative;height:16px">${months.map(([t, m]) => html`<span class="micro faint" style="position:absolute;left:${(t - lo) / (hi - lo) * 100}%">${m}</span>`)}</div>
+      <div class="ev-legend"><span style="--c:var(--ink3)">Planning</span><span style="--c:var(--accent)">Event</span><span style="--c:var(--pos)">Follow-up</span></div></div>
+    ${d.events.map(e => { const k = KIND_COLOR[e.kindKey] || 'var(--accent)'; return html`<a class="ev-grow" href="#/events?id=${e.id}">
+      <span class="stack" style="gap:3px;min-width:0"><span class="medium clip">${e.name}</span><span class="tiny muted clip">${e.kind} · ${span(e)}${e.city ? ' · ' + e.city : ''}</span></span>
+      <span class="ev-gbar">
+        ${seg(addDays(e.starts, -42), e.starts, 'var(--ink3)', 0.28)}${seg(e.starts, addDays(e.ends_on, 1), k, 1)}${seg(addDays(e.ends_on, 1), addDays(e.ends_on, 30), 'var(--pos)', 0.35)}
+        <span style="position:absolute;top:0;bottom:0;left:${x(d.today)}%;border-left:1.5px dashed var(--ink2)"></span></span>
+      <span class="row" style="gap:16px;justify-content:flex-end">
+        <span class="ev-meter"><b>${e.progress.readiness}%</b><span>readiness</span></span>
+        <span class="ev-meter"><b style="color:var(--${e.progress.overdue ? 'neg' : 'ink3'})">${e.progress.overdue}</b><span>overdue</span></span>
+        <span class="ev-meter"><b>${e.has_sources ? f.num(e.total.leads) : '—'}</b><span>leads</span></span></span></a>`; })}
+    <div class="row tiny muted" style="gap:6px;padding:10px 8px 4px">Dashed line: today</div></div>`;
+}
+
+function performance(d) {
+  const done = d.events.filter(e => e.result_age >= 0 && e.has_sources);
+  if (!done.length) return html`<div class="card pad small muted">Results appear here once an event has taken place and its Lead Source is set.</div>`;
+  const ranked = [...done].sort((a, b) => (a.money.per_qualified ?? 1e18) - (b.money.per_qualified ?? 1e18));
+  const top = Math.max(...ranked.map(e => e.money.pipeline_x || 0), 1);
+  const cols = 'minmax(0,1.6fr) 90px 80px 110px 110px minmax(160px,1fr)';
+  return html`<div class="card clipped" style="--cols:${cols}">
+    <div class="baseline" style="padding:16px 16px 12px"><span class="title">Event performance</span><span class="small muted">Ranked by cost per qualified lead · results settle ${d.result_days} days after an event</span></div>
+    <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Event</span><span>Leads</span><span>Qualified</span><span>Cost per qualified lead</span><span>Pipeline</span><span style="text-align:left">Pipeline ROI</span></div>
+    ${ranked.map(e => html`<a class="trow right" href="#/events?id=${e.id}" style="color:inherit;text-decoration:none">
+      <span class="stack" style="gap:2px;text-align:left;min-width:0"><span class="medium clip">${e.name}</span>
+        <span class="tiny muted">${span(e)} · ${e.result_age < d.result_days ? html`<span style="color:var(--warn)">too early: ${e.result_age} of ${d.result_days} days</span>` : 'final'}</span></span>
+      <span>${f.num(e.total.leads)}</span><span>${f.num(e.total.qualified)}</span><span class="medium">${moneyOr(e.money.per_qualified)}</span><span>${moneyOr(e.total.pipeline)}</span>
+      <span class="row" style="gap:8px"><span class="track" style="flex:1;height:8px;border-radius:4px"><span class="fill" style="display:block;width:${(e.money.pipeline_x || 0) / top * 100}%;background:var(--pos)"></span></span><span class="small medium" style="width:44px">${times(e.money.pipeline_x)}</span></span></a>`)}
+  </div>`;
 }
 
 function playbook(d) {
-  return html`<div class="small muted row" style="gap:6px">The plan every new event starts with${info(TIPS.playbook)}</div>
+  const kindName = Object.fromEntries(d.kinds);
+  return html`<div class="small muted row" style="gap:6px">Standard tasks by phase${info(TIPS.playbook)}</div>
     ${d.phases.map(([key, label]) => { const steps = d.playbook.filter(s => s.phase === key); return html`<div class="card" style="padding:14px 20px 6px">
       <div class="title" style="margin-bottom:6px">${label}</div>
       ${steps.map(s => html`<div class="row" style="gap:14px;padding:9px 0;border-top:1px solid var(--line2)">
-        <span class="tiny muted right" style="width:64px;flex:none">${s.offset_days === 0 ? 'Day 1' : s.offset_days < 0 ? `${-s.offset_days} days before` : `${s.offset_days} days after`}</span>
-        <span class="stack" style="flex:1;min-width:0;gap:1px"><span class="medium editable" data-act="editPlaybookStep" data-arg="${s.id}" title="Click to change">${s.title}</span>
-          <span class="tiny muted">${[s.workstream, s.done_when && 'Done when: ' + s.done_when, s.owner].filter(Boolean).join(' · ')}</span></span></div>`)}
-      ${steps.length ? '' : html`<div class="small muted" style="padding:8px 0 12px">No steps.</div>`}</div>`; })}`;
+        <span class="tiny muted right" style="width:72px;flex:none">${key === 'follow' ? `+${s.offset_days} after` : s.offset_days === 0 ? 'Event day' : s.offset_days < 0 ? `${-s.offset_days} d before` : `${s.offset_days} d after`}</span>
+        <span style="width:10px;height:10px;flex:none;${s.critical ? 'background:var(--neg);transform:rotate(45deg);border-radius:2px' : 'background:var(--ink3);border-radius:50%'}" title="${s.critical ? 'Critical' : ''}"></span>
+        <span class="stack" style="flex:1;min-width:0;gap:1px"><span class="medium editable" data-act="editPlaybookStep" data-arg="${s.id}">${s.title}</span>
+          <span class="tiny muted">${[s.workstream, s.done_when && 'Done when: ' + s.done_when, s.kinds ? s.kinds.split(',').map(k => kindName[k]).join(', ') : 'All event types'].filter(Boolean).join(' · ')}</span></span></div>`)}
+    </div>`; })}`;
 }
 
-// ------------------------------------------------------------------------------- one event
+// ------------------------------------------------------------------------------- the event room
 
-function summary(d) {
-  const e = d.event, t = d.results.total, m = d.money;
-  const target = (label, actual, goal, fmt = f.num) => html`<div class="card kpi" style="padding:16px 18px">
-    <span class="kpi-v md">${fmt(actual)}</span><span class="eyebrow">${label}</span>
-    ${goal ? html`<div class="stack" style="gap:4px;margin-top:6px"><span class="tiny muted">Target ${fmt(goal)} · ${Math.round(actual / goal * 100)}%</span>${bar(Math.min(actual, goal), goal, actual >= goal ? 'pos' : 'warn')}</div>` : html`<span class="kpi-d faint">No target set</span>`}</div>`;
-  const next = d.steps.filter(s => s.status !== 'Done').sort((a, b) => (a.due || '9').localeCompare(b.due || '9')).slice(0, 6);
-  return html`
-    <div class="grid" style="grid-template-columns:repeat(5,minmax(0,1fr))">
-      ${target('Leads', t.leads, e.target_leads)}
-      ${target('Qualified leads', t.qualified, e.target_qualified)}
-      ${target('Meetings held', e.meetings_held || 0, e.target_meetings)}
-      ${target('Value of new deals', t.pipeline, e.target_pipeline, f.moneyShort)}
-      <div class="card kpi" style="padding:16px 18px"><span class="kpi-v md">${f.num(t.won)}</span><span class="eyebrow">Deals won</span><span class="kpi-d faint">${t.won_value ? f.moneyShort(t.won_value) + ' won' : 'Nothing won yet'}</span></div>
+function pass(d) {
+  const e = d.event, now = STAGES.findIndex(s => s[0] === d.phase), t = d.results.total;
+  const count = d.phase === 'Live' ? html`<b>Day ${toDays(d.today) - toDays(e.starts) + 1}</b><span>of the event</span>`
+    : d.days_to_go > 0 ? html`<b>${d.days_to_go}</b><span>day${d.days_to_go === 1 ? '' : 's'} to go</span>`
+      : html`<b>${toDays(d.today) - toDays(e.ends || e.starts)}</b><span>days since the event</span>`;
+  return html`<aside class="ev-pass">
+    <div class="ev-pass-top">
+      <span class="ev-kind">${d.kinds.find(k => k[0] === e.kind)?.[1] || 'Event'}</span>
+      <div class="ev-name">${e.name}</div>
+      <div class="ev-meta">${span(e)} ${new Date(e.starts).getFullYear()}<br>${[e.venue, e.city].filter(Boolean).join(', ') || 'Venue not set'}
+        ${e.partner ? html`<br>With ${e.partner}` : ''}${e.booth ? html`<br>Booth ${e.booth}` : ''}</div>
     </div>
-    <div class="grid start" style="grid-template-columns:minmax(0,1fr) 360px">
-      <div class="card pad stack" style="gap:12px">
-        <div class="baseline"><span class="title">Are we ready?</span><span class="small muted">${d.progress.done} of ${d.progress.total} steps done${d.progress.overdue ? html` · <span style="color:var(--neg)">${d.progress.overdue} overdue</span>` : ''}</span></div>
-        ${d.by_phase.map(p => html`<div style="display:grid;grid-template-columns:150px minmax(0,1fr) 90px;gap:12px;align-items:center">
-          <span class="small medium">${p.label}</span>${bar(p.done, p.total)}<span class="tiny muted right">${p.done}/${p.total}${p.overdue ? html` · <span style="color:var(--neg)">${p.overdue} late</span>` : ''}</span></div>`)}
-        <div class="small faint" style="padding-top:10px;border-top:1px solid var(--line2)">Next up</div>
-        ${next.length ? next.map(s => html`<div class="row" style="gap:12px"><span class="tiny ${s.due && s.due < d.today ? '' : 'muted'} nowrap" style="width:54px;${s.due && s.due < d.today ? 'color:var(--neg)' : ''}">${day(s.due)}</span>
-          <span class="small clip" style="flex:1" title="${s.title}">${s.title}</span><span class="tiny muted nowrap">${s.owner || 'No owner'}</span></div>`) : html`<span class="small muted">Every step is done.</span>`}
-      </div>
-      <div class="card pad stack" style="gap:10px">
-        <div class="row" style="gap:7px"><span class="title">Cost and money back</span>${info(TIPS.money, { end: true })}</div>
-        ${[['Total cost', d.cost ? f.money(d.cost) : '—'], ['Budget', e.budget ? f.money(e.budget) : '—'], ['Cost per lead', money(m.per_lead)], ['Cost per qualified lead', money(m.per_qualified)],
-          ['Value of new deals for each ₹1', times(m.pipeline_x)], ['Money won for each ₹1', times(m.won_x)], ['People captured at the booth', e.visitors == null ? '—' : f.num(e.visitors)]]
-          .map(([k, v]) => html`<div class="between small"><span class="muted">${k}</span><span class="medium">${v}</span></div>`)}
-        ${e.budget && d.cost > e.budget ? html`<div class="small" style="color:var(--neg)">Over budget by ${f.money(d.cost - e.budget)}</div>` : ''}
-        ${e.goal ? html`<div class="small" style="padding-top:10px;border-top:1px solid var(--line2)"><span class="muted">Goal:</span> ${e.goal}</div>` : ''}
-        ${e.lessons ? html`<div class="small"><span class="muted">Go again? Lessons:</span> ${e.lessons}</div>` : ''}
-      </div>
-    </div>`;
+    <div class="ev-perf"></div>
+    <div class="ev-count">${count}</div>
+    <ol class="ev-stages">${STAGES.map(([, label], i) => html`<li class="${i < now ? 'done' : i === now ? 'now' : ''}"><span>${label}</span><span class="tiny">${i === now ? 'now' : ''}</span></li>`)}</ol>
+    <div class="ev-kpis">
+      <div><b>${d.progress.readiness}%</b><span>Readiness</span></div>
+      <div><b>${e.lead_sources.length ? f.num(t.leads) : '—'}</b><span>Leads${e.target_leads ? ' of ' + f.num(e.target_leads) : ''}</span></div>
+      <div><b>${moneyOr(t.pipeline)}</b><span>Pipeline</span></div>
+      <div><b>${times(d.money.pipeline_x)}</b><span>Pipeline ROI</span></div>
+    </div>
+    <nav class="ev-nav">${[['readiness', 'Readiness', d.progress.overdue ? `${d.progress.overdue} overdue` : ''], ['promotion', 'Promotion', d.promos.length || ''], ['content', 'Content', d.creatives.length || ''],
+      ['accounts', 'Target accounts', d.accounts.targets.length || ''], ['results', 'Results & ROI', '']].map(([id, label, n]) => html`<a href="#" data-act="jump" data-arg="${id}"><span>${label}</span><span class="tiny muted">${n}</span></a>`)}</nav>
+    <div class="ev-pass-actions"><span class="btn xs" data-act="editEvent">Edit event</span><span class="btn xs" data-act="print">Export report</span>
+      <a class="btn xs" href="#/events" style="text-decoration:none">All events</a></div>
+  </aside>`;
 }
 
-function plan(d, ctx) {
-  const ui = ctx.ui(), only = ui.stepFilter || '';
-  const late = s => s.status !== 'Done' && s.due && s.due < d.today;
-  const shown = s => (only === 'open' ? s.status !== 'Done' : only === 'late' ? late(s) : true);
-  const statusSelect = s => html`<select class="input" data-change="stepStatus" data-id="${s.id}" style="font-size:12px;padding:4px 8px;width:150px;color:var(--${STATUS_TONE[s.status]})">
-    ${d.statuses.map(x => html`<option ${x === s.status ? 'selected' : ''}>${x}</option>`)}</select>`;
-  return html`
-    <div class="row" style="gap:12px;flex-wrap:wrap">${switcher([{ arg: '', label: 'All steps', on: !only }, { arg: 'open', label: 'Not done', on: only === 'open' }, { arg: 'late', label: `Overdue · ${d.progress.overdue}`, on: only === 'late' }], 'stepFilter')}
-      <span style="flex:1"></span><span class="btn primary" data-act="newStep">Add step</span></div>
-    ${d.phases.map(([key, label]) => { const steps = d.steps.filter(s => s.phase === key && shown(s)); const all = d.by_phase.find(p => p.key === key); return steps.length ? html`<div class="card" style="padding:14px 20px 6px">
-      <div class="baseline" style="margin-bottom:6px"><span class="title">${label}</span><span class="small muted">${all.done} of ${all.total} done</span></div>
-      ${steps.map(s => html`<div style="display:grid;grid-template-columns:62px minmax(0,1fr) 140px 160px;gap:14px;align-items:center;padding:10px 0;border-top:1px solid var(--line2)">
-        <span class="small nowrap" style="color:var(--${late(s) ? 'neg' : 'ink3'})">${day(s.due)}</span>
-        <span class="stack" style="gap:1px;min-width:0"><span class="medium editable ${s.status === 'Done' ? 'muted' : ''}" data-act="editStep" data-arg="${s.id}" title="Click to change">${s.title}</span>
-          <span class="tiny muted clip">${[s.workstream, s.done_when && 'Done when: ' + s.done_when, s.note].filter(Boolean).join(' · ')}</span></span>
-        <span class="small ${s.owner ? '' : 'faint'} clip">${s.owner || 'No owner'}</span>${statusSelect(s)}</div>`)}
-    </div>` : ''; })}`;
+function readiness(d, ctx) {
+  const p = d.progress, steps = d.steps.filter(s => s.due);
+  const late = s => s.status !== 'Done' && s.due < d.today;
+  const cls = s => (s.status === 'Done' ? 'done' : late(s) ? 'late' : s.status === 'In progress' || s.status === 'Waiting on others' ? 'prog' : '');
+  const lo = Math.min(...steps.map(s => toDays(s.due)), toDays(d.today)), hi = Math.max(...steps.map(s => toDays(s.due)), toDays(d.today)) + 1;
+  const x = iso => ((toDays(iso) - lo) / (hi - lo)) * 100;
+  const ticks = []; for (let t = lo; t <= hi; t += Math.max(7, Math.round((hi - lo) / 8))) ticks.push(t);
+  const soon = addDays(d.today, 7);
+  const atRisk = d.steps.filter(s => s.critical && s.status !== 'Done' && s.due && s.due <= soon).slice(0, 8);
+  const maxLoad = Math.max(...d.load.map(r => r.open), 1);
+  const showAll = ctx.ui().allTasks;
+  return html`<section class="ev-sec" id="sec-readiness">
+    <div class="ev-h"><h2>Readiness</h2>${info(TIPS.readiness)}</div>
+    <div class="ev-stats">
+      <div class="ev-stat"><b>${p.readiness}%</b><span>Readiness · ${p.due_done} of ${p.due} tasks due are done</span></div>
+      <div class="ev-stat"><b style="color:var(--${p.overdue ? 'neg' : 'ink'})">${p.overdue}</b><span>Overdue tasks</span></div>
+      <div class="ev-stat"><b style="color:var(--${p.at_risk ? 'warn' : 'ink'})">${p.at_risk}</b><span>Critical tasks at risk</span></div>
+      <div class="ev-stat"><b>${p.done}<span class="muted" style="font-size:16px"> / ${p.total}</span></b><span>Tasks done</span></div>
+    </div>
+    <div style="margin-top:22px">
+      <div class="ev-tl-axis">${ticks.map(t => html`<span style="left:${(t - lo) / (hi - lo) * 100}%">${day(new Date(t * 864e5).toISOString())}</span>`)}</div>
+      ${d.phases.map(([key, label]) => html`<div class="ev-lane"><span>${label}</span><div class="ev-lane-track">
+        <span class="ev-band" style="left:${x(d.event.starts)}%;width:${x(addDays(d.event.ends || d.event.starts, 1)) - x(d.event.starts)}%"></span>
+        <span class="ev-today" style="left:${x(d.today)}%"></span>
+        ${steps.filter(s => s.phase === key).map(s => html`<span class="ev-dot ${cls(s)} ${s.critical ? 'crit' : ''}" style="left:${x(s.due)}%" data-act="editStep" data-arg="${s.id}"
+          title="${day(s.due)} · ${s.title} · ${s.owner || 'Unassigned'} · ${s.status}${s.critical ? ' · critical' : ''}"></span>`)}</div></div>`)}
+      <div class="ev-legend" style="margin-top:10px"><span style="--c:var(--pos)">Done</span><span style="--c:var(--warn)">In progress</span><span style="--c:var(--neg)">Overdue</span><span style="--c:var(--ink3)">Not started</span><span style="--c:var(--ink2)">◆ Critical</span><span style="--c:color-mix(in oklch, var(--k) 30%, transparent)">Event days</span></div>
+    </div>
+    <div class="grid start" style="grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:28px;margin-top:22px">
+      <div class="stack" style="gap:8px"><span class="medium">Critical tasks at risk</span>
+        ${atRisk.length ? atRisk.map(s => html`<div class="row" style="gap:12px;padding:8px 0;border-top:1px solid var(--line2)">
+          <span class="small nowrap" style="width:52px;color:var(--${s.due < d.today ? 'neg' : 'warn'})">${day(s.due)}</span>
+          <span class="small editable clip" style="flex:1" data-act="editStep" data-arg="${s.id}" title="${s.title}">${s.title}</span>
+          <span class="tiny muted nowrap">${s.owner || 'Unassigned'}</span></div>`) : html`<span class="small muted">No critical task is due in the next 7 days.</span>`}</div>
+      <div class="stack" style="gap:10px"><span class="medium">Owner workload · next 14 days</span>
+        ${d.load.length ? d.load.slice(0, 6).map(r => html`<div class="stack" style="gap:4px">
+          <div class="between small"><span>${r.owner}</span><span class="muted">${r.open} open${r.overdue ? html` · <span style="color:var(--neg)">${r.overdue} overdue</span>` : ''}</span></div>
+          <div class="ev-split" style="height:8px"><i style="width:${r.overdue / maxLoad * 100}%;background:var(--neg)"></i><i style="width:${(r.open - r.overdue) / maxLoad * 100}%;background:${r.open > 6 ? 'var(--warn)' : 'var(--k)'}"></i></div></div>`)
+          : html`<span class="small muted">No open tasks in the next 14 days.</span>`}</div>
+    </div>
+    <div class="row ev-noprint" style="gap:10px;margin-top:20px"><span class="btn xs" data-act="toggleTasks">${showAll ? 'Hide task list' : 'Open task list'}</span><span class="btn xs" data-act="newStep">Add task</span></div>
+    ${showAll ? taskList(d) : ''}
+  </section>`;
 }
 
-function marketing(d) {
-  const cols = '90px 150px minmax(0,1fr) 140px 160px';
-  return html`
-    <div class="row"><span class="muted small">Everything that goes out for this event: posts, ads, invites, emails, the landing page</span><span style="flex:1"></span><span class="btn primary" data-act="newPromo">Add activity</span></div>
-    <div class="card clipped" style="--cols:${cols}">
-      <div class="thead"><span>Date</span><span>Channel</span><span>What goes out</span><span>Owner</span><span>Status</span></div>
-      ${d.promos.map(p => html`<div class="trow"><span class="small">${day(p.day)}</span><span class="small medium">${p.channel}</span>
-        <span class="small editable clip" data-act="editPromo" data-arg="${p.id}" title="${p.what}">${p.what}</span><span class="small clip ${p.owner ? '' : 'faint'}">${p.owner || 'No owner'}</span>
-        <select class="input" data-change="promoStatus" data-id="${p.id}" style="font-size:12px;padding:4px 8px;color:var(--${STATUS_TONE[p.status]})">${d.statuses.map(x => html`<option ${x === p.status ? 'selected' : ''}>${x}</option>`)}</select></div>`)}
-      ${d.promos.length ? '' : html`<div class="small muted" style="padding:14px 16px">Nothing planned yet. Add the teaser post, the invites, the ads and the recap.</div>`}
-    </div>`;
+function taskList(d) {
+  return html`<div style="margin-top:12px">${d.phases.map(([key, label]) => { const steps = d.steps.filter(s => s.phase === key); return steps.length ? html`
+    <div class="medium small" style="margin:14px 0 4px">${label}</div>
+    ${steps.map(s => html`<div style="display:grid;grid-template-columns:16px 60px minmax(0,1fr) 130px 150px;gap:12px;align-items:center;padding:7px 0;border-top:1px solid var(--line2)">
+      <span title="${s.critical ? 'Critical: click to unmark' : 'Mark as critical'}" data-act="toggleCritical" data-arg="${s.id}" style="cursor:pointer;width:9px;height:9px;${s.critical ? 'background:var(--neg);transform:rotate(45deg);border-radius:2px' : 'border:1.5px solid var(--ink3);border-radius:50%'}"></span>
+      <span class="small" style="color:var(--${s.status !== 'Done' && s.due && s.due < d.today ? 'neg' : 'ink2'})">${day(s.due)}</span>
+      <span class="small editable clip ${s.status === 'Done' ? 'muted' : ''}" data-act="editStep" data-arg="${s.id}" title="${s.done_when ? 'Done when: ' + s.done_when : ''}">${s.title}</span>
+      <span class="small clip ${s.owner ? '' : 'faint'}">${s.owner || 'Unassigned'}</span>
+      <select class="input" data-change="stepStatus" data-id="${s.id}" style="font-size:12px;padding:4px 8px;color:var(--${STATUS_TONE[s.status]})">${d.statuses.map(x => html`<option ${x === s.status ? 'selected' : ''}>${x}</option>`)}</select></div>`)}` : ''; })}</div>`;
 }
 
-function creatives(d, ctx) {
+function promotion(d) {
+  // activities by week, starting the week of the first one
+  const weekOf = iso => addDays(iso, -((new Date(iso + 'T00:00:00').getDay() + 6) % 7));
+  const dated = d.promos.filter(p => p.day), undated = d.promos.filter(p => !p.day);
+  const weeks = [...new Set(dated.map(p => weekOf(p.day)))].sort();
+  const card = p => html`<div class="ev-act ${p.status === 'Done' ? 'done' : ''}" data-act="editPromo" data-arg="${p.id}">
+    <span class="tiny semi" style="color:var(--${STATUS_TONE[p.status]})">${p.channel}</span><span>${p.what}</span><span class="tiny muted">${p.day ? day(p.day) : 'No date'} · ${p.owner || 'Unassigned'}</span></div>`;
+  return html`<section class="ev-sec" id="sec-promotion">
+    <div class="ev-h"><h2>Promotion</h2><span class="row ev-noprint" style="gap:10px"><span class="ev-sub">${d.promos.filter(p => p.status === 'Done').length} of ${d.promos.length} live</span><span class="btn xs primary" data-act="newPromo">Add activity</span></span></div>
+    ${d.promos.length ? html`<div class="ev-week">${weeks.map(w => html`<div><span class="tiny muted medium">Week of ${day(w)}${w <= d.event.starts && addDays(w, 6) >= d.event.starts ? ' · event week' : ''}</span>${dated.filter(p => weekOf(p.day) === w).map(card)}</div>`)}
+      ${undated.length ? html`<div><span class="tiny muted medium">Not scheduled</span>${undated.map(card)}</div>` : ''}</div>`
+      : html`<div class="small muted">No activities yet: teaser post, invites, paid campaign, landing page, recap.</div>`}
+  </section>`;
+}
+
+function content(d, ctx) {
   const pick = ctx.ui().platform || '';
   const platforms = [...new Set(d.creatives.map(c => c.platform))];
   const shown = d.creatives.filter(c => !pick || c.platform === pick);
-  return html`
-    <div class="row" style="gap:12px;flex-wrap:wrap">${platforms.length > 1 ? switcher([{ arg: '', label: 'All', on: !pick }, ...platforms.map(p => ({ arg: p, label: p, color: PLATFORM_COLOR[p], on: pick === p }))], 'platform') : html`<span class="small muted row" style="gap:6px">Posts made for this event${info(TIPS.creatives)}</span>`}
-      <span style="flex:1"></span><span class="btn primary" data-act="newCreative">Add a post</span></div>
-    ${shown.length ? html`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px">${shown.map(c => html`<div class="card clipped stack" style="gap:0">
-      <a href="${c.url}" target="_blank" rel="noopener" style="display:block;aspect-ratio:1.91/1;background:${c.image ? `center/cover no-repeat url('${c.image}')` : `color-mix(in oklch, ${PLATFORM_COLOR[c.platform] || 'var(--ink3)'} 14%, var(--surface))`};display:grid;place-items:center;text-decoration:none">
-        ${c.image ? '' : html`<span class="semi" style="color:${PLATFORM_COLOR[c.platform] || 'var(--ink3)'};font-size:18px">${c.platform}</span>`}</a>
-      <div class="stack" style="gap:4px;padding:12px 14px">
-        <div class="between"><span class="tiny semi" style="color:${PLATFORM_COLOR[c.platform] || 'var(--ink3)'}">${c.platform}</span><span class="tiny muted">${c.posted_on ? day(c.posted_on) : ''}</span></div>
-        <span class="small medium clip2" title="${c.title || ''}">${c.caption || c.title || c.url}</span>
-        <div class="row" style="gap:12px;margin-top:4px"><a class="link tiny" href="${c.url}" target="_blank" rel="noopener" style="text-decoration:none">Open post</a>
-          <span class="tiny faint" data-act="editCreative" data-arg="${c.id}" style="cursor:pointer">Edit</span></div></div></div>`)}</div>`
-      : html`<div class="card pad small muted">No posts yet. Click “Add a post” and paste its link.</div>`}`;
+  const color = c => PLATFORM_COLOR[c.platform] || '#6e6e73';
+  return html`<section class="ev-sec" id="sec-content">
+    <div class="ev-h"><h2>Content</h2><span class="row ev-noprint" style="gap:10px">
+      ${platforms.length > 1 ? switcher([{ arg: '', label: 'All', on: !pick }, ...platforms.map(p => ({ arg: p, label: p, color: PLATFORM_COLOR[p], on: pick === p }))], 'platform') : ''}
+      <span class="btn xs primary" data-act="newCreative">Add post</span></span></div>
+    ${shown.length ? html`<div class="ev-wall">${shown.map(c => html`<div class="ev-post">
+      ${c.embed ? html`<iframe src="${c.embed}" loading="lazy" height="${c.platform === 'YouTube' ? 220 : c.platform === 'Instagram' ? 560 : 480}" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" referrerpolicy="strict-origin-when-cross-origin" title="${c.platform} post"></iframe>`
+        : html`<a class="ev-post-card" href="${c.url}" target="_blank" rel="noopener" style="${c.image ? `background-image:url('${c.image}')` : `background-color:color-mix(in oklch, ${color(c)} 14%, var(--surface));color:${color(c)}`}">${c.image ? '' : c.platform}</a>`}
+      <div class="ev-post-foot"><span class="stack" style="gap:1px;min-width:0"><span class="tiny semi" style="color:${color(c)}">${c.platform}${c.posted_on ? ' · ' + day(c.posted_on) : ''}</span><span class="clip">${c.caption || c.title || ''}</span></span>
+        <span class="row ev-noprint" style="gap:10px"><a class="link tiny" href="${c.url}" target="_blank" rel="noopener" style="text-decoration:none">Open</a><span class="tiny faint" data-act="editCreative" data-arg="${c.id}" style="cursor:pointer">Edit</span></span></div></div>`)}</div>`
+      : html`<div class="small muted">Paste the link of each post made for this event. LinkedIn, Instagram and YouTube posts show here as the post itself.</div>`}
+  </section>`;
+}
+
+function accounts(d) {
+  const a = d.accounts;
+  const tierColors = ['', 'var(--k)', 'color-mix(in oklch, var(--k) 70%, var(--surface))', 'color-mix(in oklch, var(--k) 45%, var(--surface))'];
+  return html`<section class="ev-sec" id="sec-accounts">
+    <div class="ev-h"><h2>Target accounts</h2><span class="row ev-noprint" style="gap:10px">${info(TIPS.accounts)}<span class="btn xs ${a.targets.length ? '' : 'primary'}" data-act="editTargets">${a.targets.length ? 'Edit list' : 'Add target accounts'}</span></span></div>
+    ${a.targets.length ? html`
+      <div class="ev-stats">
+        ${a.tiers.map(t => html`<div class="ev-stat"><b>${t.engaged}<span class="muted" style="font-size:16px"> / ${t.total}</span></b><span>Tier ${t.tier} accounts engaged</span></div>`)}
+        <div class="ev-stat"><b>${moneyOr(a.influenced)}</b><span>Influenced pipeline · ${a.influenced_deals} opportunit${a.influenced_deals === 1 ? 'y' : 'ies'} ${info(TIPS.influenced)}</span></div>
+      </div>
+      ${a.tiers.map(t => { const list = a.targets.filter(x => x.tier === t.tier); return html`<div class="stack" style="gap:10px;margin-top:22px">
+        <div class="between"><span class="medium">Tier ${t.tier}</span><span class="small muted">${t.engaged} engaged · ${t.known} in CRM · ${t.deals} with an opportunity</span></div>
+        <div class="ev-split"><i style="width:${pct(t.engaged, t.total)}%;background:${tierColors[t.tier] || 'var(--k)'}"></i><i style="width:${pct(t.known - t.engaged, t.total)}%;background:color-mix(in oklch, var(--k) 22%, var(--surface))"></i></div>
+        <div class="ev-chips">${list.map(x => html`<span class="ev-chip ${x.deal ? 'deal' : x.engaged ? 'engaged' : ''}" title="${x.deal ? 'Opportunity: ' + x.deal : x.engaged ? 'Engaged at this event' : x.known ? 'In CRM' : 'Not reached'}">${x.company}</span>`)}</div></div>`; })}
+      <div class="ev-legend" style="margin-top:14px"><span style="--c:color-mix(in oklch, var(--pos) 40%, var(--surface))">Has an opportunity</span><span style="--c:color-mix(in oklch, var(--k) 40%, var(--surface))">Engaged at this event</span><span style="--c:var(--track)">Not reached</span></div>`
+      : html`<div class="small muted">Paste the target account list (company, tier, domain) to see which accounts this event reached and the pipeline it influenced. Company names only.</div>`}
+  </section>`;
 }
 
 function results(d) {
-  const r = d.results, e = d.event, t = r.total;
-  const cols = 'minmax(0,1.6fr) 70px 80px 70px 100px 70px';
-  const notEvents = r.sources.filter(s => s.leads && s.group !== 'events');
-  return html`
-    <div class="grid start" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
-      <div class="card clipped" style="--cols:minmax(0,1.4fr) 130px 110px 70px">
-        <div class="baseline" style="padding:16px 16px 12px"><span class="title">What it cost</span><span class="row" style="gap:10px"><span class="small muted">${f.money(d.cost)}${e.budget ? ` of ${f.money(e.budget)} budget` : ''}</span><span class="btn xs primary" data-act="newCost">Add cost</span></span></div>
-        <div class="thead" style="border-top:1px solid var(--line)"><span>Item</span><span>Kind</span><span class="right">Amount</span><span class="right">Paid</span></div>
-        ${d.costs.map(c => html`<div class="trow"><span class="small editable clip" data-act="editCost" data-arg="${c.id}">${c.item}</span><span class="tiny muted clip">${c.category}</span>
-          <span class="small medium right">${f.money(c.amount)}</span><span class="tiny right ${c.paid ? '' : 'faint'}">${c.paid ? 'Paid' : 'Not yet'}</span></div>`)}
-        ${d.costs.length ? '' : html`<div class="small muted" style="padding:14px 16px">No costs yet: space, booth, screen, travel, print, swag, ads.</div>`}
+  const r = d.results, t = r.total, e = d.event, m = d.money, sp = r.speed;
+  const steps = [['Leads', t.leads], ['Qualified leads', t.qualified], ['Opportunities', t.deals], ['Closed won', t.won]];
+  const top = Math.max(t.leads, t.deals, 1);
+  const kinds = {};
+  d.costs.forEach(c => { const k = kinds[c.category] = kinds[c.category] || { planned: 0, actual: 0 }; k.planned += c.planned || 0; k.actual += c.amount || 0; });
+  const kmax = Math.max(...Object.values(kinds).map(k => Math.max(k.planned, k.actual)), 1);
+  return html`<section class="ev-sec" id="sec-results">
+    <div class="ev-h"><h2>Results & ROI</h2><span class="row ev-noprint" style="gap:10px">${info(TIPS.roi)}<span class="btn xs" data-act="pickSources">Lead Source${e.lead_sources.length ? ': ' + e.lead_sources.join(', ') : ''}</span></span></div>
+    ${e.lead_sources.length ? '' : html`<div class="small" style="color:var(--warn);margin-bottom:16px">Set this event's Lead Source to count its leads and opportunities from Zoho.</div>`}
+    <div class="ev-stats" style="grid-template-columns:repeat(3,minmax(0,1fr))">
+      <div class="ev-stat"><b>${moneyOr(m.per_lead)}</b><span>Cost per lead</span></div>
+      <div class="ev-stat"><b>${moneyOr(m.per_qualified)}</b><span>Cost per qualified lead</span></div>
+      <div class="ev-stat"><b>${moneyOr(t.pipeline)}</b><span>Sourced pipeline ${info(TIPS.sourced)}</span></div>
+      <div class="ev-stat"><b>${moneyOr(d.accounts.influenced)}</b><span>Influenced pipeline</span></div>
+      <div class="ev-stat"><b>${times(m.pipeline_x)}</b><span>Pipeline ROI</span></div>
+      <div class="ev-stat"><b>${times(m.won_x)}</b><span>Revenue ROI · ${moneyOr(t.won_value)} won</span></div>
+    </div>
+    <div class="grid start" style="grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:32px;margin-top:26px">
+      <div class="stack" style="gap:12px"><span class="medium">Funnel · cost ${moneyOr(d.cost)}</span>
+        <div class="ev-funnel">${steps.map(([label, n], i) => html`<div class="ev-fstep"><span class="small muted">${label}</span>
+          <div><div class="ev-fbar" style="width:${Math.max(n / top * 100, 6)}%">${f.num(n)}</div></div>
+          <span class="small muted">${i && steps[i - 1][1] && n <= steps[i - 1][1] ? pct(n, steps[i - 1][1]) + '%' : ''}</span></div>`)}</div>
+        ${e.target_leads || e.target_qualified ? html`<div class="small muted">Target: ${e.target_leads ? f.num(e.target_leads) + ' leads' : ''}${e.target_leads && e.target_qualified ? ' · ' : ''}${e.target_qualified ? f.num(e.target_qualified) + ' qualified' : ''}${e.target_pipeline ? ' · ' + f.moneyShort(e.target_pipeline) + ' pipeline' : ''}</div>` : ''}
       </div>
-      <div class="card pad stack" style="gap:10px">
-        <div class="title">Money back</div>
-        ${[['Leads', f.num(t.leads)], ['Qualified leads', f.num(t.qualified)], ['Deals started', f.num(t.deals)], ['Value of new deals', f.money(t.pipeline)],
-          ['Deals won', `${f.num(t.won)}${t.won_value ? ' · ' + f.money(t.won_value) : ''}`], ['Cost per lead', money(d.money.per_lead)],
-          ['Cost per qualified lead', money(d.money.per_qualified)], ['Value of new deals for each ₹1', times(d.money.pipeline_x)], ['Money won for each ₹1', times(d.money.won_x)]]
-          .map(([k, v]) => html`<div class="between small"><span class="muted">${k}</span><span class="medium">${v}</span></div>`)}
+      <div class="stack" style="gap:12px"><span class="row medium" style="gap:6px">Follow-up SLA${info(TIPS.sla)}</span>
+        ${sp.leads ? html`<div class="ev-stats" style="grid-template-columns:repeat(3,1fr);gap:12px">
+            <div class="ev-stat"><b>${pct(sp.h24, sp.leads)}%</b><span>within 24 h</span></div><div class="ev-stat"><b>${pct(sp.h72, sp.leads)}%</b><span>within 72 h</span></div><div class="ev-stat"><b>${pct(sp.d7, sp.leads)}%</b><span>within 7 days</span></div></div>
+          <div class="ev-split"><i style="width:${pct(sp.h24, sp.leads)}%;background:var(--pos)"></i><i style="width:${pct(sp.h72 - sp.h24, sp.leads)}%;background:color-mix(in oklch, var(--pos) 55%, var(--surface))"></i><i style="width:${pct(sp.d7 - sp.h72, sp.leads)}%;background:var(--warn)"></i><i style="width:${pct(sp.timed - sp.d7, sp.leads)}%;background:var(--neg)"></i></div>
+          <span class="tiny muted">${sp.untouched} of ${sp.leads} leads not touched yet${sp.untouched ? ' or touched before tracking began' : ''}</span>`
+          : html`<span class="small muted">Measured once the event's leads are in Zoho.</span>`}
+        <span class="row medium" style="gap:10px;margin-top:10px">Budget vs actual<span class="small muted">${f.money(d.cost)}${d.planned ? ' of ' + f.money(d.planned) : ''}</span></span>
+        ${Object.keys(kinds).length ? Object.entries(kinds).map(([k, v]) => html`<div class="stack" style="gap:3px">
+          <div class="between tiny"><span>${k}</span><span class="muted">${f.moneyShort(v.actual)}${v.planned ? ' / ' + f.moneyShort(v.planned) : ''}</span></div>
+          <div style="position:relative;height:8px;border-radius:4px;background:var(--track)"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:4px;width:${v.actual / kmax * 100}%;background:var(--${v.planned && v.actual > v.planned ? 'neg' : 'k'})"></span>
+            ${v.planned ? html`<span style="position:absolute;top:-3px;bottom:-3px;left:${v.planned / kmax * 100}%;border-left:2px solid var(--ink)"></span>` : ''}</div></div>`)
+          : html`<span class="small muted">No costs entered.</span>`}
+        <span class="ev-noprint"><span class="btn xs" data-act="newCost">Add cost</span></span>
+        ${d.costs.length ? html`<div class="stack ev-noprint" style="gap:2px">${d.costs.map(c => html`<div class="between tiny" style="padding:3px 0"><span class="editable" data-act="editCost" data-arg="${c.id}">${c.item}</span><span class="muted">${f.money(c.amount)}${c.paid ? '' : ' · unpaid'}</span></div>`)}</div>` : ''}
       </div>
     </div>
-    <div class="card clipped" style="--cols:${cols}">
-      <div class="baseline" style="padding:16px 16px 12px"><span class="row" style="gap:7px"><span class="title">Where the leads came from</span>${info(TIPS.sources)}</span><span class="btn xs" data-act="pickSources">Pick lead sources</span></div>
-      ${r.sources.length ? html`<div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Lead source in Zoho</span><span>Leads</span><span>Qualified</span><span>Deals</span><span>Value</span><span>Won</span></div>
-        ${r.sources.map(s => html`<div class="trow right"><span class="small medium clip" style="text-align:left">${s.source}</span><span>${f.num(s.leads)}</span><span>${f.num(s.qualified)}</span><span>${f.num(s.deals)}</span><span>${money(s.pipeline)}</span><span>${f.num(s.won)}</span></div>`)}`
-        : html`<div class="small" style="padding:0 16px 16px;color:var(--warn)">No lead sources picked, so no leads are counted for this event yet. Click “Pick lead sources”.</div>`}
-      ${notEvents.length ? html`<div class="small" style="padding:10px 16px 14px;color:var(--warn)">${notEvents.map(s => s.source).join(', ')} ${notEvents.length === 1 ? 'is' : 'are'} not in the Events channel, so Overview's Events row does not count ${notEvents.length === 1 ? 'it' : 'them'}. <a class="link" href="#/settings" style="text-decoration:none">Change the channel in Settings</a></div>` : ''}
-    </div>`;
+    ${e.lessons ? html`<div class="small" style="margin-top:22px;padding-top:14px;border-top:1px solid var(--line2)"><span class="medium">Lessons learned:</span> ${e.lessons}</div>` : ''}
+  </section>`;
 }
 
-function eventView(d, ctx) {
-  const e = d.event, view = TABS.some(t => t[0] === ctx.app.params.tab) ? ctx.app.params.tab : 'summary';
-  const where = [span(e), e.city && [e.venue, e.city].filter(Boolean).join(', '), e.partner && 'with ' + e.partner, e.booth && 'booth ' + e.booth].filter(Boolean).join(' · ');
-  return html`
-    <a class="small link" href="#/events" style="text-decoration:none">← All events</a>
-    ${pageHead(where, e.name, html`<div class="row" style="gap:10px">${pill(d.phase, PHASE_TONE[d.phase])}<span class="small muted">${d.phase === 'Done' ? '' : toGo(d.days_to_go)}</span>
-      <span class="small muted">${e.decision}</span><span class="btn" data-act="editEvent">Edit event</span></div>`)}
-    <div class="row">${segmented(TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'tab', 16)}</div>
-    ${{ summary, plan, marketing, creatives, results }[view](d, ctx)}`;
+function room(d, ctx) {
+  return html`<div class="ev ev-room" data-kind="${d.event.kind}">${pass(d)}
+    <div>${readiness(d, ctx)}${promotion(d)}${content(d, ctx)}${accounts(d)}${results(d)}</div></div>`;
 }
 
 // ------------------------------------------------------------------------------- forms
 
 const field = (label, name, value, extra = '') => html`<label class="field">${label}<input class="input" name="${name}" value="${value == null ? '' : value}" ${extra}></label>`;
-const select = (label, name, options, value) => html`<label class="field">${label}<select class="input" name="${name}">${options.map(o => html`<option ${o === value ? 'selected' : ''}>${o}</option>`)}</select></label>`;
-const buttons = (removeAct, id) => html`<div class="between" style="margin-top:4px">${id ? html`<button type="button" class="btn danger" data-act="${removeAct}" data-arg="${id}">Delete</button>` : html`<span></span>`}
+const select = (label, name, options, value) => html`<label class="field">${label}<select class="input" name="${name}">${options.map(o => (Array.isArray(o) ? html`<option value="${o[0]}" ${o[0] === value ? 'selected' : ''}>${o[1]}</option>` : html`<option ${o === value ? 'selected' : ''}>${o}</option>`))}</select></label>`;
+const buttons = (removeAct, id) => html`<div class="between" style="margin-top:4px">${id && removeAct ? html`<button type="button" class="btn danger" data-act="${removeAct}" data-arg="${id}">Delete</button>` : html`<span></span>`}
   <div class="row" style="gap:8px"><button type="button" class="btn" data-act="cancelModal">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>`;
 const owners = d => html`<datalist id="owners">${(d.team || []).map(n => html`<option value="${n}">`)}</datalist>`;
+const check = (name, label, on) => html`<label class="row small" style="gap:8px"><input type="checkbox" name="${name}" ${on ? 'checked' : ''}> ${label}</label>`;
 
 export default {
   uses: {},
   load: ctx => (ctx.app.params.id ? ctx.api.get('events/' + ctx.app.params.id) : ctx.api.get('events')),
-  render: (d, ctx) => (d.event ? eventView(d, ctx) : listView(d, ctx)),
+  render(d, ctx) {
+    if (!d.event) {
+      d.events.forEach(e => { e.kindKey = (d.kinds.find(k => k[1] === e.kind) || ['booth'])[0]; });
+      return home(d, ctx);
+    }
+    return room(d, ctx);
+  },
 
   modal(m, ctx) {
     const d = ctx.app.data;
     if (m.kind === 'event') {
-      const e = m.event || {};
-      return html`<form class="modal" data-submit="saveEvent" style="width:640px">
+      const e = m.event || { kind: 'booth', decision: 'Go' };
+      return html`<form class="modal" data-submit="saveEvent" style="width:660px">
         <span class="section">${m.event ? 'Edit event' : 'New event'}</span>
-        ${m.event ? '' : html`<span class="small muted">It gets the standard plan, with due dates counted from the first day.</span>`}
-        ${field('Name', 'name', e.name, 'required data-autofocus placeholder="e.g. SFF 2026"')}
-        <div class="grid" style="grid-template-columns:1fr 1fr 1fr">${field('First day', 'starts', e.starts, 'type="date" required')}${field('Last day', 'ends', e.ends, 'type="date"')}${select('Decision', 'decision', ['Considering', 'Go', 'No-go'], e.decision || 'Considering')}</div>
-        <div class="grid" style="grid-template-columns:1fr 1fr">${field('City', 'city', e.city)}${field('Venue', 'venue', e.venue)}${field('Partner (if any)', 'partner', e.partner, 'placeholder="e.g. Vonage"')}${field('Booth or stand', 'booth', e.booth)}</div>
-        ${field('Goal, in one line', 'goal', e.goal, 'placeholder="Why we are going"')}
-        <div class="grid" style="grid-template-columns:repeat(3,1fr)">${field('Budget (₹)', 'budget', e.budget, 'type="number" min="0" step="any"')}${field('Target leads', 'target_leads', e.target_leads, 'type="number" min="0"')}${field('Target qualified leads', 'target_qualified', e.target_qualified, 'type="number" min="0"')}
-          ${field('Target meetings', 'target_meetings', e.target_meetings, 'type="number" min="0"')}${field('Target value of new deals (₹)', 'target_pipeline', e.target_pipeline, 'type="number" min="0" step="any"')}<span></span>
-          ${field('Meetings held', 'meetings_held', e.meetings_held, 'type="number" min="0" placeholder="After the event"')}${field('People captured at the booth', 'visitors', e.visitors, 'type="number" min="0" placeholder="After the event"')}</div>
-        ${field('Go again? Lessons', 'lessons', e.lessons, 'placeholder="After the event: would we go again, and what to change"')}
-        ${buttons('removeEvent', e.id)}</form>`;
+        ${m.event ? '' : html`<span class="small muted">The event gets the standard playbook for its type, with every due date set from its dates.</span>`}
+        <div class="grid" style="grid-template-columns:2fr 1fr">${field('Event name', 'name', e.name, 'required data-autofocus placeholder="e.g. SFF 2026"')}${select('Type', 'kind', d.kinds, e.kind)}</div>
+        <div class="grid" style="grid-template-columns:1fr 1fr 1fr">${field('Start date', 'starts', e.starts, 'type="date" required')}${field('End date', 'ends', e.ends, 'type="date"')}${select('Decision', 'decision', d.decisions || ['Considering', 'Go', 'No-go'], e.decision || 'Go')}</div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">${field('City', 'city', e.city)}${field('Venue', 'venue', e.venue)}${field('Partner', 'partner', e.partner, 'placeholder="If co-hosted, e.g. Vonage"')}${field('Booth / stand', 'booth', e.booth)}</div>
+        ${field('Objective', 'goal', e.goal, 'placeholder="e.g. Book 25 meetings with Tier 1 banks"')}
+        <div class="grid" style="grid-template-columns:repeat(3,1fr)">${field('Budget (₹)', 'budget', e.budget, 'type="number" min="0" step="any"')}${field('Lead target', 'target_leads', e.target_leads, 'type="number" min="0"')}${field('Qualified lead target', 'target_qualified', e.target_qualified, 'type="number" min="0"')}
+          ${field('Meeting target', 'target_meetings', e.target_meetings, 'type="number" min="0"')}${field('Pipeline target (₹)', 'target_pipeline', e.target_pipeline, 'type="number" min="0" step="any"')}${field('Meetings held', 'meetings_held', e.meetings_held, 'type="number" min="0"')}</div>
+        ${field('Lessons learned', 'lessons', e.lessons, 'placeholder="After the event: attend again? what to change?"')}
+        ${buttons('removeEvent', m.event && e.id)}</form>`;
     }
     if (m.kind === 'step') {
       const s = m.step || { phase: 'plan', status: 'Not started' };
       return html`<form class="modal" data-submit="saveStep">${owners(d)}
-        <span class="section">${m.step ? 'Change this step' : 'Add a step'}</span>
-        ${field('What needs doing', 'title', s.title, 'required data-autofocus')}
-        <div class="grid" style="grid-template-columns:1fr 1fr">
-          <label class="field">Phase<select class="input" name="phase">${d.phases.map(([k, l]) => html`<option value="${k}" ${k === s.phase ? 'selected' : ''}>${l}</option>`)}</select></label>
-          ${field('Due', 'due', s.due, 'type="date"')}${field('Owner', 'owner', s.owner, 'list="owners"')}${select('Status', 'status', d.statuses, s.status)}</div>
-        ${field('Workstream', 'workstream', s.workstream, 'placeholder="e.g. Promotion, Booth & logistics"')}${field('Done when', 'done_when', s.done_when)}${field('Note', 'note', s.note)}
-        ${buttons('removeStep', s.id)}</form>`;
+        <span class="section">${m.step ? 'Edit task' : 'Add task'}</span>
+        ${field('Task', 'title', s.title, 'required data-autofocus')}
+        <div class="grid" style="grid-template-columns:1fr 1fr">${select('Phase', 'phase', d.phases, s.phase)}${field('Due date', 'due', s.due, 'type="date"')}${field('Owner', 'owner', s.owner, 'list="owners"')}${select('Status', 'status', d.statuses, s.status)}</div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">${field('Workstream', 'workstream', s.workstream)}${field('Done when', 'done_when', s.done_when)}</div>
+        ${field('Note', 'note', s.note)}${check('critical', 'Critical task', s.critical)}
+        ${buttons('removeStep', m.step && s.id)}</form>`;
     }
     if (m.kind === 'playbook') {
-      const s = m.step || { phase: 'plan', offset_days: -14 };
+      const s = m.step || { phase: 'plan', offset_days: -14 }, kinds = (s.kinds || '').split(',');
       return html`<form class="modal" data-submit="savePlaybookStep">
-        <span class="section">${m.step ? 'Change this standard step' : 'Add a standard step'}</span>
-        ${field('What needs doing', 'title', s.title, 'required data-autofocus')}
-        <div class="grid" style="grid-template-columns:1fr 1fr">
-          <label class="field">Phase<select class="input" name="phase">${d.phases.map(([k, l]) => html`<option value="${k}" ${k === s.phase ? 'selected' : ''}>${l}</option>`)}</select></label>
-          ${field('Days from the first day (−21 = three weeks before)', 'offset_days', s.offset_days, 'type="number" step="1" required')}${field('Workstream', 'workstream', s.workstream)}${field('Usual owner', 'owner', s.owner)}</div>
+        <span class="section">${m.step ? 'Edit playbook task' : 'Add playbook task'}</span>
+        ${field('Task', 'title', s.title, 'required data-autofocus')}
+        <div class="grid" style="grid-template-columns:1fr 1fr">${select('Phase', 'phase', d.phases, s.phase)}${field('Days from the event (−21 = 3 weeks before)', 'offset_days', s.offset_days, 'type="number" step="1" required')}${field('Workstream', 'workstream', s.workstream)}${field('Default owner', 'owner', s.owner)}</div>
         ${field('Done when', 'done_when', s.done_when)}
-        ${buttons('removePlaybookStep', s.id)}</form>`;
+        <div class="stack" style="gap:6px"><span class="small muted">Event types (none ticked = all types)</span><div class="row" style="gap:14px;flex-wrap:wrap">${d.kinds.map(([k, l]) => check('kind_' + k, l, kinds.includes(k)))}</div></div>
+        ${check('critical', 'Critical task', s.critical)}
+        ${buttons('removePlaybookStep', m.step && s.id)}</form>`;
     }
     if (m.kind === 'promo') {
       const p = m.promo || { channel: 'LinkedIn post', status: 'Not started' };
       return html`<form class="modal" data-submit="savePromo">${owners(d)}
-        <span class="section">${m.promo ? 'Change this activity' : 'Add an activity'}</span>
-        ${field('What goes out', 'what', p.what, 'required data-autofocus placeholder="e.g. Teaser: Meet us at booth 6H02"')}
+        <span class="section">${m.promo ? 'Edit activity' : 'Add activity'}</span>
+        ${field('Activity', 'what', p.what, 'required data-autofocus placeholder="e.g. Teaser post: meet us at booth 6H02"')}
         <div class="grid" style="grid-template-columns:1fr 1fr">${select('Channel', 'channel', d.channels, p.channel)}${field('Date', 'day', p.day, 'type="date"')}${field('Owner', 'owner', p.owner, 'list="owners"')}${select('Status', 'status', d.statuses, p.status)}</div>
-        ${buttons('removePromo', p.id)}</form>`;
+        ${buttons('removePromo', m.promo && p.id)}</form>`;
     }
     if (m.kind === 'creative') {
       const c = m.creative || {};
       return html`<form class="modal" data-submit="saveCreative">
-        <span class="section">${m.creative ? 'Change this post' : 'Add a post'}</span>
-        ${field('Link to the post', 'url', c.url, 'required data-autofocus placeholder="https://www.linkedin.com/posts/…"')}
-        <div class="grid" style="grid-template-columns:1fr 1fr">${field('Posted on', 'posted_on', c.posted_on, 'type="date"')}${field('Picture link (optional)', 'image', c.image, 'placeholder="Used when the site hides its picture"')}</div>
-        ${field('Short caption', 'caption', c.caption, 'placeholder="e.g. Day 1 at the booth"')}
-        ${buttons('removeCreative', c.id)}</form>`;
+        <span class="section">${m.creative ? 'Edit post' : 'Add post'}</span>
+        ${field('Post URL', 'url', c.url, 'required data-autofocus placeholder="https://www.linkedin.com/posts/…"')}
+        <div class="grid" style="grid-template-columns:1fr 1fr">${field('Published on', 'posted_on', c.posted_on, 'type="date"')}${field('Image URL (optional)', 'image', c.image, 'placeholder="For platforms that cannot be embedded"')}</div>
+        ${field('Caption', 'caption', c.caption)}
+        ${buttons('removeCreative', m.creative && c.id)}</form>`;
     }
     if (m.kind === 'cost') {
       const c = m.cost || { category: d.cost_kinds[0] };
       return html`<form class="modal" data-submit="saveCost">
-        <span class="section">${m.cost ? 'Change this cost' : 'Add a cost'}</span>
-        ${field('What it is for', 'item', c.item, 'required data-autofocus placeholder="e.g. Booth back wall print"')}
-        <div class="grid" style="grid-template-columns:1fr 1fr">${select('Kind', 'category', d.cost_kinds, c.category)}${field('Amount (₹)', 'amount', c.amount, 'type="number" min="0" step="any" required')}</div>
-        <label class="row small" style="gap:8px"><input type="checkbox" name="paid" ${c.paid ? 'checked' : ''}> Paid</label>
-        ${buttons('removeCost', c.id)}</form>`;
+        <span class="section">${m.cost ? 'Edit cost' : 'Add cost'}</span>
+        ${field('Item', 'item', c.item, 'required data-autofocus placeholder="e.g. Booth space 6H02"')}
+        <div class="grid" style="grid-template-columns:1fr 1fr 1fr">${select('Category', 'category', d.cost_kinds, c.category)}${field('Budgeted (₹)', 'planned', c.planned, 'type="number" min="0" step="any"')}${field('Actual (₹)', 'amount', c.amount, 'type="number" min="0" step="any"')}</div>
+        ${check('paid', 'Paid', c.paid)}
+        ${buttons('removeCost', m.cost && c.id)}</form>`;
+    }
+    if (m.kind === 'targets') {
+      const text = d.accounts.targets.map(t => [t.company, t.tier, t.domain].filter(x => x != null && x !== '').join(', ')).join('\n');
+      return html`<form class="modal" data-submit="saveTargets" style="width:600px">
+        <span class="section">Target accounts</span>
+        <span class="small muted">One company per line: company, tier (1–3), domain. Paste straight from a sheet. Only company names are kept; leave out people's names.</span>
+        <textarea class="input" name="text" rows="14" data-autofocus placeholder="DBS Bank, 1, dbs.com&#10;HSBC, 1&#10;Maybank, 2">${text}</textarea>
+        ${buttons(null, null)}</form>`;
     }
     if (m.kind === 'sources') {
       const mine = new Set(d.event.lead_sources), q = (ctx.ui().sourceQ || '').toLowerCase();
       const options = d.source_options.filter(o => mine.has(o.source) || !q || o.source.toLowerCase().includes(q));
       return html`<form class="modal" data-submit="saveSources" style="width:560px">
-        <span class="section">Lead sources for ${d.event.name}</span>
-        <span class="small muted">Tick the Zoho lead sources that name this event. Sources that belong to another event are greyed out.</span>
-        <input class="input" placeholder="Search lead sources" value="${ctx.ui().sourceQ || ''}" data-input="sourceQ" autocomplete="off">
-        <div class="stack" style="gap:2px;max-height:320px;overflow:auto">${options.slice(0, 120).map(o => { const other = d.taken[o.source]; return html`<label class="row small" style="gap:8px;padding:4px 2px;${other ? 'opacity:.45' : ''}">
+        <span class="section">Lead Source for ${d.event.name}</span>
+        <span class="small muted">Tick the Zoho Lead Source values used for this event. A value can belong to one event only.</span>
+        <input class="input" placeholder="Search Lead Source" value="${ctx.ui().sourceQ || ''}" data-input="sourceQ" autocomplete="off">
+        <div class="stack" style="gap:2px;max-height:320px;overflow:auto">${options.slice(0, 150).map(o => { const other = d.taken[o.source]; return html`<label class="row small" style="gap:8px;padding:4px 2px;${other ? 'opacity:.45' : ''}">
           <input type="checkbox" name="s::${o.source}" ${mine.has(o.source) ? 'checked' : ''} ${other ? 'disabled' : ''}><span style="flex:1" class="clip">${o.source}</span>
-          <span class="tiny muted">${other ? 'in ' + other : f.num(o.leads) + ' leads'}</span></label>`; })}</div>
+          <span class="tiny muted">${other ? 'used by ' + other : f.num(o.leads) + ' leads'}</span></label>`; })}</div>
         ${buttons(null, null)}</form>`;
     }
     return '';
   },
 
   actions: {
-    listTab(ctx, d) { ctx.ui().list = d.arg; ctx.render(); },
-    tab: (ctx, d) => ctx.setParams({ ...ctx.app.params, tab: d.arg }),
-    stepFilter(ctx, d) { ctx.ui().stepFilter = d.arg; ctx.render(); },
+    home(ctx, d) { ctx.ui().home = d.arg; ctx.render(); },
+    jump(ctx, d, el, event) { event.preventDefault(); const s = document.getElementById('sec-' + d.arg); if (s) s.scrollIntoView({ behavior: 'smooth' }); },
+    toggleTasks(ctx) { ctx.ui().allTasks = !ctx.ui().allTasks; ctx.render(); },
     platform(ctx, d) { ctx.ui().platform = d.arg; ctx.render(); },
+    print: () => window.print(),
     newEvent: ctx => ctx.openModal({ kind: 'event' }),
     editEvent: ctx => ctx.openModal({ kind: 'event', event: ctx.app.data.event }),
     newStep: ctx => ctx.openModal({ kind: 'step' }),
     editStep: (ctx, d) => ctx.openModal({ kind: 'step', step: ctx.app.data.steps.find(s => String(s.id) === d.arg) }),
+    toggleCritical(ctx, d) { const s = ctx.app.data.steps.find(x => String(x.id) === d.arg); return ctx.save(() => ctx.api.post('events', { what: 'critical', id: s.id, data: { critical: !s.critical } })); },
     newPlaybookStep: ctx => ctx.openModal({ kind: 'playbook' }),
     editPlaybookStep: (ctx, d) => ctx.openModal({ kind: 'playbook', step: ctx.app.data.playbook.find(s => String(s.id) === d.arg) }),
     newPromo: ctx => ctx.openModal({ kind: 'promo' }),
@@ -297,6 +424,7 @@ export default {
     editCreative: (ctx, d) => ctx.openModal({ kind: 'creative', creative: ctx.app.data.creatives.find(c => String(c.id) === d.arg) }),
     newCost: ctx => ctx.openModal({ kind: 'cost' }),
     editCost: (ctx, d) => ctx.openModal({ kind: 'cost', cost: ctx.app.data.costs.find(c => String(c.id) === d.arg) }),
+    editTargets: ctx => ctx.openModal({ kind: 'targets' }),
     pickSources(ctx) { ctx.ui().sourceQ = ''; ctx.openModal({ kind: 'sources' }); },
     async removeEvent(ctx, d) {
       ctx.app.modal = null;
@@ -312,10 +440,6 @@ export default {
 
   changes: {
     stepStatus: (ctx, value, el) => ctx.save(() => ctx.api.post('events', { what: 'status', id: Number(el.dataset.id), data: { status: value } })),
-    promoStatus(ctx, value, el) {
-      const p = ctx.app.data.promos.find(x => String(x.id) === el.dataset.id);
-      return ctx.save(() => ctx.api.post('events', { what: 'promo', id: p.id, event_id: p.event_id, data: { ...p, status: value } }));
-    },
   },
 
   inputs: {
@@ -326,18 +450,22 @@ export default {
     async saveEvent(ctx, v) {
       const old = ctx.app.modal.event;
       ctx.app.modal = null;
-      const r = await ctx.save(() => ctx.api.post('events', { what: 'event', id: old ? old.id : null, data: v }), old ? 'Saved.' : 'Event made, with the standard plan.');
+      const r = await ctx.save(() => ctx.api.post('events', { what: 'event', id: old ? old.id : null, data: v }), old ? 'Saved.' : 'Event created with its playbook.');
       if (r && !old) ctx.go('events', { id: r.event_id });
     },
-    saveStep: (ctx, v) => saveItem(ctx, 'step', 'step', v),
-    savePlaybookStep: (ctx, v) => saveItem(ctx, 'playbook_step', 'step', v),
+    saveStep: (ctx, v) => saveItem(ctx, 'step', 'step', { ...v, critical: !!v.critical }),
+    savePlaybookStep: (ctx, v) => saveItem(ctx, 'playbook_step', 'step', { ...v, critical: !!v.critical }),
     savePromo: (ctx, v) => saveItem(ctx, 'promo', 'promo', v),
     saveCreative: (ctx, v) => saveItem(ctx, 'creative', 'creative', v, 'Post added.'),
     saveCost: (ctx, v) => saveItem(ctx, 'cost', 'cost', { ...v, paid: !!v.paid }),
+    saveTargets(ctx, v) {
+      ctx.app.modal = null;
+      return ctx.save(() => ctx.api.post('events', { what: 'targets', event_id: ctx.app.data.event.id, data: { text: v.text } }), 'Target accounts saved.');
+    },
     saveSources(ctx, v) {
       ctx.app.modal = null;
       const sources = Object.keys(v).filter(k => k.startsWith('s::')).map(k => k.slice(3));
-      return ctx.save(() => ctx.api.post('events', { what: 'sources', event_id: ctx.app.data.event.id, data: { sources } }), 'Lead sources saved.');
+      return ctx.save(() => ctx.api.post('events', { what: 'sources', event_id: ctx.app.data.event.id, data: { sources } }), 'Lead Source saved.');
     },
   },
 };
