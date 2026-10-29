@@ -7,7 +7,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
 
 CREATE TABLE IF NOT EXISTS channels (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, grp TEXT NOT NULL,  -- organic | paid | outbound
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, grp TEXT NOT NULL,  -- organic | paid | events | outbound
   color TEXT NOT NULL, narrative TEXT NOT NULL, sort INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS utm_map (

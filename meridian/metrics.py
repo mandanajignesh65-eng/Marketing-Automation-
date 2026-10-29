@@ -3,7 +3,7 @@
 from . import scoring
 from .periods import scaled
 
-GROUPS = [("organic", "Inbound · organic"), ("paid", "Inbound · paid"), ("events", "Events"), ("outbound", "Outbound")]
+GROUPS = [("organic", "Website & organic"), ("paid", "Paid ads"), ("events", "Events"), ("outbound", "Outbound")]
 # Open leads older than this are history, not work waiting on an owner, so they are not chased.
 REMINDER_WINDOW_DAYS = 60
 GROUP_LABEL = dict(GROUPS)

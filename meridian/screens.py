@@ -77,21 +77,27 @@ def shell(conn, now):
 def target_rows(conn, now):
     """Month-to-date progress against this month's targets."""
     month = Period(now, "month")
-    cur = metrics.total(metrics.channel_stats(conn, month.cur, scoring.threshold(conn)))
+    stats = metrics.channel_stats(conn, month.cur, scoring.threshold(conn))
+    cur = metrics.total(stats)
     targets = narrative.targets_for(conn, month_key(now.date()))
     elapsed = now.day / days_in_month(now.date())
-    budget = sum(v for k, v in targets.items() if k.startswith("budget_"))
+    # spend comes in only from Meta and LinkedIn, so paid spend is set against those two budgets
+    budget = sum(targets.get(k) or 0 for k in ("budget_meta", "budget_li"))
+    paid_spend = metrics.total(stats, metrics.resolve_channels(conn, "paid"))["spend"]
+    labelled = now.day >= 7  # a pace label in the first days of a month is mostly noise
     rows = []
     for key, label, actual, target in (("leads", "Leads", cur["leads"], targets.get("leads")),
                                        ("qualified", "Qualified leads", cur["qualified"], targets.get("qualified")),
-                                       ("pipeline", "Pipeline", cur["pipeline"], targets.get("pipeline")),
+                                       ("pipeline", "Value of new deals", cur["pipeline"], targets.get("pipeline")),
                                        ("won", "Deals won", cur["won"], targets.get("won")),
-                                       ("spend", "Spend", cur["spend"], budget or None)):
+                                       ("spend", "Ad spend", paid_spend, budget or None)):
         if not target:
             continue
         projected = actual / elapsed
         share = projected / target
-        if key == "spend":
+        if not labelled:
+            status, tone = "", ""
+        elif key == "spend":
             status, tone = ("Over budget", "warn") if share > 1.05 else ("On budget", "ink2") if share > 1 else ("Under budget", "ink2")
         else:
             status, tone = ("On pace", "pos") if share >= 1 else ("Slightly behind", "warn") if share >= 0.9 else ("Behind", "neg")
@@ -100,64 +106,63 @@ def target_rows(conn, now):
     return dict(rows=rows, month=MONTHS_LONG[now.month - 1], pace_pct=elapsed * 100)
 
 
-def overview(conn, now, p, channel):
-    thr = scoring.threshold(conn)
-    ids = metrics.resolve_channels(conn, channel)
-    cur_by = metrics.channel_stats(conn, p.cur, thr)
-    cur, prev = metrics.total(cur_by, ids), metrics.total(metrics.channel_stats(conn, p.prev, thr), ids)
+# the Overview channel table: one row per channel group, in this order, under these names
+KINDS = (("paid", "Paid ads"), ("outbound", "Outbound"), ("organic", "Website & organic"), ("events", "Events"), ("none", "No channel"))
+RANK_MIN_LEADS, RANK_MIN_GAP = 20, 5   # a channel needs this many leads to be marked; marks need this many points between best and weakest
 
-    first = now.date() - timedelta(days=6) if p.rng == "day" else p.s
-    clause, args = metrics.in_clause("channel_id", ids)
-    counts = {}
-    for r in conn.execute("SELECT substr(created_at, 1, 10) AS d, channel_id, COUNT(*) AS n FROM leads "
-                          "WHERE created_at >= ? AND created_at < ?" + clause + " GROUP BY d, channel_id",
-                          [iso(midnight(first)), p.end_dt] + args):
-        counts.setdefault(r["d"], {})[r["channel_id"]] = r["n"]
-    chart = []
-    for i in range((p.e - first).days + 1):
-        d = first + timedelta(days=i)
-        segs = counts.get(d.isoformat(), {})
-        chart.append(dict(date=d.isoformat(), day=d.day, month=MONTHS[d.month - 1], total=sum(segs.values()),
-                          partial=d == now.date(), segs=[dict(id=k or "unmapped", n=n) for k, n in segs.items()]))
 
-    range_name = {"month": "Month to date", "week": "Week to date", "day": "Today"}.get(p.rng, span_label(p.s, p.e))
+def rank_rows(rows):
+    """Mark the best and weakest channel by qualified %. Rows with few leads, spend but nothing qualified, or no channel are left out."""
+    for r in rows:
+        r["rank"] = ""
+    taking = [r for r in rows if r["key"] != "none" and r["leads"] >= RANK_MIN_LEADS and r["spend_flag"] != "spent_none"]
+    if len(taking) < 2:
+        return rows
+    hi, lo = max(r["qualified_pct"] for r in taking), min(r["qualified_pct"] for r in taking)
+    if hi - lo < RANK_MIN_GAP:
+        return rows
+    for r in taking:
+        r["rank"] = "best" if r["qualified_pct"] == hi else "weakest" if r["qualified_pct"] == lo else ""
+    return rows
 
-    def outreach(window):
-        a, b = window[2], window[3]
-        return dict(linkedin=dict(sent=health._outbound(conn, "heyreach", "sent", a, b), accepted=health._outbound(conn, "heyreach", "opened", a, b),
-                                  replied=health._outbound(conn, "heyreach", "replied", a, b)),
-                    email=dict(sent=health._outbound(conn, "apollo", "sent", a, b), opened=health._outbound(conn, "apollo", "opened", a, b),
-                               replied=health._outbound(conn, "apollo", "replied", a, b)))
 
-    out_cur, out_prev = outreach(p.cur), scale_all(outreach(p.prev), p.scale)
-    visits = health._visits(conn, p.cur[2], p.cur[3])
-    by_channel = {cid or "unmapped": s["leads"] for cid, s in cur_by.items() if s["leads"] and (ids is None or cid in ids)}
-    # the same results split by the kind of marketing that brought them
+def kind_rows(conn, cur_by, prev_by):
     kinds = {r["id"]: r["grp"] for r in conn.execute("SELECT id, grp FROM channels")}
-    by_kind = {k: dict(key=k, name=n, leads=0, qualified=0, deals=0, won=0, spend=0)
-               for k, n in (("organic", "Inbound"), ("outbound", "Outbound"), ("paid", "Paid ads"), ("events", "Events"), ("none", "Not known"))}
-    for cid, row in cur_by.items():
-        if ids is None or cid in ids:
-            slot = by_kind.get(kinds.get(cid) or "none", by_kind["none"])
-            for key in ("leads", "qualified", "deals", "won", "spend"):
-                slot[key] += row[key]
+    keys = ("leads", "qualified", "deals", "won", "pipeline", "spend")
+
+    def add_up(stats):
+        out = {k: dict.fromkeys(keys, 0) for k, _ in KINDS}
+        for cid, row in stats.items():
+            slot = out.get(kinds.get(cid) or "none", out["none"])
+            for k in keys:
+                slot[k] += row[k]
+        return out
+
+    cur, prev = add_up(cur_by), add_up(prev_by)
+    rows = []
+    for key, name in KINDS:
+        c = cur[key]
+        rows.append(dict(key=key, name=name, prev=prev[key], **c,
+                         qualified_pct=c["qualified"] / c["leads"] * 100 if c["leads"] else None,
+                         cpql=metrics.cost_per(c["spend"], c["qualified"]),
+                         spend_flag="spent_none" if c["spend"] and not c["qualified"] else "no_spend" if not c["spend"] else "normal",
+                         note="Some lead sources have no channel, so their leads are counted here." if key == "none" and c["leads"] else ""))
+    return rank_rows(rows)
+
+
+def overview(conn, now, p):
+    thr = scoring.threshold(conn)
+    cur_by, prev_by = metrics.channel_stats(conn, p.cur, thr), metrics.channel_stats(conn, p.prev, thr)
+    cur, prev = metrics.total(cur_by), metrics.total(prev_by)
+    range_name = {"month": "Month to date", "week": "Week to date", "day": "Today"}.get(p.rng, span_label(p.s, p.e))
     return dict(
-        visits=delta(visits, scaled(health._visits(conn, p.prev[2], p.prev[3]), p.scale)),
-        replies=delta(out_cur["linkedin"]["replied"] + out_cur["email"]["replied"], out_prev["linkedin"]["replied"] + out_prev["email"]["replied"]),
-        deals=delta(cur["deals"], prev["deals"]), outreach=out_cur,
-        journey=dict(visits=visits, web_leads=health._web_leads(conn, p.cur[2], p.cur[3]), leads=cur["leads"], qualified=cur["qualified"],
-                     deals=cur["deals"], won=cur["won"]),
-        period=p.as_json(),
+        period=p.as_json(), range_name=range_name,
         date_line="{}, {} {} · {}".format(WEEKDAYS_LONG[now.weekday()], now.day, MONTHS_LONG[now.month - 1], range_name),
-        day_of="Day {} of {}".format(now.day, days_in_month(now.date())),
-        leads=delta(cur["leads"], prev["leads"]), won=delta(cur["won"], prev["won"]),
-        kpis=dict(qualified=delta(cur["qualified"], prev["qualified"]), spend=delta(cur["spend"], prev["spend"]),
-                  cpql=delta(metrics.cost_per(cur["spend"], cur["qualified"]), metrics.cost_per(prev["spend"], prev["qualified"])),
-                  pipeline=delta(cur["pipeline"], prev["pipeline"])),
-        chart=chart, chart_label="Daily · " + span_label(first, p.e),
-        by_channel=by_channel,
-        by_kind=[k for k in by_kind.values() if k["key"] in ("organic", "outbound", "paid") or k["leads"] or k["deals"]],
-        funnel=cur, alerts=open_alerts(conn, now, 4),
+        leads=delta(cur["leads"], prev["leads"]), deals=delta(cur["deals"], prev["deals"]), won=delta(cur["won"], prev["won"]),
+        kpis=dict(qualified=delta(cur["qualified"], prev["qualified"]), pipeline=delta(cur["pipeline"], prev["pipeline"])),
+        channels=kind_rows(conn, cur_by, prev_by),
+        month_targets=target_rows(conn, now),
+        alerts=open_alerts(conn, now, 3),
     )
 
 
@@ -769,7 +774,7 @@ def settings(conn, now, p):
     this, nxt = now.date().replace(day=1), next_month(now.date())
     months = [dict(key=month_key(d), label=MONTHS_LONG[d.month - 1]) for d in (this, nxt)]
     values = {m["key"]: narrative.targets_for(conn, m["key"]) for m in months}
-    labels = [("leads", "Leads", "int", None), ("qualified", "Qualified leads", "int", None), ("pipeline", "Pipeline", "money_m", None),
+    labels = [("leads", "Leads", "int", None), ("qualified", "Qualified leads", "int", None), ("pipeline", "Value of new deals", "money_m", None),
               ("won", "Deals won", "int", None), ("budget_meta", "Meta ads", "money", "meta"), ("budget_li", "LinkedIn ads", "money", "li"),
               ("budget_organic", "Organic and content", "money", "search"), ("budget_outbound", "Outbound", "money", "apollo")]
     targets = dict(months=months, rows=[dict(key=k, label=label, kind=kind, channel_id=ch, values=[values[m["key"]].get(k) for m in months])

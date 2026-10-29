@@ -235,9 +235,9 @@ def get_shell(request: Request):
 
 
 @app.get("/api/overview")
-def get_overview(request: Request, range: str = "month", start: Optional[str] = None, end: Optional[str] = None, channel: str = "all"):
+def get_overview(request: Request, range: str = "month", start: Optional[str] = None, end: Optional[str] = None):
     with session() as conn:
-        data = screens.overview(conn, db.now(conn), period(conn, range, start, end), channel)
+        data = screens.overview(conn, db.now(conn), period(conn, range, start, end))
         data["team"] = team_summary(targets_view(conn, request))
         return data
 
@@ -597,10 +597,10 @@ def targets_view(conn, request):
 
 
 def team_summary(view):
-    """For the Overview: one line per person on how their targets are going."""
+    """For the Overview: one line per person on how their weekly targets are going (the line is labelled "This week")."""
     people_rows = []
     for m in view["members"]:
-        goals = [g for g in view["goals"] if g["member_id"] == m["id"]]
+        goals = [g for g in view["goals"] if g["member_id"] == m["id"] and g["period"] == "week"]
         tasks = [t for t in view["tasks"] if t["member_id"] == m["id"]]
         due = [g for g in goals if g["today_share"] > 0]
         people_rows.append(dict(
