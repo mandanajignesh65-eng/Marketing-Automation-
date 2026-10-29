@@ -47,26 +47,28 @@ function legend(d, ctx, only, one) {
   </div>`;
 }
 
-// Each channel's path from lead to won deal, drawn as a funnel. Every channel uses its own scale, so a small channel
-// is as readable as a big one; the percentage between two steps is how many made it from one step to the next.
+// Each step from lead to won deal, with one bar per channel, so the channels can be compared step by step.
 function funnel(d, ctx) {
   const rows = d.channels.filter(r => r.leads || r.deals);
   const steps = [['leads', 'Leads'], ['qualified', 'Qualified'], ['deals', 'Deals started'], ['won', 'Deals won']];
-  const step = (r, i) => { const a = r[steps[i - 1][0]], b = r[steps[i][0]]; return a && b <= a ? f.pct(b / a * 100) : null; };
-  return html`<div class="card pad stack" style="gap:16px">
-    <div class="baseline"><span class="title">From lead to won deal</span><span class="small muted">${d.range_name} · each channel on its own scale</span></div>
-    ${rows.length ? html`<div class="grid" style="grid-template-columns:repeat(${rows.length},minmax(0,1fr));gap:16px">${rows.map(r => {
-      const color = groupColor(ctx, r.key), top = Math.max(...steps.map(([k]) => r[k]), 1);
-      return html`<div class="stack" style="gap:0;padding:14px 14px 12px;border-radius:12px;background:color-mix(in oklch, ${color} 7%, var(--surface));border:1px solid color-mix(in oklch, ${color} 22%, var(--line))">
-        <div class="between" style="margin-bottom:12px"><span class="row medium" style="gap:8px">${sq(color, 10, 3)}${r.name}</span>
-          <span class="tiny muted" title="Deals won out of leads">${r.leads ? f.pct(r.won / r.leads * 100) + ' won' : ''}</span></div>
-        ${steps.map(([key, label], i) => html`
-          ${i ? html`<div class="tiny faint" style="text-align:center;height:16px;line-height:16px">${step(r, i) ? html`↓ ${step(r, i)}` : ''}</div>` : ''}
-          <div class="stack" style="gap:3px;align-items:center">
-            <div style="width:${Math.max(r[key] / top * 100, 4)}%;height:22px;border-radius:6px;background:${color};opacity:${1 - i * 0.18}"></div>
-            <span class="tiny muted"><span class="semi ink" style="font-size:13px">${f.num(r[key])}</span> ${label.toLowerCase()}</span>
+  const ax = f.axis(Math.max(...rows.flatMap(r => steps.map(([k]) => r[k])), 1));
+  return html`<div class="card pad stack" style="gap:14px">
+    <div class="baseline"><span class="title">From lead to won deal</span><span class="small muted">${d.range_name}</span></div>
+    ${rows.length ? html`<div class="stack" style="gap:6px">
+      <div style="position:relative;height:220px">
+        ${ax.ticks.map(t => html`<div class="row" style="position:absolute;left:0;right:0;bottom:${t / ax.max * 100}%;gap:8px">
+          <span class="micro faint right" style="width:28px;transform:translateY(50%)">${f.num(t)}</span><div style="flex:1;height:1px;background:var(--grid)"></div></div>`)}
+        <div style="position:absolute;left:38px;right:0;top:0;bottom:0;display:flex;gap:28px">
+          ${steps.map(([key]) => html`<div style="flex:1;display:flex;align-items:flex-end;justify-content:center;gap:6px">
+            ${rows.map(r => html`<div class="stack" title="${r.name}: ${f.num(r[key])}" style="flex:1;max-width:44px;height:100%;justify-content:flex-end;align-items:center;gap:3px">
+              <span class="tiny medium">${f.num(r[key])}</span>
+              <div style="width:100%;height:${r[key] / ax.max * 100}%;min-height:${r[key] ? 2 : 0}px;border-radius:4px 4px 1px 1px;background:${groupColor(ctx, r.key)}"></div></div>`)}
           </div>`)}
-      </div>`; })}</div>` : html`<div class="small muted">No leads or deals in this period.</div>`}
+        </div>
+      </div>
+      <div style="display:flex;gap:28px;margin-left:38px">${steps.map(([, label]) => html`<span class="small muted" style="flex:1;text-align:center">${label}</span>`)}</div>
+      <div class="row" style="gap:16px;flex-wrap:wrap;margin:6px 0 0 38px">${rows.map(r => html`<span class="row small muted" style="gap:6px">${sq(groupColor(ctx, r.key), 10, 3)}${r.name}</span>`)}</div>
+    </div>` : html`<div class="small muted">No leads or deals in this period.</div>`}
   </div>`;
 }
 
