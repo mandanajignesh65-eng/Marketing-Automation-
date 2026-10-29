@@ -10,10 +10,11 @@ const money = (key, v) => (key === 'spend' || key === 'pipeline' ? f.moneyShort(
 // a channel group takes the colour of its first channel, so the graphs match the colours used elsewhere
 const groupColor = (ctx, key) => (ctx.app.shell.channels.find(c => c.grp === key) || { color: 'var(--ink3)' }).color;
 
-// Leads per day, every channel stacked, or only the channels of the group picked with the buttons above it.
-function daily(d, ctx, only) {
-  const order = [...ctx.app.shell.channels, ctx.channel('unmapped')].filter(c => !only || c.grp === only);
-  const count = x => (only ? x.segs.filter(g => ctx.channel(g.id).grp === only).reduce((t, g) => t + g.n, 0) : x.total);
+// Leads per day, every channel stacked; or only the group picked with the buttons above it; or one channel picked in the list beside it.
+function daily(d, ctx, only, one) {
+  const shown = id => (one ? id === one : !only || ctx.channel(id).grp === only);
+  const order = [...ctx.app.shell.channels, ctx.channel('unmapped')].filter(c => shown(c.id));
+  const count = x => x.segs.filter(g => shown(g.id)).reduce((t, g) => t + g.n, 0);
   const ax = f.axis(Math.max(...d.chart.map(count), 1));
   const every = d.chart.length <= 10;
   const label = (x, i) => (x.partial ? 'Today' : i === 0 ? `${x.day} ${x.month}` : every || x.day % 7 === 0 ? x.day : '');
@@ -32,14 +33,15 @@ function daily(d, ctx, only) {
   </div>`;
 }
 
-function legend(d, ctx, only) {
+function legend(d, ctx, only, one) {
   const by = {};
   d.chart.forEach(x => x.segs.filter(s => !only || ctx.channel(s.id).grp === only).forEach(s => { by[s.id] = (by[s.id] || 0) + s.n; }));
   const rows = Object.entries(by).map(([id, n]) => ({ c: ctx.channel(id), id, n })).sort((a, b) => b.n - a.n);
   const all = rows.reduce((t, r) => t + r.n, 0);
   return html`<div class="stack" style="width:190px;flex:none;gap:5px">
-    <div class="between tiny faint medium" style="margin-bottom:2px"><span>By channel</span><span>${f.num(all)}</span></div>
-    ${rows.map(r => html`<div class="row small" style="gap:8px;font-size:12px">${sq(r.c.color)}<span style="flex:1" class="nowrap clip">${r.c.name}</span>
+    <div class="between tiny faint medium" style="margin-bottom:2px"><span>By channel${one ? html` · <span class="link" data-act="one" data-arg="${one}" style="cursor:pointer">show all</span>` : ''}</span><span>${f.num(all)}</span></div>
+    ${rows.map(r => html`<div class="row small menu-item" data-act="one" data-arg="${r.id}" title="${one === r.id ? 'Show every channel again' : 'Show only ' + r.c.name}"
+      style="gap:8px;font-size:12px;padding:2px 4px;margin:0 -4px;cursor:pointer;border-radius:5px;opacity:${one && one !== r.id ? 0.4 : 1};${one === r.id ? 'background:var(--track)' : ''}">${sq(r.c.color)}<span style="flex:1" class="nowrap clip">${r.c.name}</span>
       <span class="medium">${f.num(r.n)}</span><span class="faint" style="width:36px;text-align:right">${all ? Math.round(r.n / all * 100) + '%' : ''}</span></div>`)}
     ${rows.length ? '' : html`<span class="small muted">No leads in this period yet.</span>`}
   </div>`;
@@ -87,6 +89,7 @@ export default {
     const people = t.people.slice(0, MAX_PEOPLE);
     const present = d.channels.filter(r => r.key !== 'none' && r.leads);
     const only = present.some(r => r.key === ctx.ui().only) ? ctx.ui().only : null;
+    const one = d.chart.some(x => x.segs.some(g => g.id === ctx.ui().one)) && (!only || ctx.channel(ctx.ui().one).grp === only) ? ctx.ui().one : null;
     const topLeads = Math.max(...d.channels.map(r => r.leads), 1);
 
     return html`
@@ -99,9 +102,9 @@ export default {
 
     <div class="grid start" style="grid-template-columns:minmax(0,1fr) 336px">
       <div class="card stack" style="padding:18px 20px 16px;gap:16px">
-        <div class="baseline" style="gap:16px;flex-wrap:wrap"><span class="title">${only ? `Leads per day · ${present.find(r => r.key === only).name}` : 'Leads per day'}</span>
+        <div class="baseline" style="gap:16px;flex-wrap:wrap"><span class="title">${one ? `Leads per day · ${ctx.channel(one).name}` : only ? `Leads per day · ${present.find(r => r.key === only).name}` : 'Leads per day'}</span>
           ${present.length > 1 ? switcher([{ arg: '', label: 'All channels', on: !only }, ...present.map(r => ({ arg: r.key, label: r.name, color: groupColor(ctx, r.key), on: only === r.key }))], 'only') : ''}</div>
-        <div style="display:flex;gap:28px">${daily(d, ctx, only)}${legend(d, ctx, only)}</div>
+        <div style="display:flex;gap:28px">${daily(d, ctx, only, one)}${legend(d, ctx, only, one)}</div>
       </div>
 
       <div class="card pad stack" style="gap:10px">
@@ -153,6 +156,8 @@ export default {
   },
 
   actions: {
-    only(ctx, d) { ctx.ui().only = d.arg || null; ctx.render(); },
+    only(ctx, d) { ctx.ui().only = d.arg || null; ctx.ui().one = null; ctx.render(); },
+    // a second click on the picked channel shows them all again
+    one(ctx, d) { ctx.ui().one = ctx.ui().one === d.arg ? null : d.arg; ctx.render(); },
   },
 };
