@@ -85,7 +85,7 @@ export default {
         <div class="between" style="align-items:center;margin-bottom:6px">
           <div class="row" style="gap:12px">${avatar(initials(m.name), 34)}<div class="stack" style="gap:1px"><span class="row" style="gap:8px"><span class="title">${m.name}</span>${info(TIPS.person)}</span>
             <span class="small muted">${m.focus || 'No focus written yet'}</span></div></div>
-          ${lead ? html`<div class="row" style="gap:8px"><span class="btn xs" data-act="editMember" data-arg="${m.id}">Edit</span><span class="btn xs primary" data-act="addGoal" data-arg="${m.id}">Add target</span></div>` : ''}
+          ${lead ? html`<div class="row" style="gap:8px"><span class="btn xs" data-act="editMember" data-arg="${m.id}">Edit</span>${d.members.length > 1 ? html`<span class="btn xs" data-act="copyFrom" data-arg="${m.id}" title="Give ${m.name} the same targets as someone else">Copy targets from…</span>` : ''}<span class="btn xs primary" data-act="addGoal" data-arg="${m.id}">Add target</span></div>` : ''}
         </div>
         ${list.length ? list.map(goalRow) : html`<div class="small muted" style="padding:14px 0 16px;border-top:1px solid var(--line2)">No ${period === 'week' ? 'weekly' : 'monthly'} targets for ${m.name} yet.${lead ? ' Click “Add target” to set the first one.' : ''}</div>`}
       </div>`; })}
@@ -196,6 +196,18 @@ export default {
 
   modal(m, ctx) {
     const d = ctx.app.data;
+    if (m.kind === 'copy') {
+      const to = d.members.find(p => p.id === m.member_id), others = d.members.filter(p => p.id !== m.member_id && d.goals.some(g => g.member_id === p.id));
+      return html`<form class="modal" data-submit="copyGoals">
+        <span class="section">Copy targets to ${to.name}</span>
+        <span class="small muted">${to.name} gets the same targets, with the same numbers. Change any of them afterwards by clicking its name.</span>
+        ${others.length ? html`<label class="field">Copy from<select class="input" name="from" data-autofocus>${others.map(p => html`<option value="${p.id}">${p.name} (${d.goals.filter(g => g.member_id === p.id).length} targets)</option>`)}</select></label>
+          <label class="field">Which targets<select class="input" name="period"><option value="">Weekly and monthly</option><option value="week">Weekly only</option><option value="month">Monthly only</option></select></label>`
+          : html`<span class="small">Nobody else has targets yet.</span>`}
+        <div class="between" style="margin-top:4px"><span></span>
+          <div class="row" style="gap:8px"><button type="button" class="btn" data-act="cancelModal">Cancel</button>${others.length ? html`<button class="btn primary" type="submit">Copy</button>` : ''}</div></div>
+      </form>`;
+    }
     if (m.kind === 'member') {
       const p = m.member || {};
       return html`<form class="modal" data-submit="saveMember">
@@ -206,9 +218,10 @@ export default {
           <div class="row" style="gap:8px"><button type="button" class="btn" data-act="cancelModal">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
       </form>`;
     }
-    const g = m.goal || { member_id: m.member_id, metric: 'manual', period: ctx.ui().period === 'month' ? 'month' : 'week' };
+    const g = m.goal || m.copy || { member_id: m.member_id, metric: 'manual', period: ctx.ui().period === 'month' ? 'month' : 'week' };
     return html`<form class="modal" data-submit="saveGoal">
-      <span class="section">${m.goal ? 'Change this target' : 'Add a target'}</span>
+      <span class="section">${m.goal ? 'Change this target' : m.copy ? 'Duplicate this target' : 'Add a target'}</span>
+      ${m.copy ? html`<span class="small muted">A copy of “${m.copy.title}”. Pick who it is for and change anything before saving.</span>` : ''}
       <div class="grid" style="grid-template-columns:1fr 1fr">
         <label class="field">Who is it for<select class="input" name="member_id">${d.members.map(p => html`<option value="${p.id}" ${p.id === g.member_id ? 'selected' : ''}>${p.name}</option>`)}</select></label>
         <label class="field">For how long<select class="input" name="period"><option value="week" ${g.period === 'week' ? 'selected' : ''}>Each week</option><option value="month" ${g.period === 'month' ? 'selected' : ''}>Each month</option></select></label>
@@ -221,7 +234,7 @@ export default {
         <label class="field">Target number<input class="input" name="target" type="number" min="1" step="any" value="${g.target == null ? '' : g.target}" required ${m.goal ? '' : 'data-autofocus'}></label>
         <label class="field">Counted in (for hand-counted targets)<input class="input" name="unit" value="${g.auto ? '' : g.unit || ''}" placeholder="e.g. posts"></label>
       </div>
-      <div class="between" style="margin-top:4px">${m.goal ? html`<button type="button" class="btn danger" data-act="removeGoal" data-arg="${g.id}">Delete</button>` : html`<span></span>`}
+      <div class="between" style="margin-top:4px">${m.goal ? html`<div class="row" style="gap:8px"><button type="button" class="btn danger" data-act="removeGoal" data-arg="${g.id}">Delete</button><button type="button" class="btn" data-act="duplicateGoal" data-arg="${g.id}">Duplicate</button></div>` : html`<span></span>`}
         <div class="row" style="gap:8px"><button type="button" class="btn" data-act="cancelModal">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>
     </form>`;
   },
@@ -236,6 +249,9 @@ export default {
     editMember: (ctx, d) => ctx.openModal({ kind: 'member', member: ctx.app.data.members.find(m => String(m.id) === d.arg) }),
     addGoal: (ctx, d) => ctx.openModal({ kind: 'goal', goal: null, member_id: Number(d.arg) }),
     editGoal: (ctx, d) => ctx.openModal({ kind: 'goal', goal: ctx.app.data.goals.find(g => String(g.id) === d.arg) }),
+    // the same target again, filled in, for this person or someone else; nothing is saved until Save
+    duplicateGoal: (ctx, d) => ctx.openModal({ kind: 'goal', goal: null, copy: ctx.app.data.goals.find(g => String(g.id) === d.arg) }),
+    copyFrom: (ctx, d) => ctx.openModal({ kind: 'copy', member_id: Number(d.arg) }),
     async removeGoal(ctx, d) { ctx.app.modal = null; await ctx.save(() => ctx.api.post('targets', { what: 'remove_goal', id: Number(d.arg) }), 'Target removed.'); },
     log: (ctx, d) => ctx.save(() => ctx.api.post('targets', { what: 'log', id: Number(d.arg), amount: Number(d.step) })),
     toggleTask: (ctx, d) => ctx.save(() => ctx.api.post('targets', { what: 'toggle_task', id: Number(d.arg) })),
@@ -254,6 +270,15 @@ export default {
       const member = ctx.app.modal.member;
       ctx.app.modal = null;
       await ctx.save(() => ctx.api.post('targets', { what: 'member', id: member ? member.id : null, name: v.name, focus: v.focus, email: member ? member.email : null }), member ? 'Saved.' : 'Added to the team.');
+    },
+    async copyGoals(ctx, v) {
+      const to = ctx.app.modal.member_id, list = ctx.app.data.goals.filter(g => g.member_id === Number(v.from) && (!v.period || g.period === v.period));
+      ctx.app.modal = null;
+      await ctx.save(async () => {
+        for (const g of list) {
+          await ctx.api.post('targets', { what: 'goal', id: null, member_id: to, title: g.title, metric: g.metric, period: g.period, target: g.target, unit: g.auto ? '' : g.unit });
+        }
+      }, `${list.length} target${list.length === 1 ? '' : 's'} copied.`);
     },
     async saveGoal(ctx, v) {
       const goal = ctx.app.modal.goal;
