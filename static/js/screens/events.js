@@ -161,23 +161,52 @@ function taskRows(d, steps, empty = 'No tasks here.') {
     : html`<div class="ev-empty">${empty}</div>`;
 }
 
-// The plan on a date line: one lane per phase, a mark per task, today and the event days shaded.
-function timeline(d, compact) {
-  const steps = d.steps.filter(s => s.due);
-  if (!steps.length) return html`<div class="ev-empty">No dated tasks.</div>`;
-  const lo = Math.min(...steps.map(s => toDays(s.due)), toDays(d.today)) - 1, hi = Math.max(...steps.map(s => toDays(s.due)), toDays(d.today)) + 2;
-  const x = iso => ((toDays(iso) - lo) / (hi - lo)) * 100;
-  const cls = s => (s.status === 'Done' ? 'done' : s.due < d.today ? 'late' : s.status === 'Not started' ? '' : 'prog');
-  const ticks = []; for (let t = lo + 1; t < hi; t += Math.max(7, Math.round((hi - lo) / 7))) ticks.push(t);
-  return html`<div class="ev-tl ${compact ? 'compact' : ''}">
-    <div class="ev-tl-axis">${ticks.map(t => html`<span style="left:${(t - lo) / (hi - lo) * 100}%">${day(new Date(t * 864e5).toISOString())}</span>`)}</div>
-    ${d.phases.map(([key, label]) => html`<div class="ev-lane"><span>${label}</span><div class="ev-lane-track">
-      <span class="ev-band" style="left:${x(d.event.starts)}%;width:${x(addDays(d.event.ends || d.event.starts, 1)) - x(d.event.starts)}%"></span>
-      <span class="ev-today" style="left:${x(d.today)}%"></span>
-      ${steps.filter(s => s.phase === key).map(s => html`<span class="ev-dot ${cls(s)} ${s.critical ? 'crit' : ''}" style="left:${x(s.due)}%" data-act="editStep" data-arg="${s.id}"
-        title="${day(s.due)} · ${s.title} · ${s.owner || 'Unassigned'} · ${s.status}"></span>`)}</div></div>`)}
-    <div class="ev-legend" style="margin-top:10px"><span style="--c:var(--pos)">Done</span><span style="--c:var(--warn)">In progress</span><span style="--c:var(--neg)">Overdue</span><span style="--c:var(--ink3)">Not started</span><span style="--c:var(--k)">Today</span><span style="--c:color-mix(in oklch, var(--k) 30%, transparent)">Event days</span></div>
+// Common charts only: a pie with a legend, horizontal stacked bars, and columns. Easy to read at a glance.
+const STATUS_COLORS = [['Done', 'var(--pos)'], ['In progress', 'var(--warn)'], ['Overdue', 'var(--neg)'], ['Not started', 'color-mix(in oklch, var(--ink3) 55%, var(--surface))']];
+const statusOf = (s, today) => (s.status === 'Done' ? 'Done' : s.due && s.due < today ? 'Overdue' : s.status === 'Not started' ? 'Not started' : 'In progress');
+
+function pie(parts, centre) {
+  const total = parts.reduce((t, [, n]) => t + n, 0) || 1;
+  let at = 0;
+  const stops = parts.filter(([, n]) => n).map(([, n, c]) => { const from = at; at += n / total * 100; return `${c} ${from}% ${at}%`; }).join(', ');
+  return html`<div class="ev-pie-wrap"><div class="ev-pie" style="background:conic-gradient(${stops || 'var(--track) 0 100%'})"><span>${centre || ''}</span></div>
+    <div class="stack" style="gap:7px">${parts.map(([label, n, c]) => html`<div class="row small" style="gap:8px"><span style="width:10px;height:10px;border-radius:3px;background:${c};flex:none"></span>
+      <span style="flex:1">${label}</span><span class="medium">${f.num(n)}</span><span class="muted" style="width:38px;text-align:right">${pct(n, total)}%</span></div>`)}</div></div>`;
+}
+
+function stacked(rows, colors) {
+  const top = Math.max(...rows.map(r => r.parts.reduce((t, n) => t + n, 0)), 1);
+  return html`<div class="stack" style="gap:12px">${rows.map(r => { const sum = r.parts.reduce((t, n) => t + n, 0); return html`<div style="display:grid;grid-template-columns:130px minmax(0,1fr) 46px;gap:12px;align-items:center">
+      <span class="small">${r.label}</span>
+      <div class="ev-split" style="height:16px;border-radius:5px;background:transparent">${r.parts.map((n, i) => (n ? html`<i style="width:${n / top * 100}%;background:${colors[i][1]}" title="${colors[i][0]}: ${n}"></i>` : ''))}</div>
+      <span class="small muted right">${sum}</span></div>`; })}
+    <div class="ev-legend">${colors.map(([l, c]) => html`<span style="--c:${c}">${l}</span>`)}</div></div>`;
+}
+
+// tasks by status: a pie for the whole plan, and a bar per phase
+function taskCharts(d) {
+  const count = list => STATUS_COLORS.map(([k]) => list.filter(s => statusOf(s, d.today) === k).length);
+  const all = count(d.steps);
+  return html`<div class="ev-grid-chart">
+    ${pie(STATUS_COLORS.map(([l, c], i) => [l, all[i], c]), html`<b>${d.progress.readiness}%</b><small>ready</small>`)}
+    ${stacked(d.phases.map(([k, label]) => ({ label, parts: count(d.steps.filter(s => s.phase === k)) })), STATUS_COLORS)}
   </div>`;
+}
+
+// tasks due each week, stacked by status, with the event week marked
+function weekColumns(d) {
+  const weekOf = iso => addDays(iso, -((new Date(iso + 'T00:00:00').getDay() + 6) % 7));
+  const weeks = [...new Set(d.steps.filter(s => s.due).map(s => weekOf(s.due)))].sort();
+  if (!weeks.length) return html`<div class="ev-empty">No dated tasks.</div>`;
+  const rows = weeks.map(w => ({ w, parts: STATUS_COLORS.map(([k]) => d.steps.filter(s => s.due && weekOf(s.due) === w && statusOf(s, d.today) === k).length) }));
+  const top = Math.max(...rows.map(r => r.parts.reduce((t, n) => t + n, 0)), 1);
+  const eventWeek = weekOf(d.event.starts), thisWeek = weekOf(d.today);
+  return html`<div style="display:flex;gap:8px;align-items:flex-end;height:180px">${rows.map(r => html`<div class="stack" style="flex:1;height:100%;justify-content:flex-end;align-items:center;gap:4px">
+      <span class="micro muted">${r.parts.reduce((t, n) => t + n, 0)}</span>
+      <div style="width:100%;max-width:44px;height:${r.parts.reduce((t, n) => t + n, 0) / top * 100}%;display:flex;flex-direction:column-reverse;border-radius:5px 5px 1px 1px;overflow:hidden">
+        ${r.parts.map((n, i) => (n ? html`<div style="height:${n / r.parts.reduce((t, x) => t + x, 0) * 100}%;background:${STATUS_COLORS[i][1]}" title="${STATUS_COLORS[i][0]}: ${n}"></div>` : ''))}</div></div>`)}</div>
+    <div style="display:flex;gap:8px;margin-top:6px">${rows.map(r => html`<span class="micro ${r.w === eventWeek || r.w === thisWeek ? 'medium' : 'faint'}" style="flex:1;text-align:center;${r.w === eventWeek ? 'color:var(--k)' : ''}">${r.w === eventWeek ? 'Event' : r.w === thisWeek ? 'This wk' : day(r.w)}</span>`)}</div>
+    <div class="ev-legend" style="margin-top:10px">${STATUS_COLORS.map(([l, c]) => html`<span style="--c:${c}">${l}</span>`)}</div>`;
 }
 
 function funnelBars(d) {
@@ -190,10 +219,9 @@ function funnelBars(d) {
 function slaBlock(d) {
   const sp = d.results.speed;
   if (!sp.leads) return html`<div class="ev-empty">Measured once the event's leads are in Zoho.</div>`;
-  return html`<div class="ev-stats" style="grid-template-columns:repeat(3,1fr)">
-      <div class="ev-stat"><b>${pct(sp.h24, sp.leads)}%</b><span>within 24 h</span></div><div class="ev-stat"><b>${pct(sp.h72, sp.leads)}%</b><span>within 72 h</span></div><div class="ev-stat"><b>${pct(sp.d7, sp.leads)}%</b><span>within 7 days</span></div></div>
-    <div class="ev-split" style="margin-top:14px"><i style="width:${pct(sp.h24, sp.leads)}%;background:var(--pos)"></i><i style="width:${pct(sp.h72 - sp.h24, sp.leads)}%;background:color-mix(in oklch, var(--pos) 55%, var(--surface))"></i><i style="width:${pct(sp.d7 - sp.h72, sp.leads)}%;background:var(--warn)"></i><i style="width:${pct(sp.timed - sp.d7, sp.leads)}%;background:var(--neg)"></i></div>
-    <div class="tiny muted" style="margin-top:8px">${sp.untouched} of ${sp.leads} leads have no first contact recorded</div>`;
+  return pie([['Within 24 h', sp.h24, 'var(--pos)'], ['24–72 h', sp.h72 - sp.h24, 'color-mix(in oklch, var(--pos) 50%, var(--surface))'],
+    ['3–7 days', sp.d7 - sp.h72, 'var(--warn)'], ['After 7 days', sp.timed - sp.d7, 'var(--neg)'], ['No contact yet', sp.untouched, 'color-mix(in oklch, var(--ink3) 55%, var(--surface))']],
+  html`<b>${pct(sp.h24, sp.leads)}%</b><small>in 24 h</small>`);
 }
 
 function budgetBars(d) {
@@ -201,12 +229,12 @@ function budgetBars(d) {
   d.costs.forEach(c => { const k = kinds[c.category] = kinds[c.category] || { planned: 0, actual: 0 }; k.planned += c.planned || 0; k.actual += c.amount || 0; });
   const kmax = Math.max(...Object.values(kinds).map(k => Math.max(k.planned, k.actual)), 1);
   if (!Object.keys(kinds).length) return html`<div class="ev-empty">No costs entered yet.</div>`;
-  return html`<div class="stack" style="gap:12px">${Object.entries(kinds).map(([k, v]) => html`<div style="display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr) 120px;gap:14px;align-items:center">
-      <span class="small clip">${k}</span>
-      <div style="position:relative;height:10px;border-radius:5px;background:var(--track)"><span style="position:absolute;left:0;top:0;bottom:0;border-radius:5px;width:${v.actual / kmax * 100}%;background:var(--${v.planned && v.actual > v.planned ? 'neg' : 'k'})"></span>
-        ${v.planned ? html`<span style="position:absolute;top:-4px;bottom:-4px;left:${v.planned / kmax * 100}%;border-left:2px solid var(--ink)" title="Budgeted"></span>` : ''}</div>
+  const bar = (v, color) => html`<div style="height:9px;border-radius:3px;width:${Math.max(v / kmax * 100, v ? 1 : 0)}%;background:${color}"></div>`;
+  return html`<div class="stack" style="gap:12px">${Object.entries(kinds).map(([k, v]) => html`<div style="display:grid;grid-template-columns:minmax(110px,170px) minmax(0,1fr) 110px;gap:12px;align-items:center">
+      <span class="small clip" title="${k}">${k}</span>
+      <div class="stack" style="gap:3px">${bar(v.planned, 'color-mix(in oklch, var(--ink3) 45%, var(--surface))')}${bar(v.actual, v.planned && v.actual > v.planned ? 'var(--neg)' : 'var(--k)')}</div>
       <span class="small right">${f.moneyShort(v.actual)}<span class="muted">${v.planned ? ' / ' + f.moneyShort(v.planned) : ''}</span></span></div>`)}</div>
-    <div class="ev-legend" style="margin-top:12px"><span style="--c:var(--k)">Actual</span><span style="--c:var(--ink)">Budgeted (line)</span><span style="--c:var(--neg)">Over budget</span></div>`;
+    <div class="ev-legend" style="margin-top:12px"><span style="--c:color-mix(in oklch, var(--ink3) 45%, var(--surface))">Budgeted</span><span style="--c:var(--k)">Actual</span><span style="--c:var(--neg)">Over budget</span></div>`;
 }
 
 function leadsChart(d) {
@@ -240,7 +268,7 @@ function overview(d) {
       ${tile(times(d.money.pipeline_x), 'Pipeline ROI', `Cost ${moneyOr(d.cost)} · ${times(d.money.won_x)} revenue ROI`)}
     </div>
     <div class="ev-grid2">
-      ${block('Plan timeline', openTab(d, 'plan', 'Plan'), timeline(d, true), 'span2')}
+      ${block('Tasks by status', openTab(d, 'plan', 'Plan'), taskCharts(d), 'span2')}
       ${block('Needs attention', '', attention.length ? attention.map(s => html`<div class="ev-row slim" data-act="editStep" data-arg="${s.id}">
           <span class="ev-when" style="color:var(--${s.due < d.today ? 'neg' : 'warn'})">${s.due < d.today ? 'Overdue' : day(s.due)}</span>
           <span class="ev-task">${s.title}</span><span class="ev-owner">${s.owner || 'Unassigned'}</span></div>`) : html`<div class="ev-empty">Nothing overdue and no critical task due this week.</div>`)}
@@ -273,7 +301,7 @@ function plan(d, ctx) {
       <span class="ev-phase-name">${x.label}</span><span class="ev-split" style="height:6px"><i style="width:${pct(x.done, x.total)}%;background:var(--${x.overdue ? 'neg' : 'k'})"></i></span>
       <span class="tiny muted">${x.done} of ${x.total} done${x.overdue ? html` · <span style="color:var(--neg)">${x.overdue} overdue</span>` : ''}</span></button>`)}</div>
     <div class="ev-grid2">
-      ${block('Timeline', '', timeline(d), 'span2')}
+      ${block('Tasks due per week', '', weekColumns(d), 'span2')}
       ${block('Owner workload · next 14 days', '', d.load.length ? html`<div class="stack" style="gap:12px">${d.load.map(r => html`<div class="stack" style="gap:4px;cursor:pointer" data-act="owner" data-arg="${r.owner === owner ? '' : r.owner}">
           <div class="between small"><span class="${r.owner === owner ? 'medium' : ''}">${r.owner}</span><span class="muted">${r.open} open${r.overdue ? html` · <span style="color:var(--neg)">${r.overdue} overdue</span>` : ''}</span></div>
           <div class="ev-split" style="height:8px"><i style="width:${r.overdue / maxLoad * 100}%;background:var(--neg)"></i><i style="width:${(r.open - r.overdue) / maxLoad * 100}%;background:${r.open > 6 ? 'var(--warn)' : 'var(--k)'}"></i></div></div>`)}</div>`

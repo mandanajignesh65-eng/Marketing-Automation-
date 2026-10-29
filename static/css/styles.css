@@ -426,21 +426,16 @@ svg.lines polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linej
 .ev-row.cost { grid-template-columns: 170px minmax(0, 1fr) 110px 110px 70px; cursor: pointer; }
 .ev-row.cost:hover .ev-task { color: var(--accent); }
 .ev-group { font-size: 12px; font-weight: 650; color: var(--ink2); margin: 16px 0 2px; }
-.ev-tl-axis { position: relative; height: 18px; margin-left: 130px; border-bottom: 1px solid var(--line); }
-.ev-tl-axis span { position: absolute; transform: translateX(-50%); font-size: 10.5px; color: var(--ink3); white-space: nowrap; }
-.ev-lane { display: grid; grid-template-columns: 130px 1fr; align-items: center; height: 34px; border-bottom: 1px solid var(--line2); }
-.ev-tl.compact .ev-lane { height: 28px; }
-.ev-lane > span { font-size: 12px; color: var(--ink2); }
-.ev-lane-track { position: relative; height: 100%; }
-.ev-dot { position: absolute; top: 50%; width: 11px; height: 11px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--ink3); border: 2px solid var(--surface); cursor: pointer; transition: transform .15s; }
-.ev-dot:hover { transform: translate(-50%, -50%) scale(1.5); z-index: 2; }
-.ev-dot.done { background: var(--pos); }
-.ev-dot.late { background: var(--neg); }
-.ev-dot.prog { background: var(--warn); }
-.ev-dot.crit { border-radius: 2px; transform: translate(-50%, -50%) rotate(45deg); }
-.ev-dot.crit:hover { transform: translate(-50%, -50%) rotate(45deg) scale(1.5); }
-.ev-today { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1.5px solid var(--k); z-index: 1; pointer-events: none; }
-.ev-band { position: absolute; top: 0; bottom: 0; background: color-mix(in oklch, var(--k) 12%, transparent); pointer-events: none; }
 .evw .ev-phases { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .evw .ev-phase { background: var(--surface); box-shadow: var(--shadow); }
 @media (max-width: 1100px) { .ev-grid2, .ev-grid3 { grid-template-columns: 1fr; } .evw .ev-phases { grid-template-columns: 1fr 1fr; } }
+
+/* Common charts: pie with legend */
+.ev-pie-wrap { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 22px; align-items: center; }
+.ev-pie { width: 150px; height: 150px; border-radius: 50%; display: grid; place-items: center; position: relative; }
+.ev-pie::after { content: ""; position: absolute; inset: 30px; border-radius: 50%; background: var(--surface); }
+.ev-pie span { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; line-height: 1; }
+.ev-pie b { font-family: "Bricolage Grotesque", "Geist", sans-serif; font-size: 24px; font-weight: 700; }
+.ev-pie small { font-size: 11px; color: var(--ink2); margin-top: 3px; }
+.ev-grid-chart { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 32px; align-items: center; }
+@media (max-width: 1100px) { .ev-grid-chart { grid-template-columns: 1fr; } }
