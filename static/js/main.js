@@ -5,8 +5,6 @@ import { segmented, toggle, avatar, menu } from './ui.js';
 import { setCurrency } from './format.js';
 import { mountAssistant } from './assistant.js';
 import overview from './screens/overview.js';
-import funnel from './screens/funnel.js';
-import channels from './screens/channels.js';
 import paid from './screens/paid.js';
 import outbound from './screens/outbound.js';
 import web from './screens/web.js';
@@ -21,11 +19,11 @@ import targets from './screens/targets.js';
 import people from './screens/people.js';
 import settings from './screens/settings.js';
 
-const SCREENS = { overview, funnel, channels, paid, outbound, web, leads, quality, icp, competitors, targets, people, subs, reports, alerts, settings };
+const SCREENS = { overview, paid, outbound, web, leads, quality, icp, competitors, targets, people, subs, reports, alerts, settings };
 const NAV = [
   { label: null, items: [['overview', 'Overview']] },
-  { label: 'Performance', items: [['funnel', 'Funnel'], ['channels', 'Channels'], ['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic'], ['competitors', 'Competitors']] },
-  { label: 'Leads', items: [['leads', 'Leads', 'leads'], ['icp', 'Ideal customer'], ['quality', 'Lead quality']] },
+  { label: 'Channels', items: [['paid', 'Paid ads'], ['outbound', 'Outbound'], ['web', 'Website & organic']] },
+  { label: 'Leads & market', items: [['leads', 'Leads', 'leads'], ['icp', 'Ideal customer'], ['quality', 'Lead quality'], ['competitors', 'Competitors']] },
   { label: 'Team', items: [['targets', 'Targets'], ['people', 'People']] },
   { label: 'Operations', items: [['subs', 'Subscriptions'], ['reports', 'Reports'], ['alerts', 'Alerts & reminders', 'alerts']] },
 ];
@@ -57,7 +55,7 @@ const icon = id => html`<svg class="nav-icon" viewBox="0 0 24 24" fill="none" st
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const app = {
-  shell: null, screen: 'overview', params: {}, range: 'month', start: null, end: null, compare: true, channel: 'all',
+  shell: null, screen: 'overview', params: {}, range: 'month', start: null, end: null, compare: true,
   data: null, loading: false, error: null, ui: {}, menu: null, modal: null, seq: 0,
 };
 
@@ -109,7 +107,7 @@ function onRoute() {
 
 const ctx = {
   app, api,
-  channel: id => app.shell.channels.find(c => c.id === id) || { id, name: 'Unmapped', color: 'var(--ink3)', grp: null },
+  channel: id => app.shell.channels.find(c => c.id === id) || { id, name: 'No channel', color: 'var(--ink3)', grp: null },
   rangeParams: () => (app.range === 'custom' ? { range: 'custom', start: app.start, end: app.end } : { range: app.range }),
   go(screen, params = {}) {
     const hash = toHash(screen, params);
@@ -190,22 +188,6 @@ function sidebar() {
   </aside>`;
 }
 
-function channelMenu() {
-  const items = [{ label: 'All channels', arg: 'all', on: app.channel === 'all' }];
-  app.shell.groups.forEach(g => {
-    items.push({ heading: g.label });
-    items.push({ label: 'All ' + g.label.toLowerCase(), arg: g.id, on: app.channel === g.id });
-    app.shell.channels.filter(c => c.grp === g.id).forEach(c => items.push({ label: c.name, arg: c.id, color: c.color, on: app.channel === c.id }));
-  });
-  return menu(items, 'setChannel');
-}
-
-function channelLabel() {
-  if (app.channel === 'all') return 'All channels';
-  const g = app.shell.groups.find(x => x.id === app.channel);
-  return g ? g.label : ctx.channel(app.channel).name;
-}
-
 function topbar(screen) {
   const uses = screen.uses || {};
   const s = app.shell;
@@ -220,10 +202,6 @@ function topbar(screen) {
     <div class="medium ${uses.range ? '' : 'off'}">${periodLabel()}</div>
     <div class="vr"></div>
     <div class="row small muted ${uses.compare ? '' : 'off'}" style="gap:8px" data-act="toggleCompare">${toggle(app.compare, 'toggleCompare')}<span>Compare to 3-month average</span></div>
-    <div class="menu-wrap ${uses.channel ? '' : 'off'}" data-menu-trigger>
-      <div class="select" data-act="menu" data-arg="channel">${channelLabel()}<span class="caret"></span></div>
-      ${app.menu === 'channel' ? channelMenu() : ''}
-    </div>
     <div style="flex:1"></div>
     ${s.demo ? html`<span class="pill sm" title="The figures come from the built-in sample company, pinned to ${s.today}.">Sample data</span>` : ''}
     <div class="row small muted" style="gap:7px"><span class="dot" style="width:7px;height:7px;background:var(--${s.sync.tone})"></span>${app.loading && !app.data ? 'Loading…' : s.sync.text}</div>
@@ -336,7 +314,6 @@ const actions = {
     load(true);
   },
   toggleCompare() { app.compare = !app.compare; render(); },
-  setChannel(c, d) { app.channel = d.arg; app.menu = null; load(true); },
   retry: () => load(false),
   closeModal(c, d, el, event) { if (event.target === el) ctx.closeModal(); },
   cancelModal: () => ctx.closeModal(),

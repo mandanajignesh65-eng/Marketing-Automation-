@@ -30,7 +30,7 @@ function legend(d, ctx) {
   const all = rows.reduce((t, r) => t + r.n, 0);
   return html`<div class="stack" style="width:210px;flex:none;gap:5px">
     <div class="between tiny faint medium" style="margin-bottom:2px"><span>By channel</span><span>${f.num(all)}</span></div>
-    ${rows.map(r => html`<div class="row small ${r.id === 'unmapped' ? '' : 'menu-item'}" style="gap:8px;padding:1px 4px;margin:0 -4px;font-size:12px" ${r.id === 'unmapped' ? '' : html`data-act="openChannel" data-arg="${r.id}"`}>
+    ${rows.map(r => html`<div class="row small ${r.id === 'unmapped' ? '' : 'menu-item'}" style="gap:8px;padding:1px 4px;margin:0 -4px;font-size:12px" >
       ${sq(r.c.color)}<span style="flex:1" class="nowrap">${r.id === 'unmapped' ? 'Unattributed' : r.c.name}</span><span class="medium">${f.num(r.n)}</span><span class="faint" style="width:44px;text-align:right">${all ? Math.round(r.n / all * 100) + '%' : ''}</span></div>`)}
     ${rows.length ? '' : html`<span class="small muted">No leads in this period yet.</span>`}
   </div>`;
@@ -46,9 +46,9 @@ export default {
     const kpis = [
       ['Leads', f.num(d.leads.value), deltaLine(d.leads, { show, short: true }), 'leads'],
       ['Qualified leads', f.num(k.qualified.value), deltaLine(k.qualified, { show, short: true }), 'quality'],
-      ['Deals started', f.num(d.deals.value), deltaLine(d.deals, { show, short: true }), 'funnel'],
-      ['Deals won', f.num(d.won.value), deltaLine(d.won, { show, short: true }), 'funnel'],
-      ['Value of new deals', k.pipeline.value ? f.moneyShort(k.pipeline.value) : '—', deltaLine(k.pipeline, { show, short: true, fmt: f.moneyShort }), 'funnel'],
+      ['Deals started', f.num(d.deals.value), deltaLine(d.deals, { show, short: true }), null],
+      ['Deals won', f.num(d.won.value), deltaLine(d.won, { show, short: true }), null],
+      ['Value of new deals', k.pipeline.value ? f.moneyShort(k.pipeline.value) : '—', deltaLine(k.pipeline, { show, short: true, fmt: f.moneyShort }), null],
     ];
     // The daily chart shows every channel stacked, or just the one picked with the buttons above it.
     const present = Object.keys(d.by_channel).filter(id => id !== 'unmapped').map(id => ctx.channel(id)).sort((a, b) => d.by_channel[b.id] - d.by_channel[a.id]);
@@ -60,7 +60,7 @@ export default {
     <div class="page-head"><div class="stack" style="gap:6px"><div class="eyebrow">${d.date_line}</div><h1 class="h1">Overview</h1></div></div>
 
     <div class="grid" style="grid-template-columns:repeat(5,minmax(0,1fr))">
-      ${kpis.map(([label, value, change, to]) => html`<a class="card kpi" href="#/${to}" style="color:inherit;text-decoration:none"><div class="kpi-v">${value}</div>
+      ${kpis.map(([label, value, change, to]) => html`<a class="card kpi" ${to ? html`href="#/${to}"` : ''} style="color:inherit;text-decoration:none"><div class="kpi-v">${value}</div>
         <div class="eyebrow">${label}</div>${change}</a>`)}
     </div>
 
@@ -101,7 +101,6 @@ export default {
   },
 
   actions: {
-    openChannel: (ctx, d) => ctx.go('channels', { channel: d.arg }),
     only(ctx, d) { ctx.ui().only = d.arg || null; ctx.render(); },
   },
 };
