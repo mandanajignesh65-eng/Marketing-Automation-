@@ -592,17 +592,8 @@ MEMBER_CHANGES = {  # what a team member may change on Targets, and the table th
 
 
 def targets_view(conn, request):
-    """The Targets screen's data, cut down to their own targets for a team member."""
-    view = team.view(conn, db.now(conn))
-    mine = own_member(conn, request)
-    if mine is not None:
-        view["members"] = [m for m in view["members"] if m["id"] == mine]
-        for key in ("goals", "tasks", "blockers"):
-            view[key] = [x for x in view[key] if x["member_id"] == mine]
-        for key in ("notes", "history"):
-            view[key] = {k: v for k, v in view[key].items() if k == mine}
-        view["demo"] = False
-    return view
+    """The Targets screen's data. Everyone who signs in sees everyone's targets."""
+    return team.view(conn, db.now(conn))
 
 
 def team_summary(view):
@@ -630,11 +621,7 @@ def get_targets(request: Request):
 @app.get("/api/targets/report")
 def get_targets_report(request: Request, back: int = 0):
     with session() as conn:
-        report = team.report(conn, db.now(conn), back)
-        mine = own_member(conn, request)
-        if mine is not None:
-            report["people"] = [p for p in report["people"] if p["id"] == mine]
-        return report
+        return team.report(conn, db.now(conn), back)
 
 
 @app.post("/api/targets")

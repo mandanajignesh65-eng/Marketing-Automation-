@@ -330,6 +330,8 @@ def upgrade(conn):
     for table, column, kind in ADDED_COLUMNS:
         if column not in {r["name"] for r in conn.execute("PRAGMA table_info({})".format(table))}:
             conn.execute("ALTER TABLE {} ADD COLUMN {} {}".format(table, column, kind))
+    # there is one role now: a login made while there were two keeps the old "member" role, which would still limit it
+    conn.execute("UPDATE accounts SET role = 'admin' WHERE role <> 'admin'")
 
 
 def get_setting(conn, key, default=None):

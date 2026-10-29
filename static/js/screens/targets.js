@@ -37,11 +37,10 @@ export default {
 
   render(d, ctx) {
     const { params } = ctx.app, ui = ctx.ui();
-    const user = ctx.app.shell.user, lead = !user || user.admin !== false;  // a team member sees only their own targets and cannot change them
+    const user = ctx.app.shell.user, lead = !user || user.admin !== false;
     const view = TABS.some(t => t[0] === params.view) ? params.view : lead ? 'progress' : 'today';
-    // a person with targets of their own opens on their own; "Everyone" is one click away
-    const picked = ui.who === undefined ? user && user.member_id : ui.who;
-    const who = d.members.some(m => String(m.id) === String(picked)) ? Number(picked) : null;
+    // everyone sees everyone's targets; picking one person is one click away
+    const who = d.members.some(m => String(m.id) === String(ui.who)) ? Number(ui.who) : null;
     const period = ui.period === 'month' ? 'month' : 'week';
     const members = d.members.filter(m => !who || m.id === who);
     const open = d.blockers.filter(b => !b.resolved_at);
