@@ -277,7 +277,10 @@ function view() {
     return app.error ? html`<div class="page"><div class="empty"><span class="title">Meridian could not start</span><span class="small muted">${app.error}</span></div></div>` : html``;
   }
   const screen = SCREENS[app.screen];
-  return html`<div class="app">${sidebar()}<main class="main">${topbar(screen)}${banner()}${body(screen)}</main></div>
+  // a screen can take the whole window (an event's own workspace), or drop the date bar it does not use
+  const solo = screen.solo && screen.solo(app);
+  return html`${solo ? html`<div class="solo">${body(screen)}</div>`
+      : html`<div class="app">${sidebar()}<main class="main">${screen.noTopbar ? '' : topbar(screen)}${banner()}${body(screen)}</main></div>`}
     ${app.modal && app.modal.account ? html`<div class="overlay" data-act="closeModal">${accountModal()}</div>`
       : app.modal && screen.modal ? html`<div class="overlay" data-act="closeModal">${screen.modal(app.modal, ctx)}</div>` : ''}`;
 }

@@ -38,7 +38,8 @@
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg); color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", Inter, "Helvetica Neue", sans-serif;
+  font-family: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-feature-settings: "ss01", "cv11";
   font-size: 13px; line-height: 1.4; font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased;
 }
 h1, p { margin: 0; }
@@ -82,7 +83,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .start { align-items: start; }
 
 /* ---------------------------------------------------------------- type */
-.h1 { font-size: 28px; font-weight: 600; letter-spacing: -0.022em; }
+.h1 { font-family: "Bricolage Grotesque", "Geist", sans-serif; font-size: 30px; font-weight: 700; letter-spacing: -0.03em; }
 .eyebrow { font-size: 12px; color: var(--ink2); }
 .title { font-size: 15px; font-weight: 600; }
 .section { font-size: 17px; font-weight: 600; }
@@ -102,7 +103,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .inset { padding: 16px; border-radius: 12px; background: var(--surface2); border: 1px solid var(--line2); }
 
 .kpi { padding: 18px 16px; display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.kpi-v { font-size: clamp(26px, 2.3vw, 34px); font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; white-space: nowrap; }
+.kpi-v { font-family: "Bricolage Grotesque", "Geist", sans-serif; font-size: clamp(26px, 2.3vw, 34px); font-weight: 650; letter-spacing: -0.03em; line-height: 1.05; white-space: nowrap; }
 .kpi-v.md { font-size: 30px; }
 .kpi-d { font-size: 12px; margin-top: 6px; white-space: nowrap; }
 
@@ -239,7 +240,7 @@ svg.lines polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linej
 /* "i" notes that explain a figure */
 .info { position: relative; display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 50%; border: 1px solid var(--ink3); color: var(--ink2); font: 600 10px/1 ui-serif, Georgia, serif; font-style: italic; cursor: help; flex: none; vertical-align: middle; user-select: none; }
 .info:hover, .info:focus { border-color: var(--ink); color: var(--ink); outline: none; }
-.info::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: -10px; width: 270px; padding: 10px 12px; border-radius: 10px; background: var(--ink); color: var(--bg); font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif; font-size: 12px; font-weight: 400; line-height: 1.45; font-style: normal; letter-spacing: 0; text-align: left; white-space: normal; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); opacity: 0; visibility: hidden; z-index: 60; pointer-events: none; }
+.info::after { content: attr(data-tip); position: absolute; top: calc(100% + 8px); left: -10px; width: 270px; padding: 10px 12px; border-radius: 10px; background: var(--ink); color: var(--bg); font-family: "Geist", -apple-system, sans-serif; font-size: 12px; font-weight: 400; line-height: 1.45; font-style: normal; letter-spacing: 0; text-align: left; white-space: normal; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); opacity: 0; visibility: hidden; z-index: 60; pointer-events: none; }
 .info.end::after { left: auto; right: -10px; }
 .info.up::after { top: auto; bottom: calc(100% + 8px); }
 .info:hover::after, .info:focus-visible::after, .info.open::after { opacity: 1; visibility: visible; }
@@ -296,18 +297,6 @@ svg.lines polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linej
 .ev-count { padding: 18px 22px 6px; display: flex; align-items: baseline; gap: 8px; }
 .ev-count b { font-size: 52px; font-weight: 700; letter-spacing: -0.04em; line-height: 1; font-variant-numeric: tabular-nums; }
 .ev-count span { font-size: 13px; color: var(--ink2); }
-.ev-stages { list-style: none; margin: 8px 0 0; padding: 0 22px 16px; display: flex; flex-direction: column; }
-.ev-stages li { display: grid; grid-template-columns: 14px 1fr auto; gap: 10px; align-items: center; font-size: 12.5px; color: var(--ink3); position: relative; padding: 5px 0; }
-.ev-stages li::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--ink3); justify-self: center; background: var(--surface); z-index: 1; }
-.ev-stages li:not(:last-child)::after { content: ""; position: absolute; left: 6.25px; top: 19px; height: calc(100% - 9px); width: 1.5px; background: var(--line); }
-.ev-stages li.done { color: var(--ink2); }
-.ev-stages li.done::before { background: var(--k); border-color: var(--k); }
-.ev-stages li.now { color: var(--ink); font-weight: 600; }
-.ev-stages li.now::before { border-color: var(--k); box-shadow: 0 0 0 4px color-mix(in oklch, var(--k) 22%, transparent); }
-.ev-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line2); border-top: 1px solid var(--line2); }
-.ev-kpis div { background: var(--surface); padding: 12px 16px; display: flex; flex-direction: column; gap: 2px; }
-.ev-kpis b { font-size: 19px; font-weight: 650; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.ev-kpis span { font-size: 11.5px; color: var(--ink2); }
 .ev-pass-actions { display: flex; gap: 8px; padding: 14px 16px; border-top: 1px solid var(--line2); flex-wrap: wrap; }
 .ev-nav { display: flex; flex-direction: column; padding: 6px 8px 12px; border-top: 1px solid var(--line2); }
 .ev-nav a { font-size: 12.5px; color: var(--ink2); text-decoration: none; padding: 6px 12px; border-radius: 8px; display: flex; justify-content: space-between; }
@@ -321,20 +310,6 @@ svg.lines polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linej
 .ev-stat { display: flex; flex-direction: column; gap: 6px; }
 .ev-stat b { font-size: 28px; font-weight: 680; letter-spacing: -0.03em; line-height: 1; font-variant-numeric: tabular-nums; }
 .ev-stat span { font-size: 12px; color: var(--ink2); }
-.ev-tl-axis { position: relative; height: 18px; margin-left: 140px; border-bottom: 1px solid var(--line); }
-.ev-tl-axis span { position: absolute; transform: translateX(-50%); font-size: 10.5px; color: var(--ink3); white-space: nowrap; }
-.ev-lane { display: grid; grid-template-columns: 140px 1fr; align-items: center; height: 34px; border-bottom: 1px solid var(--line2); }
-.ev-lane > span { font-size: 12px; color: var(--ink2); }
-.ev-lane-track { position: relative; height: 100%; }
-.ev-dot { position: absolute; top: 50%; width: 11px; height: 11px; border-radius: 50%; transform: translate(-50%, -50%); background: var(--ink3); border: 2px solid var(--surface); cursor: pointer; transition: transform .15s; }
-.ev-dot:hover { transform: translate(-50%, -50%) scale(1.5); z-index: 2; }
-.ev-dot.done { background: var(--pos); }
-.ev-dot.late { background: var(--neg); }
-.ev-dot.prog { background: var(--warn); }
-.ev-dot.crit { border-radius: 2px; transform: translate(-50%, -50%) rotate(45deg); }
-.ev-dot.crit:hover { transform: translate(-50%, -50%) rotate(45deg) scale(1.5); }
-.ev-today { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1.5px solid var(--k); z-index: 1; pointer-events: none; }
-.ev-band { position: absolute; top: 0; bottom: 0; background: color-mix(in oklch, var(--k) 10%, transparent); pointer-events: none; }
 .ev-funnel { display: flex; flex-direction: column; gap: 6px; }
 .ev-fstep { display: grid; grid-template-columns: 120px minmax(0, 1fr) 64px; gap: 14px; align-items: center; }
 .ev-fbar { height: 30px; border-radius: 7px; background: var(--k); display: flex; align-items: center; padding: 0 10px; color: #fff; font-weight: 650; font-size: 13px; min-width: 48px; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -379,3 +354,41 @@ svg.lines polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linej
   .ev-pass-actions, .ev-nav, .ev-noprint { display: none !important; }
   .ev-sec { box-shadow: none; border: 1px solid #ddd; break-inside: avoid; }
 }
+
+/* Event Hub type: Bricolage Grotesque for names and figures, Geist for everything else */
+.ev-name, .ev-h h2, .ev-count b, .ev-stat b, .ev-kpis b, .ev-meter b, .ev-fbar, .evw-title { font-family: "Bricolage Grotesque", "Geist", sans-serif; font-optical-sizing: auto; }
+.ev-stat b, .ev-kpis b, .ev-count b { font-weight: 700; }
+
+/* An event as its own workspace: the whole window, the pass as its navigation, one page at a time */
+.solo { min-height: 100vh; background: var(--bg); padding: 24px 28px 48px; }
+.solo .ev-room { max-width: 1440px; margin: 0 auto; grid-template-columns: 280px minmax(0, 1fr); gap: 28px; }
+.ev-main { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.ev-sec + .ev-sec { margin-top: 0; }
+.ev-back { display: block; width: fit-content; font-size: 12.5px; color: var(--ink2); text-decoration: none; margin-bottom: 18px; }
+.ev-back:hover { color: var(--ink); }
+.ev-stage { display: flex; gap: 4px; padding: 6px 22px 0; }
+.ev-stage span { flex: 1; height: 5px; border-radius: 3px; background: var(--track); }
+.ev-stage span.done { background: color-mix(in oklch, var(--k) 55%, var(--surface)); }
+.ev-stage span.now { background: var(--k); }
+.ev-stage-label { padding: 8px 22px 16px; font-size: 12.5px; font-weight: 600; color: color-mix(in oklch, var(--k) 75%, var(--ink)); }
+.ev-nav { padding: 8px 10px 12px; gap: 2px; }
+.ev-nav a { padding: 9px 12px; font-size: 13.5px; }
+.ev-nav a.on { background: color-mix(in oklch, var(--k) 12%, var(--surface)); color: var(--ink); font-weight: 600; }
+.ev-goal { margin: 0 0 22px; font-family: "Bricolage Grotesque", "Geist", sans-serif; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.25; max-width: 60ch; text-wrap: balance; }
+.ev-stat b { font-size: 34px; }
+.ev-row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 150px auto; gap: 16px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line2); cursor: default; }
+.ev-row[data-act] { cursor: pointer; }
+.ev-row[data-act]:hover .ev-task { color: var(--accent); }
+.ev-when { font-size: 12.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ev-task { font-size: 14px; min-width: 0; }
+.ev-owner { font-size: 12.5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ev-status { font-size: 12px; padding: 5px 8px; width: 150px; }
+.ev-crit { display: inline-block; margin-left: 6px; font-size: 10.5px; font-weight: 650; color: var(--neg); background: color-mix(in oklch, var(--neg) 12%, var(--surface)); padding: 2px 7px; border-radius: 999px; vertical-align: 1px; }
+.ev-empty { font-size: 13px; color: var(--ink2); padding: 14px 0 4px; }
+.ev-phases { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.ev-phase { all: unset; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-radius: 12px; background: var(--surface2); cursor: pointer; border: 1.5px solid transparent; }
+.ev-phase:hover { border-color: var(--line); }
+.ev-phase.on { border-color: var(--k); background: color-mix(in oklch, var(--k) 7%, var(--surface)); }
+.ev-phase:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.ev-phase-name { font-size: 13.5px; font-weight: 600; }
+@media print { .solo { padding: 0; } }
