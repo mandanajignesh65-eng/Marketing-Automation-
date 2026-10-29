@@ -306,7 +306,8 @@ def paid(conn, now, p):
                 camp[k] += r[k]
         platforms.append(dict(id=platform, label=label, campaigns=list(camps.values()),
                               pacing=insights.pacing(conn, now, platform)))
-    return dict(period=p.as_json(), platforms=platforms, month=MONTHS[now.month - 1],
+    inside = metrics.sources_inside(conn, p.start_dt, p.end_dt, scoring.threshold(conn), metrics.resolve_channels(conn, "paid"))
+    return dict(period=p.as_json(), platforms=platforms, month=MONTHS[now.month - 1], inside=inside,
                 sub="{} · day {} of {}".format(span_label(p.s, p.e), now.day, days_in_month(now.date())))
 
 
@@ -369,7 +370,8 @@ def outbound(conn, now, p):
             totals=[cur[k] for k in steps], prev=[scaled(totals(p.ps, p.pe)[k], p.scale) for k in steps],
             leads=st["leads"], qualified=st["qualified"], deals=st["deals"], prev_leads=pst["leads"], spend=st["spend"],
             months=[dict(label=MONTHS[ym[1] - 1][:3], **by_month[k]) for k, ym in zip(keys, months)]))
-    return dict(period=p.as_json(), groups=groups, threshold=thr)
+    return dict(period=p.as_json(), groups=groups, threshold=thr,
+                inside=metrics.sources_inside(conn, p.start_dt, p.end_dt, thr, metrics.resolve_channels(conn, "outbound")))
 
 
 # ------------------------------------------------------------------------------- website
@@ -516,7 +518,9 @@ def leads(conn, now, p, q="", channel="", owner="", status="", score="", needs_u
         by_kind[company_kind(r["industry"], icp)] += r["n"]
     count = lambda column: [dict(id=r[0], n=r[1]) for r in conn.execute(
         "SELECT {0}, COUNT(*) FROM leads WHERE created_at >= ? AND created_at < ? AND {0} IS NOT NULL GROUP BY 1 ORDER BY 2 DESC".format(column), span)]
-    return dict(period=p.as_json(), rows=[lead_row(r, now, thr, icp) for r in rows], total=total,
+    # a whole channel group picked (Overview's Events row opens this): show what is inside it, source by source
+    inside = metrics.sources_inside(conn, p.start_dt, p.end_dt, thr, ids) if channel in metrics.GROUP_LABEL else None
+    return dict(period=p.as_json(), rows=[lead_row(r, now, thr, icp) for r in rows], total=total, inside=inside,
                 period_total=head["n"], period_qualified=head["q"], waiting=metrics.count_needs_update(conn, now, 3),
                 threshold=thr, targets=len(icp["segments"]),
                 facets=dict(channels=count("channel_id"), statuses=count("status"), owners=count("owner"),

@@ -1,6 +1,6 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
-import { sq, avatar, qualifiedPill, menu, switcher, info, leadsSwitch } from '../ui.js';
+import { sq, avatar, qualifiedPill, menu, switcher, info, leadsSwitch, sourcesCard } from '../ui.js';
 
 const WIDE = 'minmax(0,1.5fr) minmax(0,1.5fr) minmax(0,1.3fr) minmax(0,1.05fr) minmax(0,1.05fr) 84px 56px';
 const NARROW = 'minmax(0,1.4fr) minmax(0,1.4fr) minmax(0,1.2fr) minmax(0,1.1fr) 84px 56px';
@@ -209,6 +209,7 @@ export default {
           <label class="search"><i></i><input id="lead-search" type="search" placeholder="Search name, company or lead source" value="${ui.q || ''}" data-input="search" autocomplete="off"></label>
         </div>
         ${summary(d)}
+        ${sourcesCard(list.inside)}
         ${table(d, ctx)}
       </div>
       ${lead ? detail(lead, ctx) : ''}

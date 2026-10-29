@@ -85,6 +85,21 @@ def ratio(a, b):
     return a / b if b else None
 
 
+def sources_inside(conn, start_dt, end_dt, threshold, ids):
+    """Results per lead source (an event, a form, a campaign) inside some channels, biggest first.
+    Leads and deals are both grouped by their lead source text, so one source's leads and deals share a row."""
+    clause, args = in_clause("channel_id", ids)
+    source = "COALESCE(NULLIF(TRIM(lead_source), ''), 'Source not recorded')"
+    rows = {}
+    for r in conn.execute("SELECT {} AS source, COUNT(*) AS n, SUM({}) AS q FROM leads WHERE created_at >= ? AND created_at < ?{} GROUP BY 1"
+                          .format(source, scoring.qualified_sql(), clause), [threshold, start_dt, end_dt] + args):
+        rows[r["source"]] = dict(source=r["source"], leads=r["n"], qualified=r["q"] or 0, deals=0, pipeline=0)
+    for r in conn.execute("SELECT {} AS source, COUNT(*) AS n, SUM(amount) AS amt FROM deals WHERE created_at >= ? AND created_at < ?{} GROUP BY 1"
+                          .format(source, clause), [start_dt, end_dt] + args):
+        rows.setdefault(r["source"], dict(source=r["source"], leads=0, qualified=0, deals=0, pipeline=0)).update(deals=r["n"], pipeline=r["amt"] or 0)
+    return sorted(rows.values(), key=lambda r: (-r["leads"], -r["deals"]))
+
+
 def cost_per(spend, count):
     """Cost per lead, deal and so on. None when nothing was spent, so screens show a dash rather than a free result."""
     return spend / count if spend and count else None

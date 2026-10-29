@@ -327,4 +327,5 @@ def build(conn, now, p, site=None):
         pages=pages[:PAGE_LIMIT], page_count=len(pages), types=sorted(types.values(), key=lambda t: -t["views"]),
         elsewhere=elsewhere, stray=stray,
         semrush=semrush.view(conn),
+        inside=metrics.sources_inside(conn, p.start_dt, p.end_dt, scoring.threshold(conn), metrics.resolve_channels(conn, "organic")),
     )

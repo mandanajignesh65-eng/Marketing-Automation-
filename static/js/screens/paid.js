@@ -1,6 +1,6 @@
 import { html } from '../html.js';
 import * as f from '../format.js';
-import { segmented, pageHead, lines, dot } from '../ui.js';
+import { segmented, pageHead, lines, dot, sourcesCard } from '../ui.js';
 import { renderMeta, metaActions } from './meta.js';
 
 const COLS = 'minmax(0,2.3fr) 76px repeat(6,minmax(0,0.8fr))';
@@ -38,7 +38,9 @@ export default {
   uses: { range: true, compare: true },
   load: ctx => ctx.api.get('paid', ctx.rangeParams()),
 
-  render(d, ctx) {
+  render(d, ctx) { return html`${this.page(d, ctx)}${sourcesCard(d.inside)}`; },
+
+  page(d, ctx) {
     const ui = ctx.ui();
     const platform = d.platforms.find(p => p.id === ui.tab) || d.platforms.find(p => p.id === 'meta') || d.platforms[0];
     const camps = platform.campaigns;
@@ -55,7 +57,7 @@ export default {
     ${pageHead(d.sub, 'Paid ads', segmented(tabs, 'tab', 18))}
     <div class="grid start" style="grid-template-columns:minmax(0,1fr) 336px">
       <div class="card clipped" style="--cols:${COLS}">
-        <div class="thead right"><span style="text-align:left">Campaign</span><span style="text-align:left">Status</span><span>Spend</span><span>Impressions</span><span>Clicks</span><span>CTR</span><span>Leads</span><span>Per lead</span></div>
+        <div class="thead right"><span style="text-align:left">Campaign</span><span style="text-align:left">Status</span><span>Spend</span><span>Impressions</span><span>Clicks</span><span>CTR</span><span>LinkedIn leads</span><span>Per lead</span></div>
         ${camps.map((c, i) => html`<div class="trow right ${i ? '' : 'first'} ${i === idx ? 'sel' : ''}" style="padding:12px 16px" data-act="camp" data-arg="${i}">
           <span class="clip" style="text-align:left;font-weight:${i === idx ? 600 : 500}">${c.name}</span>
           <span class="row small muted" style="gap:6px">${dot(c.status === 'Active' ? 'var(--pos)' : 'var(--ink3)')}${c.status}</span>${metrics(c)}</div>`)}
@@ -75,7 +77,7 @@ export default {
         <div class="stack" style="padding:14px 16px 16px;gap:12px">
           <div class="stack" style="gap:1px"><span class="semi">${c.headline}</span><span class="small muted">${c.format}</span></div>
           <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px">
-            ${[[f.money(c.spend), 'Spend'], [c.impressions ? f.pct(c.clicks / c.impressions * 100) : '—', 'CTR'], [f.num(c.leads), 'Leads'], [c.leads ? f.money2(c.spend / c.leads) : '—', 'Per lead']]
+            ${[[f.money(c.spend), 'Spend'], [c.impressions ? f.pct(c.clicks / c.impressions * 100) : '—', 'CTR'], [f.num(c.leads), 'LinkedIn leads'], [c.leads ? f.money2(c.spend / c.leads) : '—', 'Per lead']]
               .map(([v, l]) => html`<div class="stack"><span class="medium">${v}</span><span class="tiny faint">${l}</span></div>`)}
           </div>
         </div>
