@@ -1,4 +1,4 @@
-import { html, raw } from '../html.js';
+import { html } from '../html.js';
 import * as f from '../format.js';
 import { pageHead, segmented, info, switcher } from '../ui.js';
 
@@ -159,7 +159,6 @@ const openTab = (d, sec) => (d.setup.tabs.find(t => t.id === sec && t.show)
 // A row per task, on one line, changed in place: tick to pick it for a group change, task, workstream,
 // owner, due date, status. Clicking the task name opens every field, including "Done when" and notes.
 const initials = n => n.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
-const FLAG = raw('<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 1.5v13M3 2.5h8.5l-1.8 3 1.8 3H3" fill="currentColor" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>');
 
 function taskRow(d, s, picked) {
   const late = isLate(s, d.today), team = d.team.includes(s.owner) || !s.owner ? d.team : [s.owner, ...d.team];
@@ -167,7 +166,7 @@ function taskRow(d, s, picked) {
   return html`<div class="ev-trow ${s.status === 'Done' ? 'done' : ''} ${s.status === SKIPPED ? 'skipped' : ''} ${picked ? 'picked' : ''}">
     <input type="checkbox" class="ev-pick ev-noprint" data-change="pickStep" data-id="${s.id}" ${picked ? 'checked' : ''} aria-label="Select task">
     <span class="ev-task" data-act="editStep" data-arg="${s.id}" title="${hint}">
-      ${s.critical ? html`<span class="ev-flag" title="Critical">${FLAG}</span>` : html`<span class="ev-flag"></span>`}<span class="ev-title">${s.title}</span></span>
+      <span class="ev-title">${s.title}</span>${s.critical ? html`<span class="ev-critical">Critical</span>` : ''}</span>
     <span class="ev-ws">${s.workstream ? html`<span class="ev-tag" title="Workstream">${s.workstream}</span>` : ''}</span>
     <label class="ev-owner-cell">${s.owner ? html`<span class="ev-av" aria-hidden="true">${initials(s.owner)}</span>` : html`<span class="ev-av none" aria-hidden="true"></span>`}
       <select class="ev-plain" data-change="stepField" data-id="${s.id}" data-field="owner" aria-label="Owner"><option value="">Unassigned</option>${team.map(n => html`<option ${n === s.owner ? 'selected' : ''}>${n}</option>`)}</select></label>
