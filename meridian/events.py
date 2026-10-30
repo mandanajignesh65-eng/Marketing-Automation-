@@ -97,15 +97,90 @@ NUMBERS = ("budget", "target_leads", "target_meetings", "target_qualified", "tar
 
 PLAYBOOK_VERSION = "2"
 
+# Tasks that can mark themselves done from Zoho or from what is entered in the event. A task completes once, on the first
+# check that passes; if someone reopens it, it stays open. Labels are shown in the task form.
+AUTO_RULES = [
+    ("first_lead", "The first lead with this event's Lead Source is in Zoho"),
+    ("leads_loaded", "Leads with this event's Lead Source, created on or after the first event day, are in Zoho"),
+    ("leads_owned", "After the event, every lead with this event's Lead Source has an owner in Zoho"),
+    ("leads_contacted", "Every lead with this event's Lead Source has a first contact logged in Zoho"),
+    ("first_deal", "The first opportunity with this event's Lead Source is in Zoho"),
+    ("targets_added", "The target account list is imported"),
+    ("space_paid", "A Space or sponsorship cost line is marked paid"),
+    ("post_live", "A post is added under Content"),
+    ("recap_post", "A post dated after the last event day is added under Content"),
+]
+# the playbook tasks each rule is set on by default
+AUTO_BY_TITLE = {
+    "Lead capture form (QR) with consent wording": "first_lead",
+    "Leads cleaned and loaded into Zoho": "leads_loaded",
+    "Daily lead sync: tag hot leads, assign owners": "leads_owned",
+    "Thank-you emails; personal follow-up on hot leads": "leads_contacted",
+    "Target account list with tiers and an account owner each": "targets_added",
+    "Book space or sponsorship package; pay the invoice": "space_paid",
+    "Content calendar and teaser post": "post_live",
+    "Recap post": "recap_post",
+}
+
 
 def seed_playbook(conn):
     """The standard plan goes in once; after that it is the team's to change."""
     if get_setting(conn, "playbook_seeded") == PLAYBOOK_VERSION:
         return
     conn.execute("DELETE FROM playbook_steps")  # version 1 was never used live
-    conn.executemany("INSERT INTO playbook_steps (phase, workstream, title, offset_days, done_when, kinds, critical, sort) VALUES (?,?,?,?,?,?,?,?)",
-                     [row + (i,) for i, row in enumerate(PLAYBOOK)])
+    conn.executemany("INSERT INTO playbook_steps (phase, workstream, title, offset_days, done_when, kinds, critical, sort, auto) VALUES (?,?,?,?,?,?,?,?,?)",
+                     [row + (i, AUTO_BY_TITLE.get(row[2])) for i, row in enumerate(PLAYBOOK)])
     set_setting(conn, "playbook_seeded", PLAYBOOK_VERSION)
+
+
+def link_auto(conn):
+    """Set the default rules on the playbook and on tasks made before rules existed, once."""
+    if get_setting(conn, "auto_linked"):
+        return
+    for title, rule in AUTO_BY_TITLE.items():
+        for table in ("playbook_steps", "event_steps"):
+            conn.execute("UPDATE {} SET auto = ? WHERE title = ? AND auto IS NULL".format(table), (rule, title))
+    set_setting(conn, "auto_linked", "1")
+
+
+def auto_check(conn, ev, rule, today):
+    """Whether a rule's condition holds for the event now."""
+    sources = json.loads(ev["lead_sources"] or "[]")
+    ended = today > date.fromisoformat(ev["ends"] or ev["starts"])
+    if rule in ("first_lead", "leads_loaded", "leads_owned", "leads_contacted", "first_deal"):
+        if not sources:
+            return False
+        marks = ",".join("?" for _ in sources)
+        if rule == "first_deal":
+            return bool(conn.execute("SELECT 1 FROM deals WHERE TRIM(lead_source) IN ({}) LIMIT 1".format(marks), sources).fetchone())
+        r = conn.execute("SELECT COUNT(*) AS n, SUM(created_at >= ?) AS since, SUM(COALESCE(owner, '') = '') AS no_owner, "
+                         "SUM(first_touch_at IS NULL) AS untouched FROM leads WHERE TRIM(lead_source) IN ({})".format(marks),
+                         [ev["starts"]] + sources).fetchone()
+        n, since = r["n"] or 0, r["since"] or 0
+        return {"first_lead": n > 0, "leads_loaded": since > 0, "leads_owned": ended and n > 0 and not r["no_owner"],
+                "leads_contacted": since > 0 and not r["untouched"]}[rule]
+    one = lambda sql, *args: bool(conn.execute(sql, (ev["id"],) + args).fetchone())
+    if rule == "targets_added":
+        return one("SELECT 1 FROM event_targets WHERE event_id = ? LIMIT 1")
+    if rule == "space_paid":
+        return one("SELECT 1 FROM event_costs WHERE event_id = ? AND paid = 1 AND category = ? LIMIT 1", "Space or sponsorship")
+    if rule == "post_live":
+        return one("SELECT 1 FROM event_creatives WHERE event_id = ? LIMIT 1")
+    if rule == "recap_post":
+        return one("SELECT 1 FROM event_creatives WHERE event_id = ? AND posted_on > ? LIMIT 1", ev["ends"] or ev["starts"])
+    return False
+
+
+def apply_auto(conn, ev, today):
+    """Mark done the open tasks whose rule now holds. Each task completes automatically once at most."""
+    rows = conn.execute("SELECT id, auto FROM event_steps WHERE event_id = ? AND auto IS NOT NULL AND auto_done IS NULL "
+                        "AND status NOT IN ('Done', ?)", (ev["id"], SKIPPED)).fetchall()
+    held = {}
+    for r in rows:
+        if r["auto"] not in held:
+            held[r["auto"]] = auto_check(conn, ev, r["auto"], today)
+        if held[r["auto"]]:
+            conn.execute("UPDATE event_steps SET status = 'Done', auto_done = ? WHERE id = ?", (today.isoformat(), r["id"]))
 
 
 def kinds(conn):
@@ -348,9 +423,11 @@ def embed_url(url):
 
 def listing(conn, now, threshold):
     seed_playbook(conn)
+    link_auto(conn)
     today = now.date()
     out, kind_list = [], kinds(conn)
-    for ev in conn.execute("SELECT * FROM events ORDER BY starts"):
+    for ev in conn.execute("SELECT * FROM events ORDER BY starts").fetchall():
+        apply_auto(conn, ev, today)
         steps = [dict(r) for r in conn.execute("SELECT status, due, critical, owner FROM event_steps WHERE event_id = ?", (ev["id"],))]
         cost = conn.execute("SELECT COALESCE(SUM(amount), 0) FROM event_costs WHERE event_id = ?", (ev["id"],)).fetchone()[0]
         res = results(conn, ev, threshold)
@@ -364,7 +441,8 @@ def listing(conn, now, threshold):
     out.sort(key=lambda e: (e["phase"] == "Done", e["days_to_go"] if e["phase"] != "Done" else -e["days_to_go"]))
     playbook = [dict(r) for r in conn.execute("SELECT * FROM playbook_steps ORDER BY sort, id")]
     used = {r[0]: r[1] for r in conn.execute("SELECT kind, COUNT(*) FROM events GROUP BY kind")}
-    return dict(events=out, playbook=playbook, phases=PHASES, kinds=kind_list, kind_use=used, today=today.isoformat(), result_days=RESULT_DAYS)
+    return dict(events=out, playbook=playbook, phases=PHASES, kinds=kind_list, kind_use=used, today=today.isoformat(), result_days=RESULT_DAYS,
+                auto_rules=AUTO_RULES)
 
 
 def source_options(conn):
@@ -380,6 +458,8 @@ def detail(conn, now, event_id, threshold):
     if not ev:
         raise EventError("Event not found.")
     today = now.date()
+    link_auto(conn)
+    apply_auto(conn, ev, today)
     steps = [dict(r) for r in conn.execute("SELECT * FROM event_steps WHERE event_id = ? ORDER BY due, sort, id", (event_id,))]
     costs = [dict(r) for r in conn.execute("SELECT * FROM event_costs WHERE event_id = ? ORDER BY id", (event_id,))]
     cost = sum(c["amount"] or 0 for c in costs)
@@ -400,7 +480,7 @@ def detail(conn, now, event_id, threshold):
         info=[dict(r) for r in conn.execute("SELECT * FROM event_info WHERE event_id = ? ORDER BY sort, id", (event_id,))],
         taken=taken, decisions=DECISIONS,
         team=[r["name"] for r in conn.execute("SELECT name FROM team_members WHERE active = 1 ORDER BY sort, name")],
-        phases=PHASES, statuses=STATUSES, source_options=source_options(conn),
+        phases=PHASES, statuses=STATUSES, source_options=source_options(conn), auto_rules=AUTO_RULES,
         # the standard lists, plus whatever the team has typed before, offered as suggestions
         channels=list(dict.fromkeys(CHANNELS + [r[0] for r in conn.execute("SELECT DISTINCT channel FROM event_promos ORDER BY 1")])),
         cost_kinds=list(dict.fromkeys(COST_KINDS + [r[0] for r in conn.execute("SELECT DISTINCT category FROM event_costs ORDER BY 1")])),
@@ -447,10 +527,10 @@ def save_event(conn, now, event_id, d):
         seed_playbook(conn)
         first, last = date.fromisoformat(values["starts"]), date.fromisoformat(values["ends"])
         rows = [r for r in conn.execute("SELECT * FROM playbook_steps ORDER BY sort, id") if not r["kinds"] or values["kind"] in r["kinds"].split(",")]
-        conn.executemany("INSERT INTO event_steps (event_id, phase, workstream, title, owner, due, status, done_when, critical, sort) VALUES (?,?,?,?,?,?,?,?,?,?)",
+        conn.executemany("INSERT INTO event_steps (event_id, phase, workstream, title, owner, due, status, done_when, critical, sort, auto) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                          [(new_id, r["phase"], r["workstream"], r["title"], r["owner"],
                            ((last if r["phase"] == "follow" else first) + timedelta(days=r["offset_days"])).isoformat(),
-                           "Not started", r["done_when"], r["critical"], i) for i, r in enumerate(rows)])
+                           "Not started", r["done_when"], r["critical"], i, r["auto"]) for i, r in enumerate(rows)])
     return new_id
 
 
@@ -466,8 +546,8 @@ def copy_event(conn, source_id, new_id):
     move = lambda iso, n: (date.fromisoformat(iso) + timedelta(days=n)).isoformat() if iso else None
     conn.execute("UPDATE events SET setup = ? WHERE id = ?", (src["setup"], new_id))
     # a task skipped last time stays skipped; every other task starts again
-    conn.execute("INSERT INTO event_steps (event_id, phase, workstream, title, owner, due, status, done_when, critical, sort) "
-                 "SELECT ?, phase, workstream, title, owner, due, CASE WHEN status = ? THEN status ELSE 'Not started' END, done_when, critical, sort "
+    conn.execute("INSERT INTO event_steps (event_id, phase, workstream, title, owner, due, status, done_when, critical, sort, auto) "
+                 "SELECT ?, phase, workstream, title, owner, due, CASE WHEN status = ? THEN status ELSE 'Not started' END, done_when, critical, sort, auto "
                  "FROM event_steps WHERE event_id = ?", (new_id, SKIPPED, source_id))
     for s in conn.execute("SELECT id, phase, due FROM event_steps WHERE event_id = ? AND due IS NOT NULL", (new_id,)).fetchall():
         conn.execute("UPDATE event_steps SET due = ? WHERE id = ?", (move(s["due"], last if s["phase"] == "follow" else first), s["id"]))
@@ -501,12 +581,22 @@ def save_step(conn, step_id, event_id, d):
     status = d.get("status") if d.get("status") in STATUSES else "Not started"
     values = (phase, (d.get("workstream") or "").strip() or None, need(d.get("title"), "Task name"), (d.get("owner") or "").strip() or None,
               day_of(d["due"], "Due date") if d.get("due") else None, status, (d.get("done_when") or "").strip() or None, (d.get("note") or "").strip() or None,
-              1 if d.get("critical") else 0)
+              1 if d.get("critical") else 0, auto_rule(d))
     if step_id:
-        conn.execute("UPDATE event_steps SET phase = ?, workstream = ?, title = ?, owner = ?, due = ?, status = ?, done_when = ?, note = ?, critical = ? WHERE id = ?", values + (step_id,))
+        old = conn.execute("SELECT auto FROM event_steps WHERE id = ?", (step_id,)).fetchone()
+        conn.execute("UPDATE event_steps SET phase = ?, workstream = ?, title = ?, owner = ?, due = ?, status = ?, done_when = ?, note = ?, critical = ?, auto = ? WHERE id = ?", values + (step_id,))
+        if old and old["auto"] != values[-1]:  # a new rule gets its own chance to complete the task
+            conn.execute("UPDATE event_steps SET auto_done = NULL WHERE id = ?", (step_id,))
     else:
-        conn.execute("INSERT INTO event_steps (phase, workstream, title, owner, due, status, done_when, note, critical, event_id, sort) "
-                     "VALUES (?,?,?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM event_steps WHERE event_id = ?))", values + (event_id, event_id))
+        conn.execute("INSERT INTO event_steps (phase, workstream, title, owner, due, status, done_when, note, critical, auto, event_id, sort) "
+                     "VALUES (?,?,?,?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM event_steps WHERE event_id = ?))", values + (event_id, event_id))
+
+
+def auto_rule(d):
+    rule = (d.get("auto") or "").strip()
+    if rule and rule not in dict(AUTO_RULES):
+        raise EventError("Unknown automatic completion rule.")
+    return rule or None
 
 
 def set_status(conn, step_id, status):
@@ -580,12 +670,12 @@ def save_playbook_step(conn, step_id, d):
         raise EventError("Offset must be a whole number of days, e.g. -21 or 3.")
     values = (phase, (d.get("workstream") or "").strip() or None, need(d.get("title"), "Task name"), offset,
               (d.get("done_when") or "").strip() or None, (d.get("owner") or "").strip() or None,
-              ",".join(k for k, _ in kinds(conn) if d.get("kind_" + k)) or None, 1 if d.get("critical") else 0)
+              ",".join(k for k, _ in kinds(conn) if d.get("kind_" + k)) or None, 1 if d.get("critical") else 0, auto_rule(d))
     if step_id:
-        conn.execute("UPDATE playbook_steps SET phase = ?, workstream = ?, title = ?, offset_days = ?, done_when = ?, owner = ?, kinds = ?, critical = ? WHERE id = ?", values + (step_id,))
+        conn.execute("UPDATE playbook_steps SET phase = ?, workstream = ?, title = ?, offset_days = ?, done_when = ?, owner = ?, kinds = ?, critical = ?, auto = ? WHERE id = ?", values + (step_id,))
     else:
-        conn.execute("INSERT INTO playbook_steps (phase, workstream, title, offset_days, done_when, owner, kinds, critical, sort) "
-                     "VALUES (?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM playbook_steps))", values)
+        conn.execute("INSERT INTO playbook_steps (phase, workstream, title, offset_days, done_when, owner, kinds, critical, auto, sort) "
+                     "VALUES (?,?,?,?,?,?,?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM playbook_steps))", values)
 
 
 def save_promo(conn, promo_id, event_id, d):

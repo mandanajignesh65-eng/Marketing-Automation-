@@ -358,7 +358,9 @@ ADDED_COLUMNS = [("events", "kind", "TEXT NOT NULL DEFAULT 'booth'"),
                  ("outbound_campaigns", "ext_id", "TEXT"), ("outbound_campaigns", "lifetime", "TEXT"),
                  ("ad_campaigns", "ext_id", "TEXT"), ("ad_creatives", "ext_id", "TEXT"),
                  ("competitor_posts", "comments", "INTEGER"), ("competitors", "own", "INTEGER NOT NULL DEFAULT 0"), ("leads", "qualify_override", "TEXT"), ("competitor_posts", "image", "TEXT"), ("competitor_accounts", "followers", "INTEGER"),
-                 ("subscriptions", "email", "TEXT")]  # who to email when the renewal is near
+                 ("subscriptions", "email", "TEXT"),  # who to email when the renewal is near
+                 # the rule that marks a task done from Zoho or event data (events.AUTO_RULES), and the day it did
+                 ("playbook_steps", "auto", "TEXT"), ("event_steps", "auto", "TEXT"), ("event_steps", "auto_done", "TEXT")]
 
 
 def init_schema(conn):

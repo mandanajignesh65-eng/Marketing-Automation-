@@ -169,3 +169,7 @@ Every event is different, so these are now set per event instead of fixed in cod
 *   **Start a new event from a past one:** tasks, promotion plan, budget lines (as budgeted amounts), goals, key details, target accounts and tab setup are copied. Dates move by the gap between the events; statuses, spend and results start again.
 
 The task list on the Plan tab: search, show (all, open, overdue, due in 7 days, done, skipped), group by phase, workstream, owner, week due or status, and filter by owner and workstream. Due date, owner and status change in place. Ticked tasks can get a status, owner, phase or workstream at once, have their dates moved by a number of days, or be deleted. A new status, **Skipped**, keeps a task that does not apply to this event on record but leaves it out of every count.
+
+## Tasks that complete themselves (2026-10-30)
+
+A task can carry one rule from `events.AUTO_RULES` (Zoho: first lead, leads loaded after the first day, every lead owned, every lead contacted, first opportunity; event data: target list imported, space cost paid, a post added, a recap post). The rules run each time an event or the event list is read. A matching open task is set to Done once and stamped `auto_done`; if someone reopens it, it stays open. The playbook carries the rule into new events; the task and playbook forms can change or turn it off.

@@ -506,3 +506,7 @@ svg.lines polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linej
 .ev-in.later .ev-in-state { color: var(--ink2); background: var(--track); }
 .ev-in.later .medium, .ev-in.later .muted { color: var(--ink3); }
 @media (max-width: 900px) { .ev-in { grid-template-columns: 110px 1fr; } .ev-in > .small, .ev-in > .right { grid-column: 2; justify-self: start; } }
+
+/* a task that completes itself from Zoho or event data */
+.ev-auto { flex: none; font-size: 11px; font-weight: 600; color: var(--ink2); border: 1px solid var(--line); padding: 1px 6px; border-radius: 4px; }
+.ev-auto.on { color: var(--pos); border-color: color-mix(in oklch, var(--pos) 35%, transparent); }

@@ -160,13 +160,21 @@ const openTab = (d, sec) => (d.setup.tabs.find(t => t.id === sec && t.show)
 // owner, due date, status. Clicking the task name opens every field, including "Done when" and notes.
 const initials = n => n.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
 
+// a task that completes itself: the rule on hover, and when it did
+function autoTag(d, s) {
+  if (!s.auto) return '';
+  const rule = (d.auto_rules.find(r => r[0] === s.auto) || [, ''])[1];
+  return s.auto_done ? html`<span class="ev-auto on" title="Completed automatically on ${day(s.auto_done)}: ${rule}">Auto-completed</span>`
+    : html`<span class="ev-auto" title="Completes automatically when: ${rule}">Auto</span>`;
+}
+
 function taskRow(d, s, picked) {
   const late = isLate(s, d.today), team = d.team.includes(s.owner) || !s.owner ? d.team : [s.owner, ...d.team];
   const hint = [s.done_when && 'Done when: ' + s.done_when, s.note].filter(Boolean).join('\n');
   return html`<div class="ev-trow ${s.status === 'Done' ? 'done' : ''} ${s.status === SKIPPED ? 'skipped' : ''} ${picked ? 'picked' : ''}">
     <input type="checkbox" class="ev-pick ev-noprint" data-change="pickStep" data-id="${s.id}" ${picked ? 'checked' : ''} aria-label="Select task">
     <span class="ev-task" data-act="editStep" data-arg="${s.id}" title="${hint}">
-      <span class="ev-title">${s.title}</span>${s.critical ? html`<span class="ev-critical">Critical</span>` : ''}</span>
+      <span class="ev-title">${s.title}</span>${s.critical ? html`<span class="ev-critical">Critical</span>` : ''}${autoTag(d, s)}</span>
     <span class="ev-ws">${s.workstream ? html`<span class="ev-tag" title="Workstream">${s.workstream}</span>` : ''}</span>
     <label class="ev-owner-cell">${s.owner ? html`<span class="ev-av" aria-hidden="true">${initials(s.owner)}</span>` : html`<span class="ev-av none" aria-hidden="true"></span>`}
       <select class="ev-plain" data-change="stepField" data-id="${s.id}" data-field="owner" aria-label="Owner"><option value="">Unassigned</option>${team.map(n => html`<option ${n === s.owner ? 'selected' : ''}>${n}</option>`)}</select></label>
@@ -662,7 +670,8 @@ export default {
         ${field('Task', 'title', s.title, 'required data-autofocus')}
         <div class="grid" style="grid-template-columns:1fr 1fr">${select('Phase', 'phase', d.phases, s.phase)}${field('Due date', 'due', s.due, 'type="date"')}${field('Owner', 'owner', s.owner, 'list="owners"')}${select('Status', 'status', d.statuses, s.status)}</div>
         <div class="grid" style="grid-template-columns:1fr 1fr">${field('Workstream', 'workstream', s.workstream, 'list="workstreams"')}${field('Done when', 'done_when', s.done_when)}</div>
-        ${field('Note', 'note', s.note)}${check('critical', 'Critical task', s.critical)}
+        ${field('Note', 'note', s.note)}<label class="field">Complete automatically<select class="input" name="auto"><option value="">Off</option>${d.auto_rules.map(([k, t]) => html`<option value="${k}" ${k === s.auto ? 'selected' : ''}>${t}</option>`)}</select></label>
+        ${s.auto_done ? html`<span class="small muted">Completed automatically on ${day(s.auto_done)}. If reopened, it stays open.</span>` : ''}${check('critical', 'Critical task', s.critical)}
         ${buttons('removeStep', m.step && s.id)}</form>`;
     }
     if (m.kind === 'playbook') {
@@ -672,6 +681,7 @@ export default {
         ${field('Task', 'title', s.title, 'required data-autofocus')}
         <div class="grid" style="grid-template-columns:1fr 1fr">${select('Phase', 'phase', d.phases, s.phase)}${field('Offset in days from start (e.g. −21)', 'offset_days', s.offset_days, 'type="number" step="1" required')}${field('Workstream', 'workstream', s.workstream)}${field('Default owner', 'owner', s.owner)}</div>
         ${field('Done when', 'done_when', s.done_when)}
+        <label class="field">Complete automatically<select class="input" name="auto"><option value="">Off</option>${d.auto_rules.map(([k, t]) => html`<option value="${k}" ${k === s.auto ? 'selected' : ''}>${t}</option>`)}</select></label>
         <div class="stack" style="gap:6px"><span class="small muted">Event types (none = all)</span><div class="row" style="gap:14px;flex-wrap:wrap">${d.kinds.map(([k, l]) => check('kind_' + k, l, kinds.includes(k)))}</div></div>
         ${check('critical', 'Critical task', s.critical)}
         ${buttons('removePlaybookStep', m.step && s.id)}</form>`;
