@@ -17,8 +17,8 @@ from .db import get_setting, set_setting
 from .periods import iso
 
 PHASES = [("plan", "Decide & plan"), ("promote", "Promote & invite"), ("live", "Event days"), ("follow", "Follow up & measure")]
-STATUSES = ["Not started", "In progress", "Waiting on others", "Done", "Not needed"]
-SKIPPED = "Not needed"  # a task that does not apply to this event: kept for the record, left out of every count
+STATUSES = ["Not started", "In progress", "Waiting on others", "Done", "Skipped"]
+SKIPPED = "Skipped"  # a task that does not apply to this event: kept for the record, left out of every count
 CHANNELS = ["LinkedIn post", "LinkedIn ads", "Meta ads", "Instagram post", "Email", "Personal invites", "Landing page", "WhatsApp", "PR", "Other"]
 COST_KINDS = ["Space or sponsorship", "Booth build and graphics", "Screen, power and Wi-Fi", "Travel and stay", "Print and swag", "Ads", "Other"]
 DECISIONS = ["Considering", "Go", "No-go"]
@@ -115,7 +115,7 @@ def kinds(conn):
 
 
 def save_kind(conn, key, d):
-    label = need(d.get("label"), "A name for the event type")[:60]
+    label = need(d.get("label"), "Type name")[:60]
     rows = kinds(conn)
     if key:
         rows = [(k, label if k == key else l) for k, l in rows]
@@ -130,10 +130,10 @@ def save_kind(conn, key, d):
 def remove_kind(conn, key):
     used = conn.execute("SELECT COUNT(*) FROM events WHERE kind = ?", (key,)).fetchone()[0]
     if used:
-        raise EventError("{} event{} still use this type. Change their type first.".format(used, "" if used == 1 else "s"))
+        raise EventError("This type is used by {} event{} and cannot be deleted.".format(used, "" if used == 1 else "s"))
     rows = [r for r in kinds(conn) if r[0] != key]
     if not rows:
-        raise EventError("At least one event type is needed.")
+        raise EventError("At least one event type is required.")
     set_setting(conn, "event_kinds", json.dumps(rows))
 
 
@@ -160,7 +160,7 @@ def save_setup(conn, event_id, d):
 def need(text, what):
     text = (text or "").strip()
     if not text:
-        raise EventError("{} is needed.".format(what))
+        raise EventError("{} is required.".format(what))
     return text
 
 
@@ -168,7 +168,7 @@ def day_of(text, what):
     try:
         return date.fromisoformat((text or "").strip()).isoformat()
     except ValueError:
-        raise EventError("{} needs a date.".format(what))
+        raise EventError("{} must be a valid date.".format(what))
 
 
 def number(value):
@@ -177,7 +177,7 @@ def number(value):
     try:
         return float(value)
     except (TypeError, ValueError):
-        raise EventError("A number is needed.")
+        raise EventError("Enter a valid number.")
 
 
 # ------------------------------------------------------------------------------- results
@@ -378,7 +378,7 @@ def detail(conn, now, event_id, threshold):
     seed_playbook(conn)
     ev = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
     if not ev:
-        raise EventError("That event is not there any more.")
+        raise EventError("Event not found.")
     today = now.date()
     steps = [dict(r) for r in conn.execute("SELECT * FROM event_steps WHERE event_id = ? ORDER BY due, sort, id", (event_id,))]
     costs = [dict(r) for r in conn.execute("SELECT * FROM event_costs WHERE event_id = ? ORDER BY id", (event_id,))]
@@ -411,11 +411,11 @@ def detail(conn, now, event_id, threshold):
 
 def save_event(conn, now, event_id, d):
     values = {k: d.get(k) for k in EVENT_FIELDS}
-    values["name"] = need(values["name"], "A name for the event")
-    values["starts"] = day_of(values["starts"], "The first day")
-    values["ends"] = day_of(values["ends"], "The last day") if values.get("ends") else values["starts"]
+    values["name"] = need(values["name"], "Event name")
+    values["starts"] = day_of(values["starts"], "Start date")
+    values["ends"] = day_of(values["ends"], "End date") if values.get("ends") else values["starts"]
     if values["ends"] < values["starts"]:
-        raise EventError("The last day is before the first day.")
+        raise EventError("End date is before the start date.")
     for k in NUMBERS:
         values[k] = number(values[k])
     for k in ("city", "venue", "partner", "booth", "goal", "lessons"):
@@ -460,12 +460,12 @@ def copy_event(conn, source_id, new_id):
     src = conn.execute("SELECT * FROM events WHERE id = ?", (source_id,)).fetchone()
     new = conn.execute("SELECT * FROM events WHERE id = ?", (new_id,)).fetchone()
     if not src:
-        raise EventError("The event to copy from is not there any more.")
+        raise EventError("The source event was not found.")
     gap = lambda a, b: (date.fromisoformat(b) - date.fromisoformat(a)).days
     first, last = gap(src["starts"], new["starts"]), gap(src["ends"] or src["starts"], new["ends"] or new["starts"])
     move = lambda iso, n: (date.fromisoformat(iso) + timedelta(days=n)).isoformat() if iso else None
     conn.execute("UPDATE events SET setup = ? WHERE id = ?", (src["setup"], new_id))
-    # a task marked not needed last time stays not needed; every other task starts again
+    # a task skipped last time stays skipped; every other task starts again
     conn.execute("INSERT INTO event_steps (event_id, phase, workstream, title, owner, due, status, done_when, critical, sort) "
                  "SELECT ?, phase, workstream, title, owner, due, CASE WHEN status = ? THEN status ELSE 'Not started' END, done_when, critical, sort "
                  "FROM event_steps WHERE event_id = ?", (new_id, SKIPPED, source_id))
@@ -492,15 +492,15 @@ def save_sources(conn, event_id, sources):
     for o in conn.execute("SELECT name, lead_sources FROM events WHERE id <> ?", (event_id,)):
         both = set(clean) & set(json.loads(o["lead_sources"] or "[]"))
         if both:
-            raise EventError("{} already belongs to {}. A lead source can belong to one event only.".format(", ".join(sorted(both)), o["name"]))
+            raise EventError("{} is already assigned to {}.".format(", ".join(sorted(both)), o["name"]))
     conn.execute("UPDATE events SET lead_sources = ? WHERE id = ?", (json.dumps(clean), event_id))
 
 
 def save_step(conn, step_id, event_id, d):
     phase = d.get("phase") if d.get("phase") in dict(PHASES) else "plan"
     status = d.get("status") if d.get("status") in STATUSES else "Not started"
-    values = (phase, (d.get("workstream") or "").strip() or None, need(d.get("title"), "What the step is"), (d.get("owner") or "").strip() or None,
-              day_of(d["due"], "The due date") if d.get("due") else None, status, (d.get("done_when") or "").strip() or None, (d.get("note") or "").strip() or None,
+    values = (phase, (d.get("workstream") or "").strip() or None, need(d.get("title"), "Task name"), (d.get("owner") or "").strip() or None,
+              day_of(d["due"], "Due date") if d.get("due") else None, status, (d.get("done_when") or "").strip() or None, (d.get("note") or "").strip() or None,
               1 if d.get("critical") else 0)
     if step_id:
         conn.execute("UPDATE event_steps SET phase = ?, workstream = ?, title = ?, owner = ?, due = ?, status = ?, done_when = ?, note = ?, critical = ? WHERE id = ?", values + (step_id,))
@@ -522,15 +522,15 @@ def step_value(field, value):
     """One field of a task, checked, as changed straight in the task list."""
     value = value.strip() if isinstance(value, str) else value
     if field not in STEP_FIELDS:
-        raise EventError("That cannot be changed here.")
+        raise EventError("This field cannot be edited.")
     if field == "status" and value not in STATUSES:
         raise EventError("Unknown status.")
     if field == "phase" and value not in dict(PHASES):
         raise EventError("Unknown phase.")
     if field == "due":
-        return day_of(value, "The due date") if value else None
+        return day_of(value, "Due date") if value else None
     if field == "title":
-        return need(value, "What the task is")
+        return need(value, "Task name")
     return value or None
 
 
@@ -538,7 +538,7 @@ def set_steps(conn, event_id, d):
     """Change many tasks at once: set one field, move the due dates by a number of days, or delete them."""
     ids = [int(i) for i in d.get("ids") or []]
     if not ids:
-        raise EventError("Pick the tasks to change first.")
+        raise EventError("No tasks selected.")
     where = "event_id = ? AND id IN ({})".format(",".join("?" for _ in ids))
     if d.get("delete"):
         conn.execute("DELETE FROM event_steps WHERE " + where, [event_id] + ids)
@@ -546,7 +546,7 @@ def set_steps(conn, event_id, d):
         try:
             days = int(d["shift"])
         except (TypeError, ValueError):
-            raise EventError("Move dates by a whole number of days, for example 7 or -3.")
+            raise EventError("Enter a whole number of days, e.g. 7 or -3.")
         conn.execute("UPDATE event_steps SET due = date(due, ?) WHERE due IS NOT NULL AND " + where, ["{:+d} days".format(days), event_id] + ids)
     else:
         field = d.get("field")
@@ -555,7 +555,7 @@ def set_steps(conn, event_id, d):
 
 
 def save_goal(conn, goal_id, event_id, d):
-    values = (need(d.get("name"), "A name for the goal")[:80], number(d.get("target")), number(d.get("actual")))
+    values = (need(d.get("name"), "Goal name")[:80], number(d.get("target")), number(d.get("actual")))
     if goal_id:
         conn.execute("UPDATE event_goals SET name = ?, target = ?, actual = ? WHERE id = ?", values + (goal_id,))
     else:
@@ -564,7 +564,7 @@ def save_goal(conn, goal_id, event_id, d):
 
 
 def save_info(conn, info_id, event_id, d):
-    values = (need(d.get("label"), "A name for the detail")[:80], (d.get("value") or "").strip()[:500] or None)
+    values = (need(d.get("label"), "Detail name")[:80], (d.get("value") or "").strip()[:500] or None)
     if info_id:
         conn.execute("UPDATE event_info SET label = ?, value = ? WHERE id = ?", values + (info_id,))
     else:
@@ -577,8 +577,8 @@ def save_playbook_step(conn, step_id, d):
     try:
         offset = int(d.get("offset_days") or 0)
     except (TypeError, ValueError):
-        raise EventError("Days from the event need a whole number, for example -21 or 3.")
-    values = (phase, (d.get("workstream") or "").strip() or None, need(d.get("title"), "What the step is"), offset,
+        raise EventError("Offset must be a whole number of days, e.g. -21 or 3.")
+    values = (phase, (d.get("workstream") or "").strip() or None, need(d.get("title"), "Task name"), offset,
               (d.get("done_when") or "").strip() or None, (d.get("owner") or "").strip() or None,
               ",".join(k for k, _ in kinds(conn) if d.get("kind_" + k)) or None, 1 if d.get("critical") else 0)
     if step_id:
@@ -591,7 +591,7 @@ def save_playbook_step(conn, step_id, d):
 def save_promo(conn, promo_id, event_id, d):
     channel = (d.get("channel") or "").strip()[:60] or "Other"
     status = d.get("status") if d.get("status") in STATUSES else "Not started"
-    values = (channel, need(d.get("what"), "What goes out"), day_of(d["day"], "The date") if d.get("day") else None, (d.get("owner") or "").strip() or None, status)
+    values = (channel, need(d.get("what"), "Activity"), day_of(d["day"], "Date") if d.get("day") else None, (d.get("owner") or "").strip() or None, status)
     if promo_id:
         conn.execute("UPDATE event_promos SET channel = ?, what = ?, day = ?, owner = ?, status = ? WHERE id = ?", values + (promo_id,))
     else:
@@ -601,7 +601,7 @@ def save_promo(conn, promo_id, event_id, d):
 def save_cost(conn, cost_id, event_id, d):
     kind = (d.get("category") or "").strip()[:60] or "Other"
     amount, planned = number(d.get("amount")) or 0, number(d.get("planned"))
-    values = (kind, need(d.get("item"), "What the cost is for"), amount, planned, 1 if d.get("paid") else 0)
+    values = (kind, need(d.get("item"), "Item"), amount, planned, 1 if d.get("paid") else 0)
     if cost_id:
         conn.execute("UPDATE event_costs SET category = ?, item = ?, amount = ?, planned = ?, paid = ? WHERE id = ?", values + (cost_id,))
     else:
@@ -651,14 +651,14 @@ def preview(url):
 
 
 def save_creative(conn, creative_id, event_id, d):
-    url = need(d.get("url"), "The link to the post")
+    url = need(d.get("url"), "Post URL")
     if not re.match(r"^https?://", url):
         url = "https://" + url
     image, title = (d.get("image") or "").strip() or None, (d.get("title") or "").strip() or None
     if not creative_id and not (image and title):
         found_image, found_title = preview(url)
         image, title = image or found_image, title or found_title
-    values = (url, platform_of(url), title, image, day_of(d["posted_on"], "The date") if d.get("posted_on") else None, (d.get("caption") or "").strip() or None)
+    values = (url, platform_of(url), title, image, day_of(d["posted_on"], "Date") if d.get("posted_on") else None, (d.get("caption") or "").strip() or None)
     if creative_id:
         conn.execute("UPDATE event_creatives SET url = ?, platform = ?, title = ?, image = ?, posted_on = ?, caption = ? WHERE id = ?", values + (creative_id,))
     else:
@@ -712,5 +712,5 @@ def change(conn, now, what, item_id, event_id, d):
     elif what in REMOVE:
         conn.execute("DELETE FROM {} WHERE id = ?".format(REMOVE[what]), (item_id,))
     else:
-        raise EventError("Unknown change.")
+        raise EventError("Unsupported action.")
     return event_id

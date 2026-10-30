@@ -373,6 +373,7 @@ def upgrade(conn):
             conn.execute("ALTER TABLE {} ADD COLUMN {} {}".format(table, column, kind))
     # there is one role now: a login made while there were two keeps the old "member" role, which would still limit it
     conn.execute("UPDATE accounts SET role = 'admin' WHERE role <> 'admin'")
+    conn.execute("UPDATE event_steps SET status = 'Skipped' WHERE status = 'Not needed'")  # the status was renamed
 
 
 def get_setting(conn, key, default=None):

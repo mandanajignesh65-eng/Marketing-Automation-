@@ -8,17 +8,17 @@ import { pageHead, segmented, info, switcher } from '../ui.js';
 
 const HOME_TABS = [['calendar', 'Calendar'], ['performance', 'Performance'], ['playbook', 'Playbook']];
 const STAGES = [['Planning', 'Planning'], ['Promoting', 'Promotion'], ['Live', 'Event days'], ['Follow-up', 'Follow-up'], ['Done', 'Results']];
-const STATUS_TONE = { 'Not started': 'ink3', 'In progress': 'warn', 'Waiting on others': 'neg', Done: 'pos', 'Not needed': 'ink3' };
-const SKIPPED = 'Not needed';
+const STATUS_TONE = { 'Not started': 'ink3', 'In progress': 'warn', 'Waiting on others': 'neg', Done: 'pos', Skipped: 'ink3' };
+const SKIPPED = 'Skipped';
 const PLATFORM_COLOR = { Instagram: '#d6249f', LinkedIn: '#0a66c2', Facebook: '#1877f2', X: '#111111', YouTube: '#ff0000', Web: '#6e6e73' };
 const KIND_COLOR = { booth: 'var(--accent)', sponsor: 'var(--violet)', partner: 'oklch(0.62 0.13 175)', roundtable: 'oklch(0.66 0.14 60)', webinar: 'oklch(0.6 0.15 25)' };
 const TIPS = {
-  sourced: 'Leads and opportunities whose Lead Source in Zoho is this event.',
-  influenced: 'Open or won opportunities of target accounts that were already open while the event ran.',
-  sla: 'Time from a lead reaching Zoho (or the event\'s last day, whichever is later) to the owner\'s first update. Leads Meridian has not seen touched yet are counted as untouched.',
-  accounts: 'Engaged: a lead from this company came in with this event\'s Lead Source. In CRM: the company exists in Zoho. Matched by company name without legal suffixes, or by domain.',
-  roi: 'Pipeline ROI: sourced pipeline divided by event cost. Revenue ROI: closed-won value divided by event cost.',
-  playbook: 'Every new event gets these tasks for its type. Due dates count from the first day; follow-up tasks count from the last day. Diamonds mark critical tasks.',
+  sourced: 'Leads and opportunities with this event as their Zoho Lead Source.',
+  influenced: 'Value of target-account opportunities that were open during the event.',
+  sla: 'Time from lead creation in Zoho (or the event end date, if later) to the owner\'s first activity.',
+  accounts: 'Accounts are matched to Zoho by company name (legal suffixes ignored) or domain.',
+  roi: 'Pipeline ROI = sourced pipeline ÷ event cost. Revenue ROI = closed-won value ÷ event cost.',
+  playbook: 'Tasks added to each new event of the matching type. Offsets are relative to the start date (follow-up tasks: the end date). ◆ = critical.',
 };
 
 const day = iso => (iso ? new Date(iso.slice(0, 10) + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '—');
@@ -43,7 +43,7 @@ function home(d, ctx) {
 
 function calendar(d) {
   if (!d.events.length) return html`<div class="ev-gantt stack" style="gap:8px;padding:28px"><span class="title">No events yet</span>
-    <span class="small muted">Create an event and pick its type. It gets the standard playbook for that type, with every due date set from the event dates.</span>
+    <span class="small muted">Create an event to generate its task plan from the playbook.</span>
     <span><span class="btn primary" data-act="newEvent">New event</span></span></div>`;
   // the window: from the earliest planning start to the latest follow-up end, clipped around today
   const starts = d.events.map(e => toDays(e.starts) - 42), ends = d.events.map(e => toDays(e.ends_on) + 30);
@@ -59,9 +59,9 @@ function calendar(d) {
   return html`<div class="ev-sec" style="padding:20px 24px"><div class="ev-stats">
       <div class="ev-stat"><b>${next ? next.days_to_go : '—'}<span class="muted" style="font-size:15px"> days</span></b><span>${next ? 'to ' + next.name : 'No upcoming event'}</span></div>
       <div class="ev-stat"><b>${upcoming.length}</b><span>Upcoming events</span></div>
-      <div class="ev-stat"><b style="color:var(--${sum(e => e.progress.overdue) ? 'neg' : 'ink'})">${sum(e => e.progress.overdue)}</b><span>Overdue tasks across events</span></div>
+      <div class="ev-stat"><b style="color:var(--${sum(e => e.progress.overdue) ? 'neg' : 'ink'})">${sum(e => e.progress.overdue)}</b><span>Overdue tasks</span></div>
       <div class="ev-stat"><b>${moneyOr(sum(e => e.budget))}</b><span>Budget committed</span></div>
-      <div class="ev-stat"><b>${moneyOr(qualified ? cost / qualified : null)}</b><span>Blended cost per qualified lead</span></div>
+      <div class="ev-stat"><b>${moneyOr(qualified ? cost / qualified : null)}</b><span>Avg. cost per qualified lead</span></div>
       <div class="ev-stat"><b>${moneyOr(pipeline)}</b><span>Sourced pipeline</span></div>
     </div></div>
     <div class="ev-gantt">
@@ -78,21 +78,21 @@ function calendar(d) {
         <span class="ev-meter"><b>${e.progress.readiness}%</b><span>readiness</span></span>
         <span class="ev-meter"><b style="color:var(--${e.progress.overdue ? 'neg' : 'ink3'})">${e.progress.overdue}</b><span>overdue</span></span>
         <span class="ev-meter"><b>${e.has_sources ? f.num(e.total.leads) : '—'}</b><span>leads</span></span></span></a>`; })}
-    <div class="row tiny muted" style="gap:6px;padding:10px 8px 4px">Dashed line: today</div></div>`;
+    <div class="row tiny muted" style="gap:6px;padding:10px 8px 4px">Dashed line = today</div></div>`;
 }
 
 function performance(d) {
   const done = d.events.filter(e => e.result_age >= 0 && e.has_sources);
-  if (!done.length) return html`<div class="card pad small muted">Results appear here once an event has taken place and its Lead Source is set.</div>`;
+  if (!done.length) return html`<div class="card pad small muted">No completed events with a Lead Source.</div>`;
   const ranked = [...done].sort((a, b) => (a.money.per_qualified ?? 1e18) - (b.money.per_qualified ?? 1e18));
   const top = Math.max(...ranked.map(e => e.money.pipeline_x || 0), 1);
   const cols = 'minmax(0,1.6fr) 90px 80px 110px 110px minmax(160px,1fr)';
   return html`<div class="card clipped" style="--cols:${cols}">
-    <div class="baseline" style="padding:16px 16px 12px"><span class="title">Event performance</span><span class="small muted">Ranked by cost per qualified lead · results settle ${d.result_days} days after an event</span></div>
+    <div class="baseline" style="padding:16px 16px 12px"><span class="title">Event performance</span><span class="small muted">Ranked by cost per qualified lead · final after ${d.result_days} days</span></div>
     <div class="thead right" style="border-top:1px solid var(--line)"><span style="text-align:left">Event</span><span>Leads</span><span>Qualified</span><span>Cost per qualified lead</span><span>Pipeline</span><span style="text-align:left">Pipeline ROI</span></div>
     ${ranked.map(e => html`<a class="trow right" href="#/events?id=${e.id}" style="color:inherit;text-decoration:none">
       <span class="stack" style="gap:2px;text-align:left;min-width:0"><span class="medium clip">${e.name}</span>
-        <span class="tiny muted">${span(e)} · ${e.result_age < d.result_days ? html`<span style="color:var(--warn)">too early: ${e.result_age} of ${d.result_days} days</span>` : 'final'}</span></span>
+        <span class="tiny muted">${span(e)} · ${e.result_age < d.result_days ? html`<span style="color:var(--warn)">Preliminary · day ${e.result_age} of ${d.result_days}</span>` : 'Final'}</span></span>
       <span>${f.num(e.total.leads)}</span><span>${f.num(e.total.qualified)}</span><span class="medium">${moneyOr(e.money.per_qualified)}</span><span>${moneyOr(e.total.pipeline)}</span>
       <span class="row" style="gap:8px"><span class="track" style="flex:1;height:8px;border-radius:4px"><span class="fill" style="display:block;width:${(e.money.pipeline_x || 0) / top * 100}%;background:var(--pos)"></span></span><span class="small medium" style="width:44px">${times(e.money.pipeline_x)}</span></span></a>`)}
   </div>`;
@@ -107,8 +107,8 @@ function playbook(d, ctx) {
       <div class="ev-chips">${d.kinds.map(([k, l]) => html`<span class="ev-chip ev-click" data-act="editKind" data-arg="${k}" title="Rename or delete">${l}
         <span class="muted"> · ${d.playbook.filter(s => !s.kinds || s.kinds.split(',').includes(k)).length} tasks · ${d.kind_use[k] || 0} event${d.kind_use[k] === 1 ? '' : 's'}</span></span>`)}</div>
     </section>
-    <div class="between" style="flex-wrap:wrap;gap:10px"><span class="small muted row" style="gap:6px">Standard tasks by phase${info(TIPS.playbook)}</span>
-      ${switcher([{ arg: '', label: 'Every type', on: !pick }, ...d.kinds.map(([k, l]) => ({ arg: k, label: l, on: pick === k }))], 'pickKind')}</div>
+    <div class="between" style="flex-wrap:wrap;gap:10px"><span class="small muted row" style="gap:6px">Playbook tasks${info(TIPS.playbook)}</span>
+      ${switcher([{ arg: '', label: 'All types', on: !pick }, ...d.kinds.map(([k, l]) => ({ arg: k, label: l, on: pick === k }))], 'pickKind')}</div>
     ${d.phases.map(([key, label]) => { const steps = d.playbook.filter(s => s.phase === key && forKind(s)); return html`<div class="card" style="padding:14px 20px 6px">
       <div class="title" style="margin-bottom:6px">${label} <span class="small muted" style="font-weight:400">${steps.length}</span></div>
       ${steps.map(s => html`<div class="row" style="gap:14px;padding:9px 0;border-top:1px solid var(--line2)">
@@ -146,7 +146,7 @@ function header(d, current) {
     : d.days_to_go > 0 ? `${d.days_to_go} day${d.days_to_go === 1 ? '' : 's'} to go` : `${toDays(d.today) - toDays(e.ends || e.starts)} days since the event`;
   return html`<header class="evw-head">
     <div class="evw-top"><a href="#/events" class="ev-back">← All events</a>
-      <span class="row ev-noprint" style="gap:8px"><span class="btn xs" data-act="editEvent">Edit event</span><span class="btn xs" data-act="setup">Customise tabs</span><span class="btn xs" data-act="print">Export report</span></span></div>
+      <span class="row ev-noprint" style="gap:8px"><span class="btn xs" data-act="editEvent">Edit event</span><span class="btn xs" data-act="setup">Settings</span><span class="btn xs" data-act="print">Export report</span></span></div>
     <div class="evw-id">
       <div class="stack" style="gap:6px;min-width:0">
         <span class="ev-kind">${d.kinds.find(k => k[0] === e.kind)?.[1] || 'Event'}</span>
@@ -171,7 +171,7 @@ const openTab = (d, sec) => (d.setup.tabs.find(t => t.id === sec && t.show)
 function taskRow(d, s, picked) {
   const late = isLate(s, d.today), team = d.team.includes(s.owner) || !s.owner ? d.team : [s.owner, ...d.team];
   return html`<div class="ev-trow ${s.status === 'Done' ? 'done' : ''} ${s.status === SKIPPED ? 'skipped' : ''} ${picked ? 'picked' : ''}">
-    <input type="checkbox" class="ev-pick ev-noprint" data-change="pickStep" data-id="${s.id}" ${picked ? 'checked' : ''} aria-label="Pick this task">
+    <input type="checkbox" class="ev-pick ev-noprint" data-change="pickStep" data-id="${s.id}" ${picked ? 'checked' : ''} aria-label="Select task">
     <input type="date" class="input ev-date ${late ? 'late' : ''}" value="${s.due || ''}" data-change="stepField" data-id="${s.id}" data-field="due" aria-label="Due date">
     <span class="ev-task" data-act="editStep" data-arg="${s.id}"><span class="ev-title">${s.title}</span>${s.critical ? html`<span class="ev-crit">Critical</span>` : ''}${late ? html`<span class="ev-crit">${toDays(d.today) - toDays(s.due)} d overdue</span>` : ''}
       <span class="tiny muted ev-tmeta">${[s.workstream, s.done_when && 'Done when: ' + s.done_when, s.note].filter(Boolean).join(' · ')}</span></span>
@@ -241,7 +241,7 @@ function funnelBars(d) {
 
 function slaBlock(d) {
   const sp = d.results.speed;
-  if (!sp.leads) return html`<div class="ev-empty">Measured once the event's leads are in Zoho.</div>`;
+  if (!sp.leads) return html`<div class="ev-empty">No leads yet.</div>`;
   return pie([['Within 24 h', sp.h24, 'var(--pos)'], ['24–72 h', sp.h72 - sp.h24, 'color-mix(in oklch, var(--pos) 50%, var(--surface))'],
     ['3–7 days', sp.d7 - sp.h72, 'var(--warn)'], ['After 7 days', sp.timed - sp.d7, 'var(--neg)'], ['No contact yet', sp.untouched, 'color-mix(in oklch, var(--ink3) 55%, var(--surface))']],
   html`<b>${pct(sp.h24, sp.leads)}%</b><small>in 24 h</small>`);
@@ -251,7 +251,7 @@ function budgetBars(d) {
   const kinds = {};
   d.costs.forEach(c => { const k = kinds[c.category] = kinds[c.category] || { planned: 0, actual: 0 }; k.planned += c.planned || 0; k.actual += c.amount || 0; });
   const kmax = Math.max(...Object.values(kinds).map(k => Math.max(k.planned, k.actual)), 1);
-  if (!Object.keys(kinds).length) return html`<div class="ev-empty">No costs entered yet.</div>`;
+  if (!Object.keys(kinds).length) return html`<div class="ev-empty">No costs recorded.</div>`;
   const bar = (v, color) => html`<div style="height:9px;border-radius:3px;width:${Math.max(v / kmax * 100, v ? 1 : 0)}%;background:${color}"></div>`;
   return html`<div class="stack" style="gap:12px">${Object.entries(kinds).map(([k, v]) => html`<div style="display:grid;grid-template-columns:minmax(110px,170px) minmax(0,1fr) 110px;gap:12px;align-items:center">
       <span class="small clip" title="${k}">${k}</span>
@@ -262,7 +262,7 @@ function budgetBars(d) {
 
 function leadsChart(d) {
   const days = d.results.by_day;
-  if (!days.length) return html`<div class="ev-empty">No leads with this event's Lead Source yet.</div>`;
+  if (!days.length) return html`<div class="ev-empty">No leads yet.</div>`;
   const top = Math.max(...days.map(x => x.leads), 1);
   return html`<div style="display:flex;gap:4px;align-items:flex-end;height:150px">${days.map(x => html`<div class="stack" title="${day(x.day)}: ${x.leads} leads, ${x.qualified} qualified" style="flex:1;max-width:46px;height:100%;justify-content:flex-end;gap:3px;align-items:center">
       <span class="micro muted">${x.leads}</span>
@@ -294,10 +294,10 @@ function overview(d) {
       ${block('Tasks by status', openTab(d, 'plan'), taskCharts(d), 'span2')}
       ${block('Needs attention', '', attention.length ? attention.map(s => html`<div class="ev-row slim" data-act="editStep" data-arg="${s.id}">
           <span class="ev-when" style="color:var(--${s.due < d.today ? 'neg' : 'warn'})">${s.due < d.today ? 'Overdue' : day(s.due)}</span>
-          <span class="ev-task">${s.title}</span><span class="ev-owner">${s.owner || 'Unassigned'}</span></div>`) : html`<div class="ev-empty">Nothing overdue and no critical task due this week.</div>`)}
+          <span class="ev-task">${s.title}</span><span class="ev-owner">${s.owner || 'Unassigned'}</span></div>`) : html`<div class="ev-empty">No overdue or at-risk tasks.</div>`)}
     </div>
     <div class="ev-grid3">
-      ${block('Lead funnel', openTab(d, 'results'), has ? funnelBars(d) : html`<div class="ev-empty">Set the Lead Source on the Results tab.</div>`)}
+      ${block('Lead funnel', openTab(d, 'results'), has ? funnelBars(d) : html`<div class="ev-empty">Lead Source not set.</div>`)}
       ${block('Target accounts', openTab(d, 'accounts'), a.targets.length ? html`${stageBars(a)}<div class="small muted" style="margin-top:12px">Influenced pipeline ${moneyOr(a.influenced)}</div>`
         : html`<div class="ev-empty">No target accounts yet.</div>`)}
       ${block('Budget vs actual', openTab(d, 'budget'), html`<div class="ev-big" style="margin-bottom:12px">${moneyOr(d.cost)}<span class="small muted" style="font-weight:400"> of ${moneyOr(d.planned)}</span></div>${budgetBars(d)}`)}
@@ -326,24 +326,24 @@ function goalList(d) {
 
 function goalBars(d) {
   const goals = goalList(d), fmt = (g, v) => (v == null ? '—' : g.money ? f.moneyShort(v) : f.num(v));
-  if (!goals.length) return html`<div class="ev-empty">No goals yet. Set lead, meeting and pipeline targets in Edit event, or add the event's own goal, such as talk attendees, demos given or registrations.</div>`;
+  if (!goals.length) return html`<div class="ev-empty">No goals set.</div>`;
   return html`<div class="stack" style="gap:14px">${goals.map(g => { const p = g.target ? pct(g.actual || 0, g.target) : 0; return html`<div class="stack ${g.own ? 'ev-click' : ''}" style="gap:6px" ${g.own ? html`data-act="editGoal" data-arg="${g.id}"` : ''}>
       <div class="between small"><span class="medium">${g.name}</span><span class="muted">${fmt(g, g.actual)}${g.target ? ' of ' + fmt(g, g.target) : ''}${g.target && g.actual != null ? html` · <b style="color:var(--${p >= 100 ? 'pos' : 'ink'})">${p}%</b>` : ''}</span></div>
       <div class="ev-split" style="height:9px"><i style="width:${Math.min(p, 100)}%;background:var(--${p >= 100 ? 'pos' : 'k'})"></i></div></div>`; })}
-    <span class="tiny muted">Leads, qualified leads and pipeline count from Zoho. The event's own goals are typed in: click one to update it.</span></div>`;
+    <span class="tiny muted">Leads, qualified leads and pipeline sync from Zoho. Custom goals are updated manually.</span></div>`;
 }
 
 // What the team needs to hand on the day, different for every event: organiser contact, stand, platform, folder links.
 function keyDetails(d) {
-  if (!d.info.length) return html`<div class="ev-empty">No details yet: organiser contact, hall and stand, platform, shared folder.</div>`;
+  if (!d.info.length) return html`<div class="ev-empty">No details added.</div>`;
   const shown = v => (/^https?:\/\//i.test(v) ? html`<a class="link" href="${v}" target="_blank" rel="noopener">${v.replace(/^https?:\/\/(www\.)?/i, '').slice(0, 48)}</a>`
     : /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v) ? html`<a class="link" href="mailto:${v}">${v}</a>` : v);
   return html`<div class="stack">${d.info.map(i => html`<div class="ev-info" data-act="editInfo" data-arg="${i.id}">
-    <span class="small muted">${i.label}</span><span class="small ${i.value ? '' : 'faint'}">${i.value ? shown(i.value) : 'Add'}</span></div>`)}</div>`;
+    <span class="small muted">${i.label}</span><span class="small ${i.value ? '' : 'faint'}">${i.value ? shown(i.value) : 'Not set'}</span></div>`)}</div>`;
 }
 
 // ---- Plan: progress by phase, tasks per week and workload, then the task list: search, show, group by, and change many at once.
-const SHOW = [['all', 'All'], ['open', 'Open'], ['late', 'Overdue'], ['week', 'Due in 7 days'], ['done', 'Done'], ['skipped', 'Not needed']];
+const SHOW = [['all', 'All'], ['open', 'Open'], ['late', 'Overdue'], ['week', 'Next 7 days'], ['done', 'Done'], ['skipped', 'Skipped']];
 const GROUPS = [['phase', 'Phase'], ['workstream', 'Workstream'], ['owner', 'Owner'], ['week', 'Week due'], ['status', 'Status'], ['none', 'No grouping']];
 const weekOf = iso => addDays(iso, -((new Date(iso + 'T00:00:00').getDay() + 6) % 7));
 
@@ -383,36 +383,36 @@ function plan(d, ctx) {
       <span class="tiny muted">${x.done} of ${x.total} done${x.overdue ? html` · <span style="color:var(--neg)">${x.overdue} overdue</span>` : ''}</span></button>`)}</div>
     <div class="ev-grid2">
       ${block('Tasks due per week', '', weekColumns(d), 'span2')}
-      ${block('Owner workload · next 14 days', '', d.load.length ? html`<div class="stack" style="gap:12px">${d.load.map(r => html`<div class="stack" style="gap:4px;cursor:pointer" data-act="owner" data-arg="${r.owner === owner ? '' : r.owner}">
+      ${block('Workload · next 14 days', '', d.load.length ? html`<div class="stack" style="gap:12px">${d.load.map(r => html`<div class="stack" style="gap:4px;cursor:pointer" data-act="owner" data-arg="${r.owner === owner ? '' : r.owner}">
           <div class="between small"><span class="${r.owner === owner ? 'medium' : ''}">${r.owner}</span><span class="muted">${r.open} open${r.overdue ? html` · <span style="color:var(--neg)">${r.overdue} overdue</span>` : ''}</span></div>
           <div class="ev-split" style="height:8px"><i style="width:${r.overdue / maxLoad * 100}%;background:var(--neg)"></i><i style="width:${(r.open - r.overdue) / maxLoad * 100}%;background:${r.open > 6 ? 'var(--warn)' : 'var(--k)'}"></i></div></div>`)}</div>`
-        : html`<div class="ev-empty">No open tasks in the next 14 days.</div>`)}
+        : html`<div class="ev-empty">No open tasks due in the next 14 days.</div>`)}
     </div>
     <section class="ev-sec">
-      <div class="ev-h"><h2>Tasks <span class="ev-sub" style="font-weight:400">${steps.length} of ${d.steps.length} shown</span></h2>
-        <span class="row ev-noprint" style="gap:8px"><span class="btn xs" data-act="setup">Workstreams & tabs</span><span class="btn xs primary" data-act="newStep" data-preset="${JSON.stringify({ ...(phase && { phase }), ...(ws && { workstream: ws }), ...(owner && owner !== 'Unassigned' && { owner }) })}">Add task</span></span></div>
+      <div class="ev-h"><h2>Tasks <span class="ev-sub" style="font-weight:400">${steps.length} of ${d.steps.length}</span></h2>
+        <span class="row ev-noprint" style="gap:8px"><span class="btn xs primary" data-act="newStep" data-preset="${JSON.stringify({ ...(phase && { phase }), ...(ws && { workstream: ws }), ...(owner && owner !== 'Unassigned' && { owner }) })}">Add task</span></span></div>
       <div class="ev-toolbar ev-noprint">
         <input class="input" id="taskQ" type="search" placeholder="Search tasks" value="${ui.q || ''}" data-input="taskQ" autocomplete="off" style="width:200px">
         ${segmented(SHOW.map(([arg, text]) => ({ arg, label: text, on: show === arg })), 'show', 10)}
         <label class="row small muted" style="gap:6px">Group by<select class="input ev-sel" data-change="groupBy">${GROUPS.map(([k, t]) => opt(k, by, t))}</select></label>
-        <select class="input ev-sel" data-change="planOwner" aria-label="Owner"><option value="">Every owner</option>${[...owners, 'Unassigned'].map(n => opt(n, owner))}</select>
-        <select class="input ev-sel" data-change="planWs" aria-label="Workstream"><option value="">Every workstream</option>${workstreams.map(w => opt(w, ws))}</select>
+        <select class="input ev-sel" data-change="planOwner" aria-label="Owner"><option value="">All owners</option>${[...owners, 'Unassigned'].map(n => opt(n, owner))}</select>
+        <select class="input ev-sel" data-change="planWs" aria-label="Workstream"><option value="">All workstreams</option>${workstreams.map(w => opt(w, ws))}</select>
         ${filtered ? html`<span class="btn xs" data-act="clearFilters">Clear filters</span>` : ''}
       </div>
-      ${picked.size ? html`<div class="ev-bulk ev-noprint"><b>${picked.size} picked</b>
+      ${picked.size ? html`<div class="ev-bulk ev-noprint"><b>${picked.size} selected</b>
         <select class="input ev-sel" data-change="bulkField" data-field="status"><option value="">Set status…</option>${d.statuses.map(x => opt(x, ''))}</select>
         <select class="input ev-sel" data-change="bulkField" data-field="owner"><option value="">Set owner…</option>${owners.map(n => opt(n, ''))}<option value="-">Unassigned</option></select>
-        <select class="input ev-sel" data-change="bulkField" data-field="phase"><option value="">Move to phase…</option>${d.phases.map(([k, t]) => opt(k, '', t))}</select>
+        <select class="input ev-sel" data-change="bulkField" data-field="phase"><option value="">Set phase…</option>${d.phases.map(([k, t]) => opt(k, '', t))}</select>
         <select class="input ev-sel" data-change="bulkField" data-field="workstream"><option value="">Set workstream…</option>${workstreams.map(w => opt(w, ''))}</select>
-        <span class="row" style="gap:4px"><input class="input" id="bulkShift" type="number" step="1" placeholder="± days" style="width:80px"><span class="btn xs" data-act="bulkShift">Move dates</span></span>
-        ${ui.confirmDelete ? html`<span class="btn xs danger" data-act="bulkDelete">Delete ${picked.size} task${picked.size === 1 ? '' : 's'}?</span>` : html`<span class="btn xs" data-act="askDelete">Delete</span>`}
+        <span class="row" style="gap:4px"><input class="input" id="bulkShift" type="number" step="1" placeholder="Days (±)" style="width:80px"><span class="btn xs" data-act="bulkShift">Shift dates</span></span>
+        ${ui.confirmDelete ? html`<span class="btn xs danger" data-act="bulkDelete">Confirm delete (${picked.size})</span>` : html`<span class="btn xs" data-act="askDelete">Delete</span>`}
         <span class="btn xs" data-act="unpick">Clear</span></div>` : ''}
       ${groups.map(g => { const ids = g.steps.map(s => s.id), all = ids.every(id => picked.has(id)); return html`
-        ${g.title ? html`<div class="ev-ghead"><input type="checkbox" class="ev-pick ev-noprint" data-change="pickGroup" data-ids="${ids.join(',')}" ${all ? 'checked' : ''} aria-label="Pick every task in ${g.title}">
+        ${g.title ? html`<div class="ev-ghead"><input type="checkbox" class="ev-pick ev-noprint" data-change="pickGroup" data-ids="${ids.join(',')}" ${all ? 'checked' : ''} aria-label="Select all in ${g.title}">
           <span class="medium">${g.title}</span><span class="tiny muted">${g.steps.length} task${g.steps.length === 1 ? '' : 's'}${g.steps.some(s => isLate(s, d.today)) ? html` · <span style="color:var(--neg)">${g.steps.filter(s => isLate(s, d.today)).length} overdue</span>` : ''}</span>
 </div>` : ''}
         ${g.steps.map(s => taskRow(d, s, picked.has(s.id)))}`; })}
-      ${steps.length ? '' : html`<div class="ev-empty">${d.steps.length ? 'No tasks match.' : 'No tasks yet.'}</div>`}
+      ${steps.length ? '' : html`<div class="ev-empty">${d.steps.length ? 'No tasks match these filters.' : 'No tasks yet.'}</div>`}
     </section>`;
 }
 
@@ -427,7 +427,7 @@ function booth(d, ctx) {
       <div class="ev-tile"><b>${e.meetings_held == null ? '—' : f.num(e.meetings_held)}<span class="muted" style="font-size:16px">${e.target_meetings ? ' / ' + f.num(e.target_meetings) : ''}</span></b><span>Meetings held</span></div>
     </div>
     ${block(tabLabel(d, 'booth') + ' checklist', html`<span class="btn xs primary ev-noprint" data-act="newStep" data-preset="${JSON.stringify({ workstream: d.setup.tab_ws.booth[0] || '' })}">Add item</span>`,
-      taskRows(d, steps, 'No tasks in this tab’s workstreams. Pick them in Customise tabs.', ctx))}`;
+      taskRows(d, steps, 'No tasks. Set this tab’s workstreams in Settings.', ctx))}`;
 }
 
 // ---- Leads & follow-up: leads arriving, how fast they were contacted, and the tasks that make it happen.
@@ -436,15 +436,15 @@ function leadsTab(d, ctx) {
   return html`<div class="ev-tiles">
       <div class="ev-tile"><b>${e.lead_sources.length ? f.num(t.leads) : '—'}</b><span>Leads${e.target_leads ? ' · target ' + f.num(e.target_leads) : ''}</span></div>
       <div class="ev-tile"><b>${f.num(t.qualified)}</b><span>Qualified leads${t.leads ? ' · ' + pct(t.qualified, t.leads) + '%' : ''}</span></div>
-      <div class="ev-tile"><b>${f.num(d.results.speed.untouched)}</b><span>Leads with no first contact</span></div>
-      <div class="ev-tile"><b>${e.visitors == null ? '—' : f.num(e.visitors)}</b><span>People captured at the booth</span></div>
+      <div class="ev-tile"><b>${f.num(d.results.speed.untouched)}</b><span>Not yet contacted</span></div>
+      <div class="ev-tile"><b>${e.visitors == null ? '—' : f.num(e.visitors)}</b><span>Booth visitors</span></div>
     </div>
     <div class="ev-grid2">
       ${block('Leads by day', html`<span class="btn xs ev-noprint" data-act="pickSources">Lead Source${e.lead_sources.length ? ': ' + e.lead_sources.join(', ') : ''}</span>`, leadsChart(d), 'span2')}
       ${block('Follow-up SLA', info(TIPS.sla, { end: true }), slaBlock(d))}
     </div>
-    ${block('Lead capture & follow-up tasks', html`<span class="btn xs primary ev-noprint" data-act="newStep" data-preset="${JSON.stringify({ workstream: d.setup.tab_ws.leads[0] || '' })}">Add task</span>`,
-      taskRows(d, steps, 'No tasks in this tab’s workstreams. Pick them in Customise tabs.', ctx))}`;
+    ${block('Tasks', html`<span class="btn xs primary ev-noprint" data-act="newStep" data-preset="${JSON.stringify({ workstream: d.setup.tab_ws.leads[0] || '' })}">Add task</span>`,
+      taskRows(d, steps, 'No tasks. Set this tab’s workstreams in Settings.', ctx))}`;
 }
 
 // ---- Budget: planned against actual by category, and every cost line.
@@ -461,7 +461,7 @@ function budget(d) {
       <div class="ev-row head"><span>Category</span><span>Item</span><span class="right">Budgeted</span><span class="right">Actual</span><span>Paid</span></div>
       ${d.costs.map(c => html`<div class="ev-row cost" data-act="editCost" data-arg="${c.id}"><span class="small muted">${c.category}</span><span class="ev-task">${c.item}</span>
         <span class="small right">${c.planned ? f.money(c.planned) : '—'}</span><span class="small right medium" style="color:var(--${c.planned && c.amount > c.planned ? 'neg' : 'ink'})">${f.money(c.amount)}</span>
-        <span class="small" style="color:var(--${c.paid ? 'pos' : 'warn'})">${c.paid ? 'Paid' : 'Unpaid'}</span></div>`)}` : html`<div class="ev-empty">No costs yet: space, booth build, screen, travel, print, ads.</div>`)}
+        <span class="small" style="color:var(--${c.paid ? 'pos' : 'warn'})">${c.paid ? 'Paid' : 'Unpaid'}</span></div>`)}` : html`<div class="ev-empty">No costs recorded.</div>`)}
     ${e.budget && !d.costs.some(c => c.planned) ? html`<div class="small muted">Budget ${f.money(e.budget)} is the event total; add a budgeted amount to each cost line to compare by category.</div>` : ''}`;
 }
 
@@ -476,7 +476,7 @@ function promotion(d) {
     <div class="ev-h"><h2>Promotion</h2><span class="row ev-noprint" style="gap:10px"><span class="ev-sub">${d.promos.filter(p => p.status === 'Done').length} of ${d.promos.length} live</span><span class="btn xs primary" data-act="newPromo">Add activity</span></span></div>
     ${d.promos.length ? html`<div class="ev-week">${weeks.map(w => html`<div><span class="tiny muted medium">Week of ${day(w)}${w <= d.event.starts && addDays(w, 6) >= d.event.starts ? ' · event week' : ''}</span>${dated.filter(p => weekOf(p.day) === w).map(card)}</div>`)}
       ${undated.length ? html`<div><span class="tiny muted medium">Not scheduled</span>${undated.map(card)}</div>` : ''}</div>`
-      : html`<div class="small muted">No activities yet: teaser post, invites, paid campaign, landing page, recap.</div>`}
+      : html`<div class="small muted">No activities scheduled.</div>`}
   </section>`;
 }
 
@@ -494,15 +494,15 @@ function content(d, ctx) {
         : html`<a class="ev-post-card" href="${c.url}" target="_blank" rel="noopener" style="${c.image ? `background-image:url('${c.image}')` : `background-color:color-mix(in oklch, ${color(c)} 14%, var(--surface));color:${color(c)}`}">${c.image ? '' : c.platform}</a>`}
       <div class="ev-post-foot"><span class="stack" style="gap:1px;min-width:0"><span class="tiny semi" style="color:${color(c)}">${c.platform}${c.posted_on ? ' · ' + day(c.posted_on) : ''}</span><span class="clip">${c.caption || c.title || ''}</span></span>
         <span class="row ev-noprint" style="gap:10px"><a class="link tiny" href="${c.url}" target="_blank" rel="noopener" style="text-decoration:none">Open</a><span class="tiny faint" data-act="editCreative" data-arg="${c.id}" style="cursor:pointer">Edit</span></span></div></div>`)}</div>`
-      : html`<div class="small muted">Paste the link of each post made for this event. LinkedIn, Instagram and YouTube posts show here as the post itself.</div>`}
+      : html`<div class="small muted">No posts added. LinkedIn, Instagram and YouTube links display as embedded posts.</div>`}
   </section>`;
 }
 
 // Where each target account stands, furthest step only: not reached, in Zoho, engaged at this event, or with an opportunity.
-const STAGE = [['none', 'Not reached', 'color-mix(in oklch, var(--ink3) 30%, var(--surface))', 'Not in Zoho at all. Invite them or book a meeting.'],
-  ['known', 'In Zoho, not at this event', 'color-mix(in oklch, var(--k) 30%, var(--surface))', 'Known to sales, but no lead came from this event.'],
-  ['engaged', 'Engaged at this event', 'var(--k)', 'A lead came in with this event\u2019s Lead Source. Next: an opportunity.'],
-  ['deal', 'Has an opportunity', 'var(--pos)', 'An open or won opportunity in Zoho.']];
+const STAGE = [['none', 'Not reached', 'color-mix(in oklch, var(--ink3) 30%, var(--surface))', 'No record in Zoho.'],
+  ['known', 'In CRM', 'color-mix(in oklch, var(--k) 30%, var(--surface))', 'In Zoho; no lead from this event.'],
+  ['engaged', 'Engaged', 'var(--k)', 'Lead captured with this event\u2019s Lead Source.'],
+  ['deal', 'Opportunity', 'var(--pos)', 'Open or won opportunity in Zoho.']];
 const stageOf = x => (x.deal ? 'deal' : x.engaged ? 'engaged' : x.known ? 'known' : 'none');
 
 function stageBars(a) {
@@ -519,21 +519,21 @@ function accounts(d, ctx) {
     <div class="ev-h"><h2>Target accounts</h2><span class="row ev-noprint" style="gap:10px">${info(TIPS.accounts)}<span class="btn xs ${a.targets.length ? '' : 'primary'}" data-act="editTargets">${a.targets.length ? 'Edit list' : 'Add target accounts'}</span></span></div>
     ${a.targets.length ? html`
       <div class="ev-stats">
-        <div class="ev-stat"><b>${a.targets.length}</b><span>Accounts on the list</span></div>
-        <div class="ev-stat"><b>${a.targets.filter(x => ['engaged', 'deal'].includes(stageOf(x))).length}<span class="muted" style="font-size:16px"> · ${pct(a.targets.filter(x => ['engaged', 'deal'].includes(stageOf(x))).length, a.targets.length)}%</span></b><span>Engaged at this event</span></div>
-        <div class="ev-stat"><b style="color:var(--pos)">${a.targets.filter(x => x.deal).length}</b><span>With an opportunity</span></div>
+        <div class="ev-stat"><b>${a.targets.length}</b><span>Target accounts</span></div>
+        <div class="ev-stat"><b>${a.targets.filter(x => ['engaged', 'deal'].includes(stageOf(x))).length}<span class="muted" style="font-size:16px"> · ${pct(a.targets.filter(x => ['engaged', 'deal'].includes(stageOf(x))).length, a.targets.length)}%</span></b><span>Engaged</span></div>
+        <div class="ev-stat"><b style="color:var(--pos)">${a.targets.filter(x => x.deal).length}</b><span>Opportunities</span></div>
         <div class="ev-stat"><b>${moneyOr(a.influenced)}</b><span>Influenced pipeline ${info(TIPS.influenced)}</span></div>
       </div>
-      ${chase.length ? html`<div class="ev-chase"><b>${chase.length} Tier 1 account${chase.length === 1 ? '' : 's'} not reached at this event:</b> ${chase.map(x => x.company).join(', ')}</div>` : ''}
-    ` : html`<div class="small muted">Paste the target account list (company, tier, domain) to see which accounts this event reached and the pipeline it influenced. Company names only.</div>`}
+      ${chase.length ? html`<div class="ev-chase"><b>Tier 1 not engaged (${chase.length}):</b> ${chase.map(x => x.company).join(', ')}</div>` : ''}
+    ` : html`<div class="small muted">No target accounts. Import a list to track coverage and influenced pipeline.</div>`}
   </section>
   ${a.targets.length ? html`<div class="ev-grid2">
     ${block('Accounts by tier', '', stageBars(a), 'span2')}
-    ${block('What each step means', '', html`<div class="stack" style="gap:10px">${STAGE.map(([, label, color, means]) => html`<div class="row small" style="gap:10px;align-items:flex-start">
+    ${block('Definitions', '', html`<div class="stack" style="gap:10px">${STAGE.map(([, label, color, means]) => html`<div class="row small" style="gap:10px;align-items:flex-start">
       <span style="width:10px;height:10px;border-radius:3px;background:${color};flex:none;margin-top:4px"></span><span><span class="medium">${label}.</span> <span class="muted">${means}</span></span></div>`)}</div>`)}
   </div>
   <section class="ev-sec">
-    <div class="ev-h"><h2>Every account by step</h2>${switcher([{ arg: '', label: 'Every tier', on: !tier }, ...a.tiers.map(t => ({ arg: String(t.tier), label: `Tier ${t.tier}`, on: tier === t.tier }))], 'tier')}</div>
+    <div class="ev-h"><h2>Accounts by stage</h2>${switcher([{ arg: '', label: 'All tiers', on: !tier }, ...a.tiers.map(t => ({ arg: String(t.tier), label: `Tier ${t.tier}`, on: tier === t.tier }))], 'tier')}</div>
     <div class="ev-board">${STAGE.map(([k, label, color]) => html`<div class="ev-col">
       <div class="ev-col-h"><span style="width:10px;height:10px;border-radius:3px;background:${color};flex:none"></span><span class="medium">${label}</span><span class="muted">${count(k)}</span></div>
       ${list.filter(x => stageOf(x) === k).map(x => html`<div class="ev-acct"><span class="ev-tier t${x.tier}">T${x.tier}</span><span class="clip" title="${x.company}">${x.company}</span>
@@ -597,11 +597,11 @@ export default {
       const e = m.event || { kind: 'booth', decision: 'Go' };
       return html`<form class="modal" data-submit="saveEvent" style="width:660px">
         <span class="section">${m.event ? 'Edit event' : 'New event'}</span>
-        ${m.event ? '' : html`<label class="field">Start the plan from<select class="input" name="start_from">
-          <option value="playbook">The standard playbook for its type</option>
-          ${(d.events || []).length ? html`<optgroup label="Copy a past event: tasks, promotion, budget, goals, details, target accounts">${[...d.events].sort((a, b) => (a.starts < b.starts ? 1 : -1)).map(x => html`<option value="event:${x.id}">${x.name} (${span(x)} ${x.starts.slice(0, 4)})</option>`)}</optgroup>` : ''}
-          <option value="empty">An empty plan</option></select></label>
-          <span class="small muted">Due dates are set from the new event's dates. A copy starts with every task not started and no spend.</span>`}
+        ${m.event ? '' : html`<label class="field">Task plan<select class="input" name="start_from">
+          <option value="playbook">Playbook for this event type</option>
+          ${(d.events || []).length ? html`<optgroup label="Copy from a past event">${[...d.events].sort((a, b) => (a.starts < b.starts ? 1 : -1)).map(x => html`<option value="event:${x.id}">${x.name} (${span(x)} ${x.starts.slice(0, 4)})</option>`)}</optgroup>` : ''}
+          <option value="empty">Blank</option></select></label>
+          <span class="small muted">Dates are adjusted to the new event. Copied tasks are reset to Not started and actual costs are cleared.</span>`}
         <div class="grid" style="grid-template-columns:2fr 1fr">${field('Event name', 'name', e.name, 'required data-autofocus placeholder="e.g. SFF 2026"')}${select('Type', 'kind', d.kinds, e.kind)}</div>
         <div class="grid" style="grid-template-columns:1fr 1fr 1fr">${field('Start date', 'starts', e.starts, 'type="date" required')}${field('End date', 'ends', e.ends, 'type="date"')}${select('Decision', 'decision', d.decisions || ['Considering', 'Go', 'No-go'], e.decision || 'Go')}</div>
         <div class="grid" style="grid-template-columns:1fr 1fr">${field('City', 'city', e.city)}${field('Venue', 'venue', e.venue)}${field('Partner', 'partner', e.partner, 'placeholder="If co-hosted, e.g. Vonage"')}${field('Booth / stand', 'booth', e.booth)}</div>
@@ -626,9 +626,9 @@ export default {
       return html`<form class="modal" data-submit="savePlaybookStep">
         <span class="section">${m.step ? 'Edit playbook task' : 'Add playbook task'}</span>
         ${field('Task', 'title', s.title, 'required data-autofocus')}
-        <div class="grid" style="grid-template-columns:1fr 1fr">${select('Phase', 'phase', d.phases, s.phase)}${field('Days from the event (−21 = 3 weeks before)', 'offset_days', s.offset_days, 'type="number" step="1" required')}${field('Workstream', 'workstream', s.workstream)}${field('Default owner', 'owner', s.owner)}</div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">${select('Phase', 'phase', d.phases, s.phase)}${field('Offset in days from start (e.g. −21)', 'offset_days', s.offset_days, 'type="number" step="1" required')}${field('Workstream', 'workstream', s.workstream)}${field('Default owner', 'owner', s.owner)}</div>
         ${field('Done when', 'done_when', s.done_when)}
-        <div class="stack" style="gap:6px"><span class="small muted">Event types (none ticked = all types)</span><div class="row" style="gap:14px;flex-wrap:wrap">${d.kinds.map(([k, l]) => check('kind_' + k, l, kinds.includes(k)))}</div></div>
+        <div class="stack" style="gap:6px"><span class="small muted">Event types (none = all)</span><div class="row" style="gap:14px;flex-wrap:wrap">${d.kinds.map(([k, l]) => check('kind_' + k, l, kinds.includes(k)))}</div></div>
         ${check('critical', 'Critical task', s.critical)}
         ${buttons('removePlaybookStep', m.step && s.id)}</form>`;
     }
@@ -661,24 +661,24 @@ export default {
     if (m.kind === 'setup') {
       const st = d.setup, ws = (tab, w) => check(`ws_${tab}::${w}`, w, st.tab_ws[tab].includes(w));
       return html`<form class="modal" data-submit="saveSetup" style="width:640px">
-        <span class="section">Customise tabs for ${d.event.name}</span>
-        <span class="small muted">Every event is different. Hide the tabs this event does not need and rename the rest, for example "Booth & logistics" to "Venue & logistics" for a dinner.</span>
+        <span class="section">Settings · ${d.event.name}</span>
+        <span class="small muted">Show, hide and rename tabs for this event.</span>
         <div class="stack" style="gap:8px">${st.tabs.map(t => html`<div class="row" style="gap:12px">
           <label class="row small" style="gap:8px;width:190px"><input type="checkbox" name="show_${t.id}" ${t.show ? 'checked' : ''} ${t.id === 'overview' ? 'disabled' : ''}> ${t.standard}</label>
           <input class="input" name="name_${t.id}" value="${t.label === t.standard ? '' : t.label}" placeholder="${t.standard}" style="flex:1"></div>`)}</div>
-        <span class="section" style="font-size:14px;margin-top:6px">Which tasks each tab lists</span>
-        ${['booth', 'leads'].map(tab => html`<div class="stack" style="gap:6px"><span class="small medium">${tabLabel(d, tab)}: tasks in these workstreams</span>
+        <span class="section" style="font-size:14px;margin-top:6px">Tab task filters</span>
+        ${['booth', 'leads'].map(tab => html`<div class="stack" style="gap:6px"><span class="small medium">${tabLabel(d, tab)} · workstreams</span>
           <div class="row" style="gap:6px 14px;flex-wrap:wrap">${st.workstreams.map(w => ws(tab, w))}</div></div>`)}
-        ${field('New workstreams (comma between them)', 'new_workstreams', '', 'placeholder="e.g. Speaker prep, Hospitality"')}
+        ${field('Add workstreams (comma-separated)', 'new_workstreams', '', 'placeholder="e.g. Speaker prep, Hospitality"')}
         ${buttons(null, null)}</form>`;
     }
     if (m.kind === 'goal') {
       const g = m.goal || {};
       return html`<form class="modal" data-submit="saveGoal">
-        <span class="section">${m.goal ? 'Update goal' : 'Add goal'}</span>
-        <span class="small muted">A goal of this event that Meridian does not count by itself, such as talk attendees, demos given, registrations or press mentions.</span>
+        <span class="section">${m.goal ? 'Edit goal' : 'Add goal'}</span>
+        <span class="small muted">Track a metric not synced from Zoho, e.g. demos, registrations or attendees.</span>
         ${field('Goal', 'name', g.name, 'required data-autofocus placeholder="e.g. Demos given at the booth"')}
-        <div class="grid" style="grid-template-columns:1fr 1fr">${field('Target', 'target', g.target, 'type="number" step="any" min="0"')}${field('Reached so far', 'actual', g.actual, 'type="number" step="any" min="0"')}</div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">${field('Target', 'target', g.target, 'type="number" step="any" min="0"')}${field('Actual', 'actual', g.actual, 'type="number" step="any" min="0"')}</div>
         ${buttons('removeGoal', m.goal && g.id)}</form>`;
     }
     if (m.kind === 'info') {
@@ -693,7 +693,7 @@ export default {
       const k = m.key ? d.kinds.find(x => x[0] === m.key) : null;
       return html`<form class="modal" data-submit="saveKind">
         <span class="section">${k ? 'Rename event type' : 'Add event type'}</span>
-        <span class="small muted">${k ? `${d.kind_use[m.key] || 0} event(s) use this type. A type can be deleted once no event uses it.` : 'Then tick this type on the playbook tasks it needs. Tasks with no type ticked go to every type.'}</span>
+        <span class="small muted">${k ? `Used by ${d.kind_use[m.key] || 0} event(s). Types in use cannot be deleted.` : 'After creating the type, assign playbook tasks to it.'}</span>
         ${field('Name', 'label', k ? k[1] : '', 'required data-autofocus placeholder="e.g. Customer summit"')}
         ${buttons(k ? 'removeKind' : null, m.key)}</form>`;
     }
@@ -701,7 +701,7 @@ export default {
       const text = d.accounts.targets.map(t => [t.company, t.tier, t.domain].filter(x => x != null && x !== '').join(', ')).join('\n');
       return html`<form class="modal" data-submit="saveTargets" style="width:600px">
         <span class="section">Target accounts</span>
-        <span class="small muted">One company per line: company, tier (1–3), domain. Paste straight from a sheet. Only company names are kept; leave out people's names.</span>
+        <span class="small muted">One account per line: company, tier (1–3), domain (optional). Paste from a spreadsheet. Do not include contact names's names.</span>
         <textarea class="input" name="text" rows="14" data-autofocus placeholder="DBS Bank, 1, dbs.com&#10;HSBC, 1&#10;Maybank, 2">${text}</textarea>
         ${buttons(null, null)}</form>`;
     }
@@ -710,7 +710,7 @@ export default {
       const options = d.source_options.filter(o => mine.has(o.source) || !q || o.source.toLowerCase().includes(q));
       return html`<form class="modal" data-submit="saveSources" style="width:560px">
         <span class="section">Lead Source for ${d.event.name}</span>
-        <span class="small muted">Tick the Zoho Lead Source values used for this event. A value can belong to one event only.</span>
+        <span class="small muted">Select the Zoho Lead Source values for this event. Each value can be assigned to one event only.</span>
         <input class="input" placeholder="Search Lead Source" value="${ctx.ui().sourceQ || ''}" data-input="sourceQ" autocomplete="off">
         <div class="stack" style="gap:2px;max-height:320px;overflow:auto">${options.slice(0, 150).map(o => { const other = d.taken[o.source]; return html`<label class="row small" style="gap:8px;padding:4px 2px;${other ? 'opacity:.45' : ''}">
           <input type="checkbox" name="s::${o.source}" ${mine.has(o.source) ? 'checked' : ''} ${other ? 'disabled' : ''}><span style="flex:1" class="clip">${o.source}</span>
@@ -738,8 +738,8 @@ export default {
     bulkDelete: ctx => bulk(ctx, { delete: true }, 'Tasks deleted.'),
     bulkShift(ctx) {
       const days = document.getElementById('bulkShift').value;
-      if (!days) return ctx.toast('Type how many days to move the dates, for example 7 or -3.');
-      return bulk(ctx, { shift: days }, 'Due dates moved.');
+      if (!days) return ctx.toast('Enter a number of days, e.g. 7 or -3.');
+      return bulk(ctx, { shift: days }, 'Dates shifted.');
     },
     setup: ctx => ctx.openModal({ kind: 'setup' }),
     newGoal: ctx => ctx.openModal({ kind: 'goal' }),
@@ -787,7 +787,7 @@ export default {
     pickGroup(ctx, value, el) { pick(ctx, el.dataset.ids.split(',').map(Number), el.checked); },
     bulkField(ctx, value, el) {
       if (!value) return;
-      return bulk(ctx, { field: el.dataset.field, value: value === '-' ? '' : value }, 'Tasks changed.');
+      return bulk(ctx, { field: el.dataset.field, value: value === '-' ? '' : value }, 'Tasks updated.');
     },
   },
 
@@ -800,7 +800,7 @@ export default {
     async saveEvent(ctx, v) {
       const old = ctx.app.modal.event;
       ctx.app.modal = null;
-      const r = await ctx.save(() => ctx.api.post('events', { what: 'event', id: old ? old.id : null, data: v }), old ? 'Saved.' : 'Event created with its playbook.');
+      const r = await ctx.save(() => ctx.api.post('events', { what: 'event', id: old ? old.id : null, data: v }), old ? 'Saved.' : 'Event created.');
       if (r && !old) ctx.go('events', { id: r.event_id });
     },
     saveStep: (ctx, v) => saveItem(ctx, 'step', 'step', { ...v, critical: !!v.critical }),
@@ -818,7 +818,7 @@ export default {
     saveSetup(ctx, v) {
       ctx.app.modal = null;
       const ws = tab => Object.keys(v).filter(k => k.startsWith(`ws_${tab}::`)).map(k => k.slice(tab.length + 5));
-      return ctx.save(() => ctx.api.post('events', { what: 'setup', event_id: ctx.app.data.event.id, data: { ...v, ws_booth: ws('booth'), ws_leads: ws('leads') } }), 'Tabs saved.');
+      return ctx.save(() => ctx.api.post('events', { what: 'setup', event_id: ctx.app.data.event.id, data: { ...v, ws_booth: ws('booth'), ws_leads: ws('leads') } }), 'Settings saved.');
     },
     saveTargets(ctx, v) {
       ctx.app.modal = null;
