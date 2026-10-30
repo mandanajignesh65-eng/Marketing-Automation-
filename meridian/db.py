@@ -187,6 +187,12 @@ CREATE TABLE IF NOT EXISTS event_targets (  -- companies the event is meant to r
 CREATE TABLE IF NOT EXISTS event_costs (
   id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, category TEXT NOT NULL, item TEXT NOT NULL, amount REAL NOT NULL, paid INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS event_goals (  -- the event's own goals beyond the standard ones: a name, a target and the number reached, typed in
+  id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, name TEXT NOT NULL, target REAL, actual REAL, sort INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS event_info (  -- key details that differ by event: organiser contact, stand, platform, links
+  id INTEGER PRIMARY KEY, event_id INTEGER NOT NULL, label TEXT NOT NULL, value TEXT, sort INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS team_members (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, focus TEXT, email TEXT, active INTEGER NOT NULL DEFAULT 1, sort INTEGER NOT NULL DEFAULT 0
 );
@@ -337,7 +343,9 @@ def connect(path=None):
 
 
 # Columns added after the first release: (table, column, type). upgrade() adds any that are missing.
-ADDED_COLUMNS = [("events", "kind", "TEXT NOT NULL DEFAULT 'booth'"), ("event_steps", "critical", "INTEGER NOT NULL DEFAULT 0"),
+ADDED_COLUMNS = [("events", "kind", "TEXT NOT NULL DEFAULT 'booth'"),
+                 ("events", "setup", "TEXT"),  # JSON: the event's own tab names, hidden tabs and which workstreams each tab shows
+                 ("event_steps", "critical", "INTEGER NOT NULL DEFAULT 0"),
                  ("playbook_steps", "kinds", "TEXT"),  # comma list of event kinds the step is for; empty = every kind
                  ("playbook_steps", "critical", "INTEGER NOT NULL DEFAULT 0"), ("event_costs", "planned", "REAL"),
                  ("leads", "first_touch_at", "TEXT"),  # the first time an owner touched the lead; written once, for follow-up speed

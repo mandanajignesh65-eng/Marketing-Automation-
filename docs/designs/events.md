@@ -155,3 +155,17 @@ One reviewer (zoom-out) read this design against the code. What changed:
 *   **Privacy:** the Events screens never link to lead lists.
 *   **Kept, against the reviewer, because the owner asked for them:** separate Marketing and Creatives tabs, and an editable standard plan.
 *   **Left for later:** adding event costs into Overview's Events spend, post likes and comments from Apify, and reminder emails for overdue steps.
+
+## What can change from event to event (2026-10-30)
+
+Every event is different, so these are now set per event instead of fixed in code:
+
+*   **Tabs:** each event can hide tabs it does not need and rename the rest (Customise tabs). A webinar starts without the Booth & logistics tab. The Booth and Leads tabs list the tasks of the workstreams the event picks for them.
+*   **Workstreams:** typed freely, offered back as suggestions; new ones can be added in Customise tabs.
+*   **Goals:** besides the standard lead, qualified, meeting and pipeline targets, an event can have its own goals (talk attendees, demos, registrations) with a target and the number reached, typed in.
+*   **Key details:** a list of label and value per event (organiser contact, hall and stand, platform, shared folder). A new event starts with labels for its type; links and emails open.
+*   **Event types:** the team can rename types and add their own on the Playbook tab; a type can be deleted once no event uses it. The playbook can be viewed per type.
+*   **Promotion channels and cost categories:** typed freely, with the standard list and earlier entries as suggestions.
+*   **Start a new event from a past one:** tasks, promotion plan, budget lines (as budgeted amounts), goals, key details, target accounts and tab setup are copied. Dates move by the gap between the events; statuses, spend and results start again.
+
+The task list on the Plan tab: search, show (all, open, overdue, due in 7 days, done, not needed), group by phase, workstream, owner, week due or status, and filter by owner and workstream. Due date, owner and status change in place. Ticked tasks can get a status, owner, phase or workstream at once, have their dates moved by a number of days, or be deleted. A new status, **Not needed**, keeps a task that does not apply to this event on record but leaves it out of every count.

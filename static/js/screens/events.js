@@ -8,7 +8,8 @@ import { pageHead, segmented, info, switcher } from '../ui.js';
 
 const HOME_TABS = [['calendar', 'Calendar'], ['performance', 'Performance'], ['playbook', 'Playbook']];
 const STAGES = [['Planning', 'Planning'], ['Promoting', 'Promotion'], ['Live', 'Event days'], ['Follow-up', 'Follow-up'], ['Done', 'Results']];
-const STATUS_TONE = { 'Not started': 'ink3', 'In progress': 'warn', 'Waiting on others': 'neg', Done: 'pos' };
+const STATUS_TONE = { 'Not started': 'ink3', 'In progress': 'warn', 'Waiting on others': 'neg', Done: 'pos', 'Not needed': 'ink3' };
+const SKIPPED = 'Not needed';
 const PLATFORM_COLOR = { Instagram: '#d6249f', LinkedIn: '#0a66c2', Facebook: '#1877f2', X: '#111111', YouTube: '#ff0000', Web: '#6e6e73' };
 const KIND_COLOR = { booth: 'var(--accent)', sponsor: 'var(--violet)', partner: 'oklch(0.62 0.13 175)', roundtable: 'oklch(0.66 0.14 60)', webinar: 'oklch(0.6 0.15 25)' };
 const TIPS = {
@@ -35,7 +36,7 @@ function home(d, ctx) {
   const head = pageHead('', 'Events', html`<div class="row" style="gap:10px">
     ${segmented(HOME_TABS.map(([arg, label]) => ({ arg, label, on: view === arg })), 'home', 16)}
     ${view === 'playbook' ? html`<span class="btn primary" data-act="newPlaybookStep">Add task</span>` : html`<span class="btn primary" data-act="newEvent">New event</span>`}</div>`);
-  if (view === 'playbook') return html`${head}${playbook(d)}`;
+  if (view === 'playbook') return html`${head}${playbook(d, ctx)}`;
   if (view === 'performance') return html`${head}${performance(d)}`;
   return html`${head}${calendar(d)}`;
 }
@@ -68,7 +69,7 @@ function calendar(d) {
       <span class="small muted">${d.events.length} event${d.events.length === 1 ? '' : 's'}</span>
       <div style="position:relative;height:16px">${months.map(([t, m]) => html`<span class="micro faint" style="position:absolute;left:${(t - lo) / (hi - lo) * 100}%">${m}</span>`)}</div>
       <div class="ev-legend"><span style="--c:var(--ink3)">Planning</span><span style="--c:var(--accent)">Event</span><span style="--c:var(--pos)">Follow-up</span></div></div>
-    ${d.events.map(e => { const k = KIND_COLOR[e.kindKey] || 'var(--accent)'; return html`<a class="ev-grow" href="#/events?id=${e.id}">
+    ${d.events.map(e => { const k = KIND_COLOR[e.kind_key] || 'var(--accent)'; return html`<a class="ev-grow" href="#/events?id=${e.id}">
       <span class="stack" style="gap:3px;min-width:0"><span class="medium clip">${e.name}</span><span class="tiny muted clip">${e.kind} · ${span(e)}${e.city ? ' · ' + e.city : ''}</span></span>
       <span class="ev-gbar">
         ${seg(addDays(e.starts, -42), e.starts, 'var(--ink3)', 0.28)}${seg(e.starts, addDays(e.ends_on, 1), k, 1)}${seg(addDays(e.ends_on, 1), addDays(e.ends_on, 30), 'var(--pos)', 0.35)}
@@ -97,16 +98,25 @@ function performance(d) {
   </div>`;
 }
 
-function playbook(d) {
-  const kindName = Object.fromEntries(d.kinds);
-  return html`<div class="small muted row" style="gap:6px">Standard tasks by phase${info(TIPS.playbook)}</div>
-    ${d.phases.map(([key, label]) => { const steps = d.playbook.filter(s => s.phase === key); return html`<div class="card" style="padding:14px 20px 6px">
-      <div class="title" style="margin-bottom:6px">${label}</div>
+// The standard tasks for each event type, and the types themselves. A new event gets the tasks ticked for its type.
+function playbook(d, ctx) {
+  const kindName = Object.fromEntries(d.kinds), pick = ctx.ui().kind || '';
+  const forKind = s => !pick || !s.kinds || s.kinds.split(',').includes(pick);
+  return html`<section class="ev-sec" style="padding:18px 22px">
+      <div class="ev-h" style="margin-bottom:12px"><h2 style="font-size:17px">Event types</h2><span class="btn xs" data-act="newKind">Add type</span></div>
+      <div class="ev-chips">${d.kinds.map(([k, l]) => html`<span class="ev-chip ev-click" data-act="editKind" data-arg="${k}" title="Rename or delete">${l}
+        <span class="muted"> · ${d.playbook.filter(s => !s.kinds || s.kinds.split(',').includes(k)).length} tasks · ${d.kind_use[k] || 0} event${d.kind_use[k] === 1 ? '' : 's'}</span></span>`)}</div>
+    </section>
+    <div class="between" style="flex-wrap:wrap;gap:10px"><span class="small muted row" style="gap:6px">Standard tasks by phase${info(TIPS.playbook)}</span>
+      ${switcher([{ arg: '', label: 'Every type', on: !pick }, ...d.kinds.map(([k, l]) => ({ arg: k, label: l, on: pick === k }))], 'pickKind')}</div>
+    ${d.phases.map(([key, label]) => { const steps = d.playbook.filter(s => s.phase === key && forKind(s)); return html`<div class="card" style="padding:14px 20px 6px">
+      <div class="title" style="margin-bottom:6px">${label} <span class="small muted" style="font-weight:400">${steps.length}</span></div>
       ${steps.map(s => html`<div class="row" style="gap:14px;padding:9px 0;border-top:1px solid var(--line2)">
         <span class="tiny muted right" style="width:72px;flex:none">${key === 'follow' ? `+${s.offset_days} after` : s.offset_days === 0 ? 'Event day' : s.offset_days < 0 ? `${-s.offset_days} d before` : `${s.offset_days} d after`}</span>
         <span style="width:10px;height:10px;flex:none;${s.critical ? 'background:var(--neg);transform:rotate(45deg);border-radius:2px' : 'background:var(--ink3);border-radius:50%'}" title="${s.critical ? 'Critical' : ''}"></span>
         <span class="stack" style="flex:1;min-width:0;gap:1px"><span class="medium editable" data-act="editPlaybookStep" data-arg="${s.id}">${s.title}</span>
-          <span class="tiny muted">${[s.workstream, s.done_when && 'Done when: ' + s.done_when, s.kinds ? s.kinds.split(',').map(k => kindName[k]).join(', ') : 'All event types'].filter(Boolean).join(' · ')}</span></span></div>`)}
+          <span class="tiny muted">${[s.workstream, s.owner && 'Owner: ' + s.owner, s.done_when && 'Done when: ' + s.done_when, s.kinds ? s.kinds.split(',').map(k => kindName[k] || k).join(', ') : 'All event types'].filter(Boolean).join(' · ')}</span></span></div>`)}
+      ${steps.length ? '' : html`<div class="ev-empty" style="padding-bottom:10px">No tasks in this phase${pick ? ' for this type' : ''}.</div>`}
     </div>`; })}`;
 }
 
@@ -114,16 +124,20 @@ function playbook(d) {
 // One event fills the window: a header with who, when and where, then one tab per area of work. Overview shows every
 // area at a glance; each other tab is the full tracker for that area.
 
-const BOOTH_WS = ['Booth & logistics', 'Booth team'], LEAD_WS = ['Lead capture', 'Follow-up'];
+// The tasks a tab lists: those in the workstreams the event's setup gives that tab (Booth & logistics, Leads & follow-up).
+const tabSteps = (d, tab) => d.steps.filter(s => d.setup.tab_ws[tab].includes(s.workstream));
+const isLate = (s, today) => s.status !== 'Done' && s.status !== SKIPPED && s.due && s.due < today;
+const tabLabel = (d, tab) => d.setup.tabs.find(t => t.id === tab).label;
+// the event's tabs, in order, with its own names; hidden tabs are left out
 const tabs = d => {
-  const ws = list => d.steps.filter(s => list.includes(s.workstream));
-  const late = list => list.filter(s => s.status !== 'Done' && s.due && s.due < d.today).length;
-  const booth = ws(BOOTH_WS), leads = ws(LEAD_WS);
-  return [['overview', 'Overview', ''], ['plan', 'Plan', d.progress.overdue ? html`<em>${d.progress.overdue}</em>` : `${d.progress.done}/${d.progress.total}`],
-    ['promotion', 'Promotion', d.promos.length || ''], ['content', 'Content', d.creatives.length || ''],
-    ['booth', 'Booth & logistics', booth.length ? (late(booth) ? html`<em>${late(booth)}</em>` : `${booth.filter(s => s.status === 'Done').length}/${booth.length}`) : ''],
-    ['accounts', 'Target accounts', d.accounts.targets.length || ''], ['leads', 'Leads & follow-up', late(leads) ? html`<em>${late(leads)}</em>` : (d.event.lead_sources.length ? f.num(d.results.total.leads) : '')],
-    ['budget', 'Budget', d.cost ? f.moneyShort(d.cost) : ''], ['results', 'Results & ROI', '']];
+  const late = list => list.filter(s => isLate(s, d.today)).length;
+  const booth = tabSteps(d, 'booth').filter(s => s.status !== SKIPPED), leads = tabSteps(d, 'leads');
+  const counts = { plan: d.progress.overdue ? html`<em>${d.progress.overdue}</em>` : `${d.progress.done}/${d.progress.total}`,
+    promotion: d.promos.length || '', content: d.creatives.length || '',
+    booth: booth.length ? (late(booth) ? html`<em>${late(booth)}</em>` : `${booth.filter(s => s.status === 'Done').length}/${booth.length}`) : '',
+    accounts: d.accounts.targets.length || '', leads: late(leads) ? html`<em>${late(leads)}</em>` : (d.event.lead_sources.length ? f.num(d.results.total.leads) : ''),
+    budget: d.cost ? f.moneyShort(d.cost) : '' };
+  return d.setup.tabs.filter(t => t.show).map(t => [t.id, t.label, counts[t.id] ?? '']);
 };
 
 function header(d, current) {
@@ -132,7 +146,7 @@ function header(d, current) {
     : d.days_to_go > 0 ? `${d.days_to_go} day${d.days_to_go === 1 ? '' : 's'} to go` : `${toDays(d.today) - toDays(e.ends || e.starts)} days since the event`;
   return html`<header class="evw-head">
     <div class="evw-top"><a href="#/events" class="ev-back">← All events</a>
-      <span class="row ev-noprint" style="gap:8px"><span class="btn xs" data-act="editEvent">Edit event</span><span class="btn xs" data-act="print">Export report</span></span></div>
+      <span class="row ev-noprint" style="gap:8px"><span class="btn xs" data-act="editEvent">Edit event</span><span class="btn xs" data-act="setup">Customise tabs</span><span class="btn xs" data-act="print">Export report</span></span></div>
     <div class="evw-id">
       <div class="stack" style="gap:6px;min-width:0">
         <span class="ev-kind">${d.kinds.find(k => k[0] === e.kind)?.[1] || 'Event'}</span>
@@ -148,22 +162,31 @@ function header(d, current) {
 }
 
 const block = (title, link, body, extra = '') => html`<section class="ev-sec ${extra}"><div class="ev-h"><h2>${title}</h2>${link || ''}</div>${body}</section>`;
-const openTab = (d, sec, label) => html`<a class="link small ev-noprint" href="#/events?id=${d.event.id}&sec=${sec}" style="text-decoration:none">${label} →</a>`;
+// a link to another tab, named as the event names it; nothing when the event hides that tab
+const openTab = (d, sec) => (d.setup.tabs.find(t => t.id === sec && t.show)
+  ? html`<a class="link small ev-noprint" href="#/events?id=${d.event.id}&sec=${sec}" style="text-decoration:none">${tabLabel(d, sec)} →</a>` : '');
 
-// A row per task: due date, task, owner, status. Used by every tab that tracks tasks.
-function taskRows(d, steps, empty = 'No tasks here.') {
-  return steps.length ? steps.map(s => html`<div class="ev-row">
-      <span class="ev-when" style="color:var(--${s.status !== 'Done' && s.due && s.due < d.today ? 'neg' : 'ink2'})">${day(s.due)}</span>
-      <span class="ev-task editable ${s.status === 'Done' ? 'muted' : ''}" data-act="editStep" data-arg="${s.id}">${s.title}${s.critical ? html` <span class="ev-crit">Critical</span>` : ''}
-        ${s.done_when || s.note ? html`<span class="tiny muted" style="display:block;margin-top:2px">${[s.done_when && 'Done when: ' + s.done_when, s.note].filter(Boolean).join(' · ')}</span>` : ''}</span>
-      <span class="ev-owner">${s.owner || 'Unassigned'}</span>
-      <select class="input ev-status" data-change="stepStatus" data-id="${s.id}" style="color:var(--${STATUS_TONE[s.status]})">${d.statuses.map(x => html`<option ${x === s.status ? 'selected' : ''}>${x}</option>`)}</select></div>`)
-    : html`<div class="ev-empty">${empty}</div>`;
+// A row per task, changed in place: tick to pick it for a group change, due date, task, owner, status.
+// Used by every tab that tracks tasks. Clicking the task name opens every field.
+function taskRow(d, s, picked) {
+  const late = isLate(s, d.today), team = d.team.includes(s.owner) || !s.owner ? d.team : [s.owner, ...d.team];
+  return html`<div class="ev-trow ${s.status === 'Done' ? 'done' : ''} ${s.status === SKIPPED ? 'skipped' : ''} ${picked ? 'picked' : ''}">
+    <input type="checkbox" class="ev-pick ev-noprint" data-change="pickStep" data-id="${s.id}" ${picked ? 'checked' : ''} aria-label="Pick this task">
+    <input type="date" class="input ev-date ${late ? 'late' : ''}" value="${s.due || ''}" data-change="stepField" data-id="${s.id}" data-field="due" aria-label="Due date">
+    <span class="ev-task" data-act="editStep" data-arg="${s.id}"><span class="ev-title">${s.title}</span>${s.critical ? html`<span class="ev-crit">Critical</span>` : ''}${late ? html`<span class="ev-crit">${toDays(d.today) - toDays(s.due)} d overdue</span>` : ''}
+      <span class="tiny muted ev-tmeta">${[s.workstream, s.done_when && 'Done when: ' + s.done_when, s.note].filter(Boolean).join(' · ')}</span></span>
+    <select class="input ev-sel" data-change="stepField" data-id="${s.id}" data-field="owner" aria-label="Owner"><option value="">Unassigned</option>${team.map(n => html`<option ${n === s.owner ? 'selected' : ''}>${n}</option>`)}</select>
+    <select class="input ev-sel" data-change="stepField" data-id="${s.id}" data-field="status" style="color:var(--${STATUS_TONE[s.status]})" aria-label="Status">${d.statuses.map(x => html`<option ${x === s.status ? 'selected' : ''}>${x}</option>`)}</select></div>`;
+}
+
+function taskRows(d, steps, empty = 'No tasks here.', ctx = null) {
+  const picked = new Set(ctx ? ctx.ui().picked || [] : []);
+  return steps.length ? steps.map(s => taskRow(d, s, picked.has(s.id))) : html`<div class="ev-empty">${empty}</div>`;
 }
 
 // Common charts only: a pie with a legend, horizontal stacked bars, and columns. Easy to read at a glance.
 const STATUS_COLORS = [['Done', 'var(--pos)'], ['In progress', 'var(--warn)'], ['Overdue', 'var(--neg)'], ['Not started', 'color-mix(in oklch, var(--ink3) 55%, var(--surface))']];
-const statusOf = (s, today) => (s.status === 'Done' ? 'Done' : s.due && s.due < today ? 'Overdue' : s.status === 'Not started' ? 'Not started' : 'In progress');
+const statusOf = (s, today) => (s.status === SKIPPED ? null : s.status === 'Done' ? 'Done' : s.due && s.due < today ? 'Overdue' : s.status === 'Not started' ? 'Not started' : 'In progress');
 
 function pie(parts, centre) {
   const total = parts.reduce((t, [, n]) => t + n, 0) || 1;
@@ -196,7 +219,7 @@ function taskCharts(d) {
 // tasks due each week, stacked by status, with the event week marked
 function weekColumns(d) {
   const weekOf = iso => addDays(iso, -((new Date(iso + 'T00:00:00').getDay() + 6) % 7));
-  const weeks = [...new Set(d.steps.filter(s => s.due).map(s => weekOf(s.due)))].sort();
+  const weeks = [...new Set(d.steps.filter(s => s.due && s.status !== SKIPPED).map(s => weekOf(s.due)))].sort();
   if (!weeks.length) return html`<div class="ev-empty">No dated tasks.</div>`;
   const rows = weeks.map(w => ({ w, parts: STATUS_COLORS.map(([k]) => d.steps.filter(s => s.due && weekOf(s.due) === w && statusOf(s, d.today) === k).length) }));
   const top = Math.max(...rows.map(r => r.parts.reduce((t, n) => t + n, 0)), 1);
@@ -253,7 +276,7 @@ function leadsChart(d) {
 function overview(d) {
   const p = d.progress, t = d.results.total, e = d.event, a = d.accounts, has = e.lead_sources.length;
   const soon = addDays(d.today, 7);
-  const attention = d.steps.filter(s => s.status !== 'Done' && s.due && (s.due < d.today || (s.critical && s.due <= soon))).slice(0, 6);
+  const attention = d.steps.filter(s => s.status !== 'Done' && s.status !== SKIPPED && s.due && (s.due < d.today || (s.critical && s.due <= soon))).slice(0, 6);
   const tile = (value, label, sub, goal, actual) => html`<div class="ev-tile"><b>${value}</b><span>${label}</span>
     ${goal ? html`<div class="ev-split" style="height:6px;margin-top:8px"><i style="width:${Math.min(pct(actual, goal), 100)}%;background:var(--k)"></i></div><span class="tiny muted">${sub}</span>` : html`<span class="tiny muted">${sub || ''}</span>`}</div>`;
   const posts = d.creatives.slice(0, 4);
@@ -268,34 +291,95 @@ function overview(d) {
       ${tile(times(d.money.pipeline_x), 'Pipeline ROI', `Cost ${moneyOr(d.cost)} · ${times(d.money.won_x)} revenue ROI`)}
     </div>
     <div class="ev-grid2">
-      ${block('Tasks by status', openTab(d, 'plan', 'Plan'), taskCharts(d), 'span2')}
+      ${block('Tasks by status', openTab(d, 'plan'), taskCharts(d), 'span2')}
       ${block('Needs attention', '', attention.length ? attention.map(s => html`<div class="ev-row slim" data-act="editStep" data-arg="${s.id}">
           <span class="ev-when" style="color:var(--${s.due < d.today ? 'neg' : 'warn'})">${s.due < d.today ? 'Overdue' : day(s.due)}</span>
           <span class="ev-task">${s.title}</span><span class="ev-owner">${s.owner || 'Unassigned'}</span></div>`) : html`<div class="ev-empty">Nothing overdue and no critical task due this week.</div>`)}
     </div>
     <div class="ev-grid3">
-      ${block('Lead funnel', openTab(d, 'results', 'Results & ROI'), has ? funnelBars(d) : html`<div class="ev-empty">Set the Lead Source on the Results tab.</div>`)}
-      ${block('Target accounts', openTab(d, 'accounts', 'Accounts'), a.targets.length ? html`<div class="stack" style="gap:14px">${a.tiers.map(tr => html`<div class="stack" style="gap:6px">
+      ${block('Lead funnel', openTab(d, 'results'), has ? funnelBars(d) : html`<div class="ev-empty">Set the Lead Source on the Results tab.</div>`)}
+      ${block('Target accounts', openTab(d, 'accounts'), a.targets.length ? html`<div class="stack" style="gap:14px">${a.tiers.map(tr => html`<div class="stack" style="gap:6px">
           <div class="between small"><span class="medium">Tier ${tr.tier}</span><span class="muted">${tr.engaged} of ${tr.total} engaged</span></div>
           <div class="ev-split"><i style="width:${pct(tr.engaged, tr.total)}%;background:var(--k)"></i><i style="width:${pct(tr.known - tr.engaged, tr.total)}%;background:color-mix(in oklch, var(--k) 25%, var(--surface))"></i></div></div>`)}
           <span class="small muted">Influenced pipeline ${moneyOr(a.influenced)}</span></div>` : html`<div class="ev-empty">No target accounts yet.</div>`)}
-      ${block('Budget vs actual', openTab(d, 'budget', 'Budget'), html`<div class="ev-big" style="margin-bottom:12px">${moneyOr(d.cost)}<span class="small muted" style="font-weight:400"> of ${moneyOr(d.planned)}</span></div>${budgetBars(d)}`)}
+      ${block('Budget vs actual', openTab(d, 'budget'), html`<div class="ev-big" style="margin-bottom:12px">${moneyOr(d.cost)}<span class="small muted" style="font-weight:400"> of ${moneyOr(d.planned)}</span></div>${budgetBars(d)}`)}
     </div>
     <div class="ev-grid3">
-      ${block('Content', openTab(d, 'content', 'Content'), posts.length ? html`<div class="ev-thumbs">${posts.map(c => html`<a href="${c.url}" target="_blank" rel="noopener" class="ev-thumb" style="${c.image ? `background-image:url('${c.image}')` : `background:color-mix(in oklch, ${PLATFORM_COLOR[c.platform] || '#6e6e73'} 16%, var(--surface));color:${PLATFORM_COLOR[c.platform] || '#6e6e73'}`}">${c.image ? '' : c.platform}</a>`)}</div>
+      ${block('Content', openTab(d, 'content'), posts.length ? html`<div class="ev-thumbs">${posts.map(c => html`<a href="${c.url}" target="_blank" rel="noopener" class="ev-thumb" style="${c.image ? `background-image:url('${c.image}')` : `background:color-mix(in oklch, ${PLATFORM_COLOR[c.platform] || '#6e6e73'} 16%, var(--surface));color:${PLATFORM_COLOR[c.platform] || '#6e6e73'}`}">${c.image ? '' : c.platform}</a>`)}</div>
         <div class="small muted" style="margin-top:10px">${d.creatives.length} post${d.creatives.length === 1 ? '' : 's'} on ${[...new Set(d.creatives.map(c => c.platform))].join(', ')}</div>` : html`<div class="ev-empty">No posts yet.</div>`)}
-      ${block('Promotion this week', openTab(d, 'promotion', 'Promotion'), thisWeek.length ? thisWeek.map(x => html`<div class="ev-row slim"><span class="ev-when">${day(x.day)}</span><span class="ev-task">${x.what}<span class="tiny muted" style="display:block">${x.channel}</span></span><span class="ev-owner" style="color:var(--${STATUS_TONE[x.status]})">${x.status}</span></div>`)
+      ${block('Promotion this week', openTab(d, 'promotion'), thisWeek.length ? thisWeek.map(x => html`<div class="ev-row slim"><span class="ev-when">${day(x.day)}</span><span class="ev-task">${x.what}<span class="tiny muted" style="display:block">${x.channel}</span></span><span class="ev-owner" style="color:var(--${STATUS_TONE[x.status]})">${x.status}</span></div>`)
         : html`<div class="ev-empty">${d.promos.filter(x => x.status === 'Done').length} of ${d.promos.length} activities live. Nothing scheduled this week.</div>`)}
-      ${block('Follow-up SLA', openTab(d, 'leads', 'Leads & follow-up'), slaBlock(d))}
+      ${block('Follow-up SLA', openTab(d, 'leads'), slaBlock(d))}
+    </div>
+    <div class="ev-grid2">
+      ${block('Goals', html`<span class="btn xs ev-noprint" data-act="newGoal">Add goal</span>`, goalBars(d))}
+      ${block('Key details', html`<span class="btn xs ev-noprint" data-act="newInfo">Add detail</span>`, keyDetails(d))}
     </div>`;
 }
 
-// ---- Plan: timeline, workload, then every task, filtered by phase, workstream or owner.
+// Every goal of the event as a bar of reached against target: the standard ones from Edit event, then the event's own.
+function goalList(d) {
+  const e = d.event, t = d.results.total, has = e.lead_sources.length;
+  const standard = [['Leads', has ? t.leads : null, e.target_leads], ['Qualified leads', has ? t.qualified : null, e.target_qualified],
+    ['Meetings held', e.meetings_held, e.target_meetings], ['Sourced pipeline', has ? t.pipeline : null, e.target_pipeline, true]]
+    .filter(g => g[2]).map(([name, actual, target, money]) => ({ name, actual, target, money }));
+  return [...standard, ...d.goals.map(g => ({ ...g, own: true }))];
+}
+
+function goalBars(d) {
+  const goals = goalList(d), fmt = (g, v) => (v == null ? '—' : g.money ? f.moneyShort(v) : f.num(v));
+  if (!goals.length) return html`<div class="ev-empty">No goals yet. Set lead, meeting and pipeline targets in Edit event, or add the event's own goal, such as talk attendees, demos given or registrations.</div>`;
+  return html`<div class="stack" style="gap:14px">${goals.map(g => { const p = g.target ? pct(g.actual || 0, g.target) : 0; return html`<div class="stack ${g.own ? 'ev-click' : ''}" style="gap:6px" ${g.own ? html`data-act="editGoal" data-arg="${g.id}"` : ''}>
+      <div class="between small"><span class="medium">${g.name}</span><span class="muted">${fmt(g, g.actual)}${g.target ? ' of ' + fmt(g, g.target) : ''}${g.target && g.actual != null ? html` · <b style="color:var(--${p >= 100 ? 'pos' : 'ink'})">${p}%</b>` : ''}</span></div>
+      <div class="ev-split" style="height:9px"><i style="width:${Math.min(p, 100)}%;background:var(--${p >= 100 ? 'pos' : 'k'})"></i></div></div>`; })}
+    <span class="tiny muted">Leads, qualified leads and pipeline count from Zoho. The event's own goals are typed in: click one to update it.</span></div>`;
+}
+
+// What the team needs to hand on the day, different for every event: organiser contact, stand, platform, folder links.
+function keyDetails(d) {
+  if (!d.info.length) return html`<div class="ev-empty">No details yet: organiser contact, hall and stand, platform, shared folder.</div>`;
+  const shown = v => (/^https?:\/\//i.test(v) ? html`<a class="link" href="${v}" target="_blank" rel="noopener">${v.replace(/^https?:\/\/(www\.)?/i, '').slice(0, 48)}</a>`
+    : /^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(v) ? html`<a class="link" href="mailto:${v}">${v}</a>` : v);
+  return html`<div class="stack">${d.info.map(i => html`<div class="ev-info" data-act="editInfo" data-arg="${i.id}">
+    <span class="small muted">${i.label}</span><span class="small ${i.value ? '' : 'faint'}">${i.value ? shown(i.value) : 'Add'}</span></div>`)}</div>`;
+}
+
+// ---- Plan: progress by phase, tasks per week and workload, then the task list: search, show, group by, and change many at once.
+const SHOW = [['all', 'All'], ['open', 'Open'], ['late', 'Overdue'], ['week', 'Due in 7 days'], ['done', 'Done'], ['skipped', 'Not needed']];
+const GROUPS = [['phase', 'Phase'], ['workstream', 'Workstream'], ['owner', 'Owner'], ['week', 'Week due'], ['status', 'Status'], ['none', 'No grouping']];
+const weekOf = iso => addDays(iso, -((new Date(iso + 'T00:00:00').getDay() + 6) % 7));
+
+function shownTasks(d, ui) {
+  const q = (ui.q || '').toLowerCase(), show = ui.show || 'all', soon = addDays(d.today, 7);
+  const keep = {
+    all: () => true, open: s => s.status !== 'Done' && s.status !== SKIPPED, late: s => isLate(s, d.today),
+    week: s => s.status !== 'Done' && s.status !== SKIPPED && s.due && s.due <= soon, done: s => s.status === 'Done', skipped: s => s.status === SKIPPED,
+  }[show] || (() => true);
+  return d.steps.filter(s => keep(s) && (!ui.phase || s.phase === ui.phase) && (!ui.ws || s.workstream === ui.ws)
+    && (!ui.owner || (s.owner || 'Unassigned') === ui.owner)
+    && (!q || [s.title, s.workstream, s.owner, s.note, s.done_when].some(x => (x || '').toLowerCase().includes(q))));
+}
+
+// tasks split into groups, in a sensible order for each kind of grouping; each group knows what a task added to it gets
+function groupTasks(d, steps, by) {
+  const phases = Object.fromEntries(d.phases);
+  const key = { phase: s => s.phase, workstream: s => s.workstream || '', owner: s => s.owner || '', week: s => (s.due ? weekOf(s.due) : ''), status: s => s.status }[by];
+  if (!key) return [{ title: '', steps, preset: {} }];
+  const order = by === 'phase' ? d.phases.map(p => p[0]) : by === 'status' ? d.statuses : [...new Set(steps.map(key))].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
+  const name = k => (by === 'phase' ? phases[k] : by === 'week' ? (k ? `Week of ${day(k)}${k === weekOf(d.event.starts) ? ' · event week' : k === weekOf(d.today) ? ' · this week' : ''}` : 'No due date')
+    : k || (by === 'owner' ? 'Unassigned' : by === 'workstream' ? 'No workstream' : k));
+  const preset = k => ({ phase: { phase: k }, workstream: { workstream: k }, owner: { owner: k }, week: k ? { due: k } : {}, status: { status: k } }[by]);
+  return order.map(k => ({ title: name(k), steps: steps.filter(s => key(s) === k), preset: preset(k) })).filter(g => g.steps.length);
+}
+
 function plan(d, ctx) {
-  const ui = ctx.ui(), phase = ui.phase || '', ws = ui.ws || '', owner = ui.owner || '';
-  const steps = d.steps.filter(s => (!phase || s.phase === phase) && (!ws || s.workstream === ws) && (!owner || (s.owner || 'Unassigned') === owner));
-  const workstreams = [...new Set(d.steps.map(s => s.workstream).filter(Boolean))];
+  const ui = ctx.ui(), phase = ui.phase || '', ws = ui.ws || '', owner = ui.owner || '', by = ui.by || 'phase', show = ui.show || 'all';
+  const steps = shownTasks(d, ui), groups = groupTasks(d, steps, by);
+  const picked = new Set((ui.picked || []).filter(id => d.steps.some(s => s.id === id)));
+  const workstreams = d.setup.workstreams, owners = [...new Set([...d.team, ...d.steps.map(s => s.owner).filter(Boolean)])];
   const maxLoad = Math.max(...d.load.map(r => r.open), 1);
+  const filtered = phase || ws || owner || ui.q || show !== 'all';
+  const opt = (value, current, text = value) => html`<option value="${value}" ${value === current ? 'selected' : ''}>${text}</option>`;
   return html`
     <div class="ev-phases">${d.by_phase.map(x => html`<button class="ev-phase ${x.key === phase ? 'on' : ''}" data-act="phase" data-arg="${x.key === phase ? '' : x.key}">
       <span class="ev-phase-name">${x.label}</span><span class="ev-split" style="height:6px"><i style="width:${pct(x.done, x.total)}%;background:var(--${x.overdue ? 'neg' : 'k'})"></i></span>
@@ -308,32 +392,50 @@ function plan(d, ctx) {
         : html`<div class="ev-empty">No open tasks in the next 14 days.</div>`)}
     </div>
     <section class="ev-sec">
-      <div class="ev-h"><h2>Tasks <span class="ev-sub" style="font-weight:400">${steps.length} shown</span></h2>
-        <span class="row ev-noprint" style="gap:10px;flex-wrap:wrap">
-          <select class="input" data-change="planWs" style="font-size:12px;padding:5px 8px;width:auto"><option value="">All workstreams</option>${workstreams.map(w => html`<option ${w === ws ? 'selected' : ''}>${w}</option>`)}</select>
-          ${owner ? html`<span class="btn xs" data-act="owner" data-arg="">${owner} ×</span>` : ''}
-          <span class="btn xs primary" data-act="newStep">Add task</span></span></div>
-      ${d.phases.filter(([k]) => !phase || k === phase).map(([k, label]) => { const list = steps.filter(s => s.phase === k); return list.length ? html`<div class="ev-group">${label}</div>${taskRows(d, list)}` : ''; })}
-      ${steps.length ? '' : html`<div class="ev-empty">No tasks match.</div>`}
+      <div class="ev-h"><h2>Tasks <span class="ev-sub" style="font-weight:400">${steps.length} of ${d.steps.length} shown</span></h2>
+        <span class="row ev-noprint" style="gap:8px"><span class="btn xs" data-act="setup">Workstreams & tabs</span><span class="btn xs primary" data-act="newStep">Add task</span></span></div>
+      <div class="ev-toolbar ev-noprint">
+        <input class="input" id="taskQ" type="search" placeholder="Search tasks" value="${ui.q || ''}" data-input="taskQ" autocomplete="off" style="width:200px">
+        ${segmented(SHOW.map(([arg, text]) => ({ arg, label: text, on: show === arg })), 'show', 10)}
+        <label class="row small muted" style="gap:6px">Group by<select class="input ev-sel" data-change="groupBy">${GROUPS.map(([k, t]) => opt(k, by, t))}</select></label>
+        <select class="input ev-sel" data-change="planOwner" aria-label="Owner"><option value="">Every owner</option>${[...owners, 'Unassigned'].map(n => opt(n, owner))}</select>
+        <select class="input ev-sel" data-change="planWs" aria-label="Workstream"><option value="">Every workstream</option>${workstreams.map(w => opt(w, ws))}</select>
+        ${filtered ? html`<span class="btn xs" data-act="clearFilters">Clear filters</span>` : ''}
+      </div>
+      ${picked.size ? html`<div class="ev-bulk ev-noprint"><b>${picked.size} picked</b>
+        <select class="input ev-sel" data-change="bulkField" data-field="status"><option value="">Set status…</option>${d.statuses.map(x => opt(x, ''))}</select>
+        <select class="input ev-sel" data-change="bulkField" data-field="owner"><option value="">Set owner…</option>${owners.map(n => opt(n, ''))}<option value="-">Unassigned</option></select>
+        <select class="input ev-sel" data-change="bulkField" data-field="phase"><option value="">Move to phase…</option>${d.phases.map(([k, t]) => opt(k, '', t))}</select>
+        <select class="input ev-sel" data-change="bulkField" data-field="workstream"><option value="">Set workstream…</option>${workstreams.map(w => opt(w, ''))}</select>
+        <span class="row" style="gap:4px"><input class="input" id="bulkShift" type="number" step="1" placeholder="± days" style="width:80px"><span class="btn xs" data-act="bulkShift">Move dates</span></span>
+        ${ui.confirmDelete ? html`<span class="btn xs danger" data-act="bulkDelete">Delete ${picked.size} task${picked.size === 1 ? '' : 's'}?</span>` : html`<span class="btn xs" data-act="askDelete">Delete</span>`}
+        <span class="btn xs" data-act="unpick">Clear</span></div>` : ''}
+      ${groups.map(g => { const ids = g.steps.map(s => s.id), all = ids.every(id => picked.has(id)); return html`
+        ${g.title ? html`<div class="ev-ghead"><input type="checkbox" class="ev-pick ev-noprint" data-change="pickGroup" data-ids="${ids.join(',')}" ${all ? 'checked' : ''} aria-label="Pick every task in ${g.title}">
+          <span class="medium">${g.title}</span><span class="tiny muted">${g.steps.length} task${g.steps.length === 1 ? '' : 's'}${g.steps.some(s => isLate(s, d.today)) ? html` · <span style="color:var(--neg)">${g.steps.filter(s => isLate(s, d.today)).length} overdue</span>` : ''}</span>
+          <span class="link tiny ev-noprint" data-act="newStep" data-preset="${JSON.stringify(g.preset)}">+ Add here</span></div>` : ''}
+        ${g.steps.map(s => taskRow(d, s, picked.has(s.id)))}`; })}
+      ${steps.length ? '' : html`<div class="ev-empty">${d.steps.length ? 'No tasks match.' : 'No tasks yet.'}</div>`}
     </section>`;
 }
 
 // ---- Booth & logistics: the booth checklist from the plan, plus the booth's facts.
-function booth(d) {
-  const e = d.event, steps = d.steps.filter(s => BOOTH_WS.includes(s.workstream));
-  const done = steps.filter(s => s.status === 'Done').length;
+function booth(d, ctx) {
+  const e = d.event, steps = tabSteps(d, 'booth'), counted = steps.filter(s => s.status !== SKIPPED);
+  const done = counted.filter(s => s.status === 'Done').length;
   return html`<div class="ev-tiles">
       <div class="ev-tile"><b>${e.booth || '—'}</b><span>Booth / stand</span></div>
       <div class="ev-tile"><b>${[e.venue, e.city].filter(Boolean).join(', ') || '—'}</b><span>Venue</span></div>
-      <div class="ev-tile"><b>${done}<span class="muted" style="font-size:16px"> / ${steps.length}</span></b><span>Checklist done</span><div class="ev-split" style="height:6px;margin-top:8px"><i style="width:${pct(done, steps.length)}%;background:var(--k)"></i></div></div>
+      <div class="ev-tile"><b>${done}<span class="muted" style="font-size:16px"> / ${counted.length}</span></b><span>Checklist done</span><div class="ev-split" style="height:6px;margin-top:8px"><i style="width:${pct(done, counted.length)}%;background:var(--k)"></i></div></div>
       <div class="ev-tile"><b>${e.meetings_held == null ? '—' : f.num(e.meetings_held)}<span class="muted" style="font-size:16px">${e.target_meetings ? ' / ' + f.num(e.target_meetings) : ''}</span></b><span>Meetings held</span></div>
     </div>
-    ${block('Booth & logistics checklist', html`<span class="btn xs primary ev-noprint" data-act="newStep" data-ws="Booth & logistics">Add item</span>`, taskRows(d, steps, 'No booth or logistics tasks for this event type.'))}`;
+    ${block(tabLabel(d, 'booth') + ' checklist', html`<span class="btn xs primary ev-noprint" data-act="newStep" data-preset="${JSON.stringify({ workstream: d.setup.tab_ws.booth[0] || '' })}">Add item</span>`,
+      taskRows(d, steps, 'No tasks in this tab’s workstreams. Pick them in Customise tabs.', ctx))}`;
 }
 
 // ---- Leads & follow-up: leads arriving, how fast they were contacted, and the tasks that make it happen.
-function leadsTab(d) {
-  const t = d.results.total, e = d.event, steps = d.steps.filter(s => LEAD_WS.includes(s.workstream));
+function leadsTab(d, ctx) {
+  const t = d.results.total, e = d.event, steps = tabSteps(d, 'leads');
   return html`<div class="ev-tiles">
       <div class="ev-tile"><b>${e.lead_sources.length ? f.num(t.leads) : '—'}</b><span>Leads${e.target_leads ? ' · target ' + f.num(e.target_leads) : ''}</span></div>
       <div class="ev-tile"><b>${f.num(t.qualified)}</b><span>Qualified leads${t.leads ? ' · ' + pct(t.qualified, t.leads) + '%' : ''}</span></div>
@@ -344,7 +446,8 @@ function leadsTab(d) {
       ${block('Leads by day', html`<span class="btn xs ev-noprint" data-act="pickSources">Lead Source${e.lead_sources.length ? ': ' + e.lead_sources.join(', ') : ''}</span>`, leadsChart(d), 'span2')}
       ${block('Follow-up SLA', info(TIPS.sla, { end: true }), slaBlock(d))}
     </div>
-    ${block('Lead capture & follow-up tasks', '', taskRows(d, steps))}`;
+    ${block('Lead capture & follow-up tasks', html`<span class="btn xs primary ev-noprint" data-act="newStep" data-preset="${JSON.stringify({ workstream: d.setup.tab_ws.leads[0] || '' })}">Add task</span>`,
+      taskRows(d, steps, 'No tasks in this tab’s workstreams. Pick them in Customise tabs.', ctx))}`;
 }
 
 // ---- Budget: planned against actual by category, and every cost line.
@@ -433,16 +536,17 @@ function results(d) {
           <span class="medium small">${x.source}</span><span class="tiny muted">${f.num(x.leads)} leads · ${f.num(x.qualified)} qualified · ${f.num(x.deals)} opportunities · ${moneyOr(x.pipeline)} · ${f.num(x.won)} won</span></div>`)
         : html`<div class="ev-empty">No Lead Source set.</div>`)}
     </div>
+    ${block('Goals', html`<span class="btn xs ev-noprint" data-act="newGoal">Add goal</span>`, goalBars(d))}
     ${e.lessons ? block('Lessons learned', '', html`<p style="margin:0;max-width:75ch">${e.lessons}</p>`) : ''}`;
 }
 
 function room(d, ctx) {
   const ids = tabs(d).map(x => x[0]);
   const current = ids.includes(ctx.app.params.sec) ? ctx.app.params.sec : 'overview';
-  const page = { overview: () => overview(d), plan: () => plan(d, ctx), promotion: () => promotion(d), content: () => content(d, ctx), booth: () => booth(d),
-    accounts: () => accounts(d), leads: () => leadsTab(d), budget: () => budget(d), results: () => results(d) };
+  const page = { overview: () => overview(d), plan: () => plan(d, ctx), promotion: () => promotion(d), content: () => content(d, ctx), booth: () => booth(d, ctx),
+    accounts: () => accounts(d), leads: () => leadsTab(d, ctx), budget: () => budget(d), results: () => results(d) };
   return html`<div class="ev evw" data-kind="${d.event.kind}">${header(d, current)}
-    <main class="ev-main">${ctx.ui().printing ? ['overview', 'results', 'budget', 'accounts'].map(id => page[id]()) : page[current]()}</main></div>`;
+    <main class="ev-main">${ctx.ui().printing ? ['overview', 'results', 'budget', 'accounts'].filter(id => ids.includes(id)).map(id => page[id]()) : page[current]()}</main></div>`;
 }
 
 // ------------------------------------------------------------------------------- forms
@@ -452,6 +556,7 @@ const select = (label, name, options, value) => html`<label class="field">${labe
 const buttons = (removeAct, id) => html`<div class="between" style="margin-top:4px">${id && removeAct ? html`<button type="button" class="btn danger" data-act="${removeAct}" data-arg="${id}">Delete</button>` : html`<span></span>`}
   <div class="row" style="gap:8px"><button type="button" class="btn" data-act="cancelModal">Cancel</button><button class="btn primary" type="submit">Save</button></div></div>`;
 const owners = d => html`<datalist id="owners">${(d.team || []).map(n => html`<option value="${n}">`)}</datalist>`;
+const suggest = (id, list) => html`<datalist id="${id}">${(list || []).map(x => html`<option value="${x}">`)}</datalist>`;
 const check = (name, label, on) => html`<label class="row small" style="gap:8px"><input type="checkbox" name="${name}" ${on ? 'checked' : ''}> ${label}</label>`;
 
 export default {
@@ -460,10 +565,7 @@ export default {
   solo: app => !!app.params.id,  // an event opens as its own workspace, without Meridian's sidebar
   load: ctx => (ctx.app.params.id ? ctx.api.get('events/' + ctx.app.params.id) : ctx.api.get('events')),
   render(d, ctx) {
-    if (!d.event) {
-      d.events.forEach(e => { e.kindKey = (d.kinds.find(k => k[1] === e.kind) || ['booth'])[0]; });
-      return home(d, ctx);
-    }
+    if (!d.event) return home(d, ctx);
     return room(d, ctx);
   },
 
@@ -473,7 +575,11 @@ export default {
       const e = m.event || { kind: 'booth', decision: 'Go' };
       return html`<form class="modal" data-submit="saveEvent" style="width:660px">
         <span class="section">${m.event ? 'Edit event' : 'New event'}</span>
-        ${m.event ? '' : html`<span class="small muted">The event gets the standard playbook for its type, with every due date set from its dates.</span>`}
+        ${m.event ? '' : html`<label class="field">Start the plan from<select class="input" name="start_from">
+          <option value="playbook">The standard playbook for its type</option>
+          ${(d.events || []).length ? html`<optgroup label="Copy a past event: tasks, promotion, budget, goals, details, target accounts">${[...d.events].sort((a, b) => (a.starts < b.starts ? 1 : -1)).map(x => html`<option value="event:${x.id}">${x.name} (${span(x)} ${x.starts.slice(0, 4)})</option>`)}</optgroup>` : ''}
+          <option value="empty">An empty plan</option></select></label>
+          <span class="small muted">Due dates are set from the new event's dates. A copy starts with every task not started and no spend.</span>`}
         <div class="grid" style="grid-template-columns:2fr 1fr">${field('Event name', 'name', e.name, 'required data-autofocus placeholder="e.g. SFF 2026"')}${select('Type', 'kind', d.kinds, e.kind)}</div>
         <div class="grid" style="grid-template-columns:1fr 1fr 1fr">${field('Start date', 'starts', e.starts, 'type="date" required')}${field('End date', 'ends', e.ends, 'type="date"')}${select('Decision', 'decision', d.decisions || ['Considering', 'Go', 'No-go'], e.decision || 'Go')}</div>
         <div class="grid" style="grid-template-columns:1fr 1fr">${field('City', 'city', e.city)}${field('Venue', 'venue', e.venue)}${field('Partner', 'partner', e.partner, 'placeholder="If co-hosted, e.g. Vonage"')}${field('Booth / stand', 'booth', e.booth)}</div>
@@ -484,12 +590,12 @@ export default {
         ${buttons('removeEvent', m.event && e.id)}</form>`;
     }
     if (m.kind === 'step') {
-      const s = m.step || { phase: 'promote', status: 'Not started', workstream: m.ws || '' };
-      return html`<form class="modal" data-submit="saveStep">${owners(d)}
+      const s = m.step || { phase: 'promote', status: 'Not started', ...(m.preset || {}) };
+      return html`<form class="modal" data-submit="saveStep">${owners(d)}${suggest('workstreams', d.setup.workstreams)}
         <span class="section">${m.step ? 'Edit task' : 'Add task'}</span>
         ${field('Task', 'title', s.title, 'required data-autofocus')}
         <div class="grid" style="grid-template-columns:1fr 1fr">${select('Phase', 'phase', d.phases, s.phase)}${field('Due date', 'due', s.due, 'type="date"')}${field('Owner', 'owner', s.owner, 'list="owners"')}${select('Status', 'status', d.statuses, s.status)}</div>
-        <div class="grid" style="grid-template-columns:1fr 1fr">${field('Workstream', 'workstream', s.workstream)}${field('Done when', 'done_when', s.done_when)}</div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">${field('Workstream', 'workstream', s.workstream, 'list="workstreams"')}${field('Done when', 'done_when', s.done_when)}</div>
         ${field('Note', 'note', s.note)}${check('critical', 'Critical task', s.critical)}
         ${buttons('removeStep', m.step && s.id)}</form>`;
     }
@@ -506,10 +612,10 @@ export default {
     }
     if (m.kind === 'promo') {
       const p = m.promo || { channel: 'LinkedIn post', status: 'Not started' };
-      return html`<form class="modal" data-submit="savePromo">${owners(d)}
+      return html`<form class="modal" data-submit="savePromo">${owners(d)}${suggest('channels', d.channels)}
         <span class="section">${m.promo ? 'Edit activity' : 'Add activity'}</span>
         ${field('Activity', 'what', p.what, 'required data-autofocus placeholder="e.g. Teaser post: meet us at booth 6H02"')}
-        <div class="grid" style="grid-template-columns:1fr 1fr">${select('Channel', 'channel', d.channels, p.channel)}${field('Date', 'day', p.day, 'type="date"')}${field('Owner', 'owner', p.owner, 'list="owners"')}${select('Status', 'status', d.statuses, p.status)}</div>
+        <div class="grid" style="grid-template-columns:1fr 1fr">${field('Channel', 'channel', p.channel, 'list="channels" required')}${field('Date', 'day', p.day, 'type="date"')}${field('Owner', 'owner', p.owner, 'list="owners"')}${select('Status', 'status', d.statuses, p.status)}</div>
         ${buttons('removePromo', m.promo && p.id)}</form>`;
     }
     if (m.kind === 'creative') {
@@ -523,12 +629,51 @@ export default {
     }
     if (m.kind === 'cost') {
       const c = m.cost || { category: d.cost_kinds[0] };
-      return html`<form class="modal" data-submit="saveCost">
+      return html`<form class="modal" data-submit="saveCost">${suggest('costKinds', d.cost_kinds)}
         <span class="section">${m.cost ? 'Edit cost' : 'Add cost'}</span>
         ${field('Item', 'item', c.item, 'required data-autofocus placeholder="e.g. Booth space 6H02"')}
-        <div class="grid" style="grid-template-columns:1fr 1fr 1fr">${select('Category', 'category', d.cost_kinds, c.category)}${field('Budgeted (₹)', 'planned', c.planned, 'type="number" min="0" step="any"')}${field('Actual (₹)', 'amount', c.amount, 'type="number" min="0" step="any"')}</div>
+        <div class="grid" style="grid-template-columns:1fr 1fr 1fr">${field('Category', 'category', c.category, 'list="costKinds" required')}${field('Budgeted (₹)', 'planned', c.planned, 'type="number" min="0" step="any"')}${field('Actual (₹)', 'amount', c.amount, 'type="number" min="0" step="any"')}</div>
         ${check('paid', 'Paid', c.paid)}
         ${buttons('removeCost', m.cost && c.id)}</form>`;
+    }
+    if (m.kind === 'setup') {
+      const st = d.setup, ws = (tab, w) => check(`ws_${tab}::${w}`, w, st.tab_ws[tab].includes(w));
+      return html`<form class="modal" data-submit="saveSetup" style="width:640px">
+        <span class="section">Customise tabs for ${d.event.name}</span>
+        <span class="small muted">Every event is different. Hide the tabs this event does not need and rename the rest, for example "Booth & logistics" to "Venue & logistics" for a dinner.</span>
+        <div class="stack" style="gap:8px">${st.tabs.map(t => html`<div class="row" style="gap:12px">
+          <label class="row small" style="gap:8px;width:190px"><input type="checkbox" name="show_${t.id}" ${t.show ? 'checked' : ''} ${t.id === 'overview' ? 'disabled' : ''}> ${t.standard}</label>
+          <input class="input" name="name_${t.id}" value="${t.label === t.standard ? '' : t.label}" placeholder="${t.standard}" style="flex:1"></div>`)}</div>
+        <span class="section" style="font-size:14px;margin-top:6px">Which tasks each tab lists</span>
+        ${['booth', 'leads'].map(tab => html`<div class="stack" style="gap:6px"><span class="small medium">${tabLabel(d, tab)}: tasks in these workstreams</span>
+          <div class="row" style="gap:6px 14px;flex-wrap:wrap">${st.workstreams.map(w => ws(tab, w))}</div></div>`)}
+        ${field('New workstreams (comma between them)', 'new_workstreams', '', 'placeholder="e.g. Speaker prep, Hospitality"')}
+        ${buttons(null, null)}</form>`;
+    }
+    if (m.kind === 'goal') {
+      const g = m.goal || {};
+      return html`<form class="modal" data-submit="saveGoal">
+        <span class="section">${m.goal ? 'Update goal' : 'Add goal'}</span>
+        <span class="small muted">A goal of this event that Meridian does not count by itself, such as talk attendees, demos given, registrations or press mentions.</span>
+        ${field('Goal', 'name', g.name, 'required data-autofocus placeholder="e.g. Demos given at the booth"')}
+        <div class="grid" style="grid-template-columns:1fr 1fr">${field('Target', 'target', g.target, 'type="number" step="any" min="0"')}${field('Reached so far', 'actual', g.actual, 'type="number" step="any" min="0"')}</div>
+        ${buttons('removeGoal', m.goal && g.id)}</form>`;
+    }
+    if (m.kind === 'info') {
+      const i = m.info || {};
+      return html`<form class="modal" data-submit="saveInfo">
+        <span class="section">${m.info ? 'Edit detail' : 'Add detail'}</span>
+        ${field('Detail', 'label', i.label, `required ${m.info ? '' : 'data-autofocus'} placeholder="e.g. Organiser contact"`)}
+        ${field('Value', 'value', i.value, `${m.info ? 'data-autofocus' : ''} placeholder="Text, an email, or a link starting with https://"`)}
+        ${buttons('removeInfo', m.info && i.id)}</form>`;
+    }
+    if (m.kind === 'eventKind') {
+      const k = m.key ? d.kinds.find(x => x[0] === m.key) : null;
+      return html`<form class="modal" data-submit="saveKind">
+        <span class="section">${k ? 'Rename event type' : 'Add event type'}</span>
+        <span class="small muted">${k ? `${d.kind_use[m.key] || 0} event(s) use this type. A type can be deleted once no event uses it.` : 'Then tick this type on the playbook tasks it needs. Tasks with no type ticked go to every type.'}</span>
+        ${field('Name', 'label', k ? k[1] : '', 'required data-autofocus placeholder="e.g. Customer summit"')}
+        ${buttons(k ? 'removeKind' : null, m.key)}</form>`;
     }
     if (m.kind === 'targets') {
       const text = d.accounts.targets.map(t => [t.company, t.tier, t.domain].filter(x => x != null && x !== '').join(', ')).join('\n');
@@ -562,7 +707,31 @@ export default {
     print(ctx) { ctx.ui().printing = true; ctx.render(); setTimeout(() => { window.print(); ctx.ui().printing = false; ctx.render(); }, 60); },
     newEvent: ctx => ctx.openModal({ kind: 'event' }),
     editEvent: ctx => ctx.openModal({ kind: 'event', event: ctx.app.data.event }),
-    newStep: (ctx, d) => ctx.openModal({ kind: 'step', ws: d && d.ws }),
+    newStep: (ctx, d) => ctx.openModal({ kind: 'step', preset: d && d.preset ? JSON.parse(d.preset) : {} }),
+    show(ctx, d) { ctx.ui().show = d.arg; ctx.render(); },
+    clearFilters(ctx) { Object.assign(ctx.ui(), { q: '', show: 'all', phase: '', ws: '', owner: '' }); ctx.render(); },
+    unpick(ctx) { ctx.ui().picked = []; ctx.ui().confirmDelete = false; ctx.render(); },
+    askDelete(ctx) { ctx.ui().confirmDelete = true; ctx.render(); },
+    bulkDelete: ctx => bulk(ctx, { delete: true }, 'Tasks deleted.'),
+    bulkShift(ctx) {
+      const days = document.getElementById('bulkShift').value;
+      if (!days) return ctx.toast('Type how many days to move the dates, for example 7 or -3.');
+      return bulk(ctx, { shift: days }, 'Due dates moved.');
+    },
+    setup: ctx => ctx.openModal({ kind: 'setup' }),
+    newGoal: ctx => ctx.openModal({ kind: 'goal' }),
+    editGoal: (ctx, d) => ctx.openModal({ kind: 'goal', goal: ctx.app.data.goals.find(g => String(g.id) === d.arg) }),
+    newInfo: ctx => ctx.openModal({ kind: 'info' }),
+    editInfo: (ctx, d) => ctx.openModal({ kind: 'info', info: ctx.app.data.info.find(i => String(i.id) === d.arg) }),
+    removeGoal: (ctx, d) => remove(ctx, 'remove_goal', d.arg),
+    removeInfo: (ctx, d) => remove(ctx, 'remove_info', d.arg),
+    pickKind(ctx, d) { ctx.ui().kind = d.arg; ctx.render(); },
+    newKind: ctx => ctx.openModal({ kind: 'eventKind' }),
+    editKind: (ctx, d) => ctx.openModal({ kind: 'eventKind', key: d.arg }),
+    removeKind(ctx, d) {
+      ctx.app.modal = null;
+      return ctx.save(() => ctx.api.post('events', { what: 'remove_kind', data: { key: d.arg } }), 'Event type deleted.');
+    },
     editStep: (ctx, d) => ctx.openModal({ kind: 'step', step: ctx.app.data.steps.find(s => String(s.id) === d.arg) }),
     newPlaybookStep: ctx => ctx.openModal({ kind: 'playbook' }),
     editPlaybookStep: (ctx, d) => ctx.openModal({ kind: 'playbook', step: ctx.app.data.playbook.find(s => String(s.id) === d.arg) }),
@@ -588,11 +757,20 @@ export default {
 
   changes: {
     planWs(ctx, value) { ctx.ui().ws = value; ctx.render(); },
-    stepStatus: (ctx, value, el) => ctx.save(() => ctx.api.post('events', { what: 'status', id: Number(el.dataset.id), data: { status: value } })),
+    planOwner(ctx, value) { ctx.ui().owner = value; ctx.render(); },
+    groupBy(ctx, value) { ctx.ui().by = value; ctx.render(); },
+    stepField: (ctx, value, el) => ctx.save(() => ctx.api.post('events', { what: 'step_field', id: Number(el.dataset.id), data: { field: el.dataset.field, value } })),
+    pickStep(ctx, value, el) { pick(ctx, [Number(el.dataset.id)], el.checked); },
+    pickGroup(ctx, value, el) { pick(ctx, el.dataset.ids.split(',').map(Number), el.checked); },
+    bulkField(ctx, value, el) {
+      if (!value) return;
+      return bulk(ctx, { field: el.dataset.field, value: value === '-' ? '' : value }, 'Tasks changed.');
+    },
   },
 
   inputs: {
     sourceQ(ctx, value) { ctx.ui().sourceQ = value; ctx.render(); },
+    taskQ(ctx, value) { ctx.ui().q = value; ctx.render(); },
   },
 
   submits: {
@@ -607,6 +785,18 @@ export default {
     savePromo: (ctx, v) => saveItem(ctx, 'promo', 'promo', v),
     saveCreative: (ctx, v) => saveItem(ctx, 'creative', 'creative', v, 'Post added.'),
     saveCost: (ctx, v) => saveItem(ctx, 'cost', 'cost', { ...v, paid: !!v.paid }),
+    saveGoal: (ctx, v) => saveItem(ctx, 'goal', 'goal', v),
+    saveInfo: (ctx, v) => saveItem(ctx, 'info', 'info', v),
+    saveKind(ctx, v) {
+      const key = ctx.app.modal.key;
+      ctx.app.modal = null;
+      return ctx.save(() => ctx.api.post('events', { what: 'kind', data: { key, label: v.label } }), key ? 'Event type renamed.' : 'Event type added.');
+    },
+    saveSetup(ctx, v) {
+      ctx.app.modal = null;
+      const ws = tab => Object.keys(v).filter(k => k.startsWith(`ws_${tab}::`)).map(k => k.slice(tab.length + 5));
+      return ctx.save(() => ctx.api.post('events', { what: 'setup', event_id: ctx.app.data.event.id, data: { ...v, ws_booth: ws('booth'), ws_leads: ws('leads') } }), 'Tabs saved.');
+    },
     saveTargets(ctx, v) {
       ctx.app.modal = null;
       return ctx.save(() => ctx.api.post('events', { what: 'targets', event_id: ctx.app.data.event.id, data: { text: v.text } }), 'Target accounts saved.');
@@ -624,6 +814,21 @@ function saveItem(ctx, what, key, v, done = 'Saved.') {
   ctx.app.modal = null;
   const eventId = ctx.app.data.event ? ctx.app.data.event.id : null;
   return ctx.save(() => ctx.api.post('events', { what, id: item ? item.id : null, event_id: eventId, data: v }), done);
+}
+
+// tasks picked in the task list for a change to many at once
+function pick(ctx, ids, on) {
+  const ui = ctx.ui(), set = new Set(ui.picked || []);
+  ids.forEach(id => (on ? set.add(id) : set.delete(id)));
+  ui.picked = [...set];
+  ui.confirmDelete = false;
+  ctx.render();
+}
+
+async function bulk(ctx, change, done) {
+  const ui = ctx.ui();
+  const r = await ctx.save(() => ctx.api.post('events', { what: 'steps', event_id: ctx.app.data.event.id, data: { ids: ui.picked || [], ...change } }), done);
+  if (r) { ui.picked = []; ui.confirmDelete = false; ctx.render(); }
 }
 
 function remove(ctx, what, id) {

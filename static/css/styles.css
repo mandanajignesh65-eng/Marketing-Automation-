@@ -439,3 +439,29 @@ svg.lines polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linej
 .ev-pie small { font-size: 11px; color: var(--ink2); margin-top: 3px; }
 .ev-grid-chart { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: 32px; align-items: center; }
 @media (max-width: 1100px) { .ev-grid-chart { grid-template-columns: 1fr; } }
+
+/* Event task list: changed in place, grouped, with a bar for changing many tasks at once */
+.ev-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding-bottom: 14px; }
+.ev-sel { font-size: 12px; padding: 5px 8px; width: auto; max-width: 170px; }
+.ev-bulk { position: sticky; top: 8px; z-index: 2; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 8px; border-radius: 12px;
+  background: color-mix(in oklch, var(--k) 10%, var(--surface)); box-shadow: var(--shadow); font-size: 12.5px; }
+.ev-ghead { display: flex; align-items: center; gap: 10px; padding: 18px 0 8px; font-size: 13px; }
+.ev-ghead .link { margin-left: auto; cursor: pointer; }
+.ev-trow { display: grid; grid-template-columns: 18px 138px minmax(0, 1fr) 150px 150px; gap: 12px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line2); }
+.ev-trow.picked { background: color-mix(in oklch, var(--k) 6%, transparent); }
+.ev-trow.done .ev-title { color: var(--ink2); }
+.ev-trow.skipped .ev-title { color: var(--ink3); text-decoration: line-through; }
+.ev-trow .ev-task { cursor: pointer; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 0; }
+.ev-trow .ev-task:hover .ev-title { color: var(--accent); }
+.ev-tmeta { flex-basis: 100%; margin-top: 2px; }
+.ev-tmeta:empty { display: none; }
+.ev-pick { width: 15px; height: 15px; margin: 0; accent-color: var(--k); cursor: pointer; }
+.ev-date { font-size: 12px; padding: 4px 6px; font-variant-numeric: tabular-nums; }
+.ev-date.late { color: var(--neg); font-weight: 600; }
+.ev-trow .ev-sel { max-width: none; width: 100%; }
+.ev-info { display: grid; grid-template-columns: minmax(110px, 40%) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-top: 1px solid var(--line2); cursor: pointer; }
+.ev-info:hover { background: var(--surface2); }
+.ev-info span:last-child { overflow-wrap: anywhere; }
+.ev-click { cursor: pointer; }
+@media (max-width: 900px) { .ev-trow { grid-template-columns: 18px 1fr; } .ev-trow .ev-task { grid-column: 2; } .ev-trow .ev-sel, .ev-trow .ev-date { grid-column: 2; } }
+@media print { .ev-trow { grid-template-columns: 110px minmax(0, 1fr) 130px 120px; } .ev-trow input, .ev-trow select { border: 0; background: none; appearance: none; } }

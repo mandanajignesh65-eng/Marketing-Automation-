@@ -17,12 +17,21 @@ from .db import get_setting, set_setting
 from .periods import iso
 
 PHASES = [("plan", "Decide & plan"), ("promote", "Promote & invite"), ("live", "Event days"), ("follow", "Follow up & measure")]
-STATUSES = ["Not started", "In progress", "Waiting on others", "Done"]
+STATUSES = ["Not started", "In progress", "Waiting on others", "Done", "Not needed"]
+SKIPPED = "Not needed"  # a task that does not apply to this event: kept for the record, left out of every count
 CHANNELS = ["LinkedIn post", "LinkedIn ads", "Meta ads", "Instagram post", "Email", "Personal invites", "Landing page", "WhatsApp", "PR", "Other"]
 COST_KINDS = ["Space or sponsorship", "Booth build and graphics", "Screen, power and Wi-Fi", "Travel and stay", "Print and swag", "Ads", "Other"]
 DECISIONS = ["Considering", "Go", "No-go"]
 KINDS = [("booth", "Booth / exhibition"), ("sponsor", "Sponsorship + speaking slot"), ("partner", "Partner co-hosted event"),
-         ("roundtable", "Roundtable / dinner"), ("webinar", "Webinar")]
+         ("roundtable", "Roundtable / dinner"), ("webinar", "Webinar")]  # the starting types; the team can rename them and add their own
+# The event workspace's tabs. Each event can rename or hide any of them except Overview.
+TABS = [("overview", "Overview"), ("plan", "Plan"), ("promotion", "Promotion"), ("content", "Content"), ("booth", "Booth & logistics"),
+        ("accounts", "Target accounts"), ("leads", "Leads & follow-up"), ("budget", "Budget"), ("results", "Results & ROI")]
+TAB_WORKSTREAMS = {"booth": ["Booth & logistics", "Booth team"], "leads": ["Lead capture", "Follow-up"]}  # tasks these tabs list, by default
+HIDDEN_BY_KIND = {"webinar": ["booth"]}  # tabs a new event of this type starts without
+# Key details a new event starts with, to be filled in; each event can add, rename or remove them
+INFO_BY_KIND = {"": ["Organiser contact", "Shared folder"], "in_person": ["Hall and stand", "Build-up and teardown times", "Exhibitor manual or portal"],
+                "webinar": ["Platform", "Registration page", "Speakers"]}
 IN_PERSON = "booth,sponsor,partner,roundtable"
 BOOTH = "booth,sponsor,partner"
 RESULT_DAYS = 90      # an event is compared with others only once its deals have had this long to move
@@ -97,6 +106,55 @@ def seed_playbook(conn):
     conn.executemany("INSERT INTO playbook_steps (phase, workstream, title, offset_days, done_when, kinds, critical, sort) VALUES (?,?,?,?,?,?,?,?)",
                      [row + (i,) for i, row in enumerate(PLAYBOOK)])
     set_setting(conn, "playbook_seeded", PLAYBOOK_VERSION)
+
+
+def kinds(conn):
+    """Event types as (key, label): the team's own list once they change it, the starting list until then."""
+    saved = get_setting(conn, "event_kinds")
+    return [tuple(k) for k in json.loads(saved)] if saved else list(KINDS)
+
+
+def save_kind(conn, key, d):
+    label = need(d.get("label"), "A name for the event type")[:60]
+    rows = kinds(conn)
+    if key:
+        rows = [(k, label if k == key else l) for k, l in rows]
+    else:
+        new = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_") or "type"
+        while new in dict(rows):
+            new += "_"
+        rows.append((new, label))
+    set_setting(conn, "event_kinds", json.dumps(rows))
+
+
+def remove_kind(conn, key):
+    used = conn.execute("SELECT COUNT(*) FROM events WHERE kind = ?", (key,)).fetchone()[0]
+    if used:
+        raise EventError("{} event{} still use this type. Change their type first.".format(used, "" if used == 1 else "s"))
+    rows = [r for r in kinds(conn) if r[0] != key]
+    if not rows:
+        raise EventError("At least one event type is needed.")
+    set_setting(conn, "event_kinds", json.dumps(rows))
+
+
+def setup_of(ev, steps):
+    """The event's own layout: every tab with its name and whether it shows, and the workstreams the Booth and Leads tabs list."""
+    saved = json.loads(ev["setup"] or "{}")
+    names, hidden = saved.get("names", {}), set(saved.get("hidden", []))
+    workstreams = sorted({s["workstream"] for s in steps if s["workstream"]} | set(saved.get("workstreams", [])))
+    return dict(tabs=[dict(id=k, label=names.get(k) or l, standard=l, show=k == "overview" or k not in hidden) for k, l in TABS],
+                tab_ws={k: saved.get("tab_ws", {}).get(k, v) for k, v in TAB_WORKSTREAMS.items()}, workstreams=workstreams)
+
+
+def save_setup(conn, event_id, d):
+    tabs = dict(TABS)
+    names = {k: d["name_" + k].strip()[:40] for k in tabs if (d.get("name_" + k) or "").strip() not in ("", tabs[k])}
+    hidden = [k for k in tabs if k != "overview" and not d.get("show_" + k)]
+    tab_ws = {k: [w for w in d.get("ws_" + k) or [] if w] for k in TAB_WORKSTREAMS}
+    extra = [w.strip()[:60] for w in (d.get("new_workstreams") or "").split(",") if w.strip()]
+    old = json.loads(conn.execute("SELECT setup FROM events WHERE id = ?", (event_id,)).fetchone()["setup"] or "{}")
+    conn.execute("UPDATE events SET setup = ? WHERE id = ?", (json.dumps(dict(
+        names=names, hidden=hidden, tab_ws=tab_ws, workstreams=sorted(set(old.get("workstreams", [])) | set(extra)))), event_id))
 
 
 def need(text, what):
@@ -244,6 +302,7 @@ def phase_now(ev, today):
 
 def progress(steps, today):
     """Readiness is the share of tasks due by today that are done; overdue tasks and critical tasks at risk are counted apart."""
+    steps = [s for s in steps if s["status"] != SKIPPED]
     t = today.isoformat()
     soon = (today + timedelta(days=RISK_DAYS)).isoformat()
     done = sum(s["status"] == "Done" for s in steps)
@@ -260,7 +319,7 @@ def owner_load(steps, today):
     until = (today + timedelta(days=14)).isoformat()
     load = {}
     for s in steps:
-        if s["status"] != "Done" and s["due"] and s["due"] <= until:
+        if s["status"] not in ("Done", SKIPPED) and s["due"] and s["due"] <= until:
             row = load.setdefault(s["owner"] or "Unassigned", dict(owner=s["owner"] or "Unassigned", open=0, overdue=0, critical=0))
             row["open"] += 1
             row["overdue"] += s["due"] < today.isoformat()
@@ -290,21 +349,22 @@ def embed_url(url):
 def listing(conn, now, threshold):
     seed_playbook(conn)
     today = now.date()
-    out = []
+    out, kind_list = [], kinds(conn)
     for ev in conn.execute("SELECT * FROM events ORDER BY starts"):
         steps = [dict(r) for r in conn.execute("SELECT status, due, critical, owner FROM event_steps WHERE event_id = ?", (ev["id"],))]
         cost = conn.execute("SELECT COALESCE(SUM(amount), 0) FROM event_costs WHERE event_id = ?", (ev["id"],)).fetchone()[0]
         res = results(conn, ev, threshold)
         out.append(dict(id=ev["id"], name=ev["name"], starts=ev["starts"], ends=ev["ends"], city=ev["city"], partner=ev["partner"],
                         phase=phase_now(ev, today), days_to_go=(date.fromisoformat(ev["starts"]) - today).days,
-                        kind=dict(KINDS).get(ev["kind"], "Booth / exhibition"), ends_on=ev["ends"] or ev["starts"],
+                        kind=dict(kind_list).get(ev["kind"], "Event"), kind_key=ev["kind"], ends_on=ev["ends"] or ev["starts"],
                         result_age=(today - date.fromisoformat(ev["ends"] or ev["starts"])).days,
                         progress=progress(steps, today), cost=cost, budget=ev["budget"], total=res["total"],
                         money=money_back(res["total"], cost), has_sources=bool(json.loads(ev["lead_sources"] or "[]"))))
     # upcoming and live first (soonest first), then the finished ones (latest first)
     out.sort(key=lambda e: (e["phase"] == "Done", e["days_to_go"] if e["phase"] != "Done" else -e["days_to_go"]))
     playbook = [dict(r) for r in conn.execute("SELECT * FROM playbook_steps ORDER BY sort, id")]
-    return dict(events=out, playbook=playbook, phases=PHASES, kinds=KINDS, today=today.isoformat(), result_days=RESULT_DAYS)
+    used = {r[0]: r[1] for r in conn.execute("SELECT kind, COUNT(*) FROM events GROUP BY kind")}
+    return dict(events=out, playbook=playbook, phases=PHASES, kinds=kind_list, kind_use=used, today=today.isoformat(), result_days=RESULT_DAYS)
 
 
 def source_options(conn):
@@ -335,10 +395,15 @@ def detail(conn, now, event_id, threshold):
         promos=[dict(r) for r in conn.execute("SELECT * FROM event_promos WHERE event_id = ? ORDER BY day, id", (event_id,))],
         creatives=[dict(r, embed=embed_url(r["url"])) for r in conn.execute("SELECT * FROM event_creatives WHERE event_id = ? ORDER BY COALESCE(posted_on, '') DESC, id DESC", (event_id,))],
         costs=costs, cost=cost, planned=sum(c["planned"] or 0 for c in costs) or ev["budget"], results=res, money=money_back(res["total"], cost),
-        accounts=accounts(conn, ev, threshold), load=owner_load(steps, today), kinds=KINDS,
+        accounts=accounts(conn, ev, threshold), load=owner_load(steps, today), kinds=kinds(conn), setup=setup_of(ev, steps),
+        goals=[dict(r) for r in conn.execute("SELECT * FROM event_goals WHERE event_id = ? ORDER BY sort, id", (event_id,))],
+        info=[dict(r) for r in conn.execute("SELECT * FROM event_info WHERE event_id = ? ORDER BY sort, id", (event_id,))],
         taken=taken, decisions=DECISIONS,
         team=[r["name"] for r in conn.execute("SELECT name FROM team_members WHERE active = 1 ORDER BY sort, name")],
-        phases=PHASES, statuses=STATUSES, channels=CHANNELS, cost_kinds=COST_KINDS, source_options=source_options(conn),
+        phases=PHASES, statuses=STATUSES, source_options=source_options(conn),
+        # the standard lists, plus whatever the team has typed before, offered as suggestions
+        channels=list(dict.fromkeys(CHANNELS + [r[0] for r in conn.execute("SELECT DISTINCT channel FROM event_promos ORDER BY 1")])),
+        cost_kinds=list(dict.fromkeys(COST_KINDS + [r[0] for r in conn.execute("SELECT DISTINCT category FROM event_costs ORDER BY 1")])),
     )
 
 
@@ -356,7 +421,8 @@ def save_event(conn, now, event_id, d):
     for k in ("city", "venue", "partner", "booth", "goal", "lessons"):
         values[k] = (values[k] or "").strip() or None
     values["decision"] = values["decision"] if values.get("decision") in DECISIONS else "Considering"
-    values["kind"] = values["kind"] if values.get("kind") in dict(KINDS) else "booth"
+    kind_keys = [k for k, _ in kinds(conn)]
+    values["kind"] = values["kind"] if values.get("kind") in kind_keys else kind_keys[0]
     if event_id:
         old = conn.execute("SELECT starts FROM events WHERE id = ?", (event_id,)).fetchone()
         conn.execute("UPDATE events SET {} WHERE id = ?".format(", ".join(k + " = ?" for k in EVENT_FIELDS)),
@@ -370,7 +436,14 @@ def save_event(conn, now, event_id, d):
     cur = conn.execute("INSERT INTO events ({}, lead_sources, created_at) VALUES ({})".format(", ".join(EVENT_FIELDS), ",".join("?" for _ in range(len(EVENT_FIELDS) + 2))),
                        [values[k] for k in EVENT_FIELDS] + ["[]", iso(now)])
     new_id = cur.lastrowid
-    if d.get("from_playbook", True):
+    start = str(d.get("start_from") or "playbook")
+    if start.startswith("event:"):
+        copy_event(conn, int(start[6:]), new_id)
+        return new_id
+    conn.execute("UPDATE events SET setup = ? WHERE id = ?", (json.dumps(dict(hidden=HIDDEN_BY_KIND.get(values["kind"], []))), new_id))
+    labels = INFO_BY_KIND[""] + INFO_BY_KIND["webinar" if values["kind"] == "webinar" else "in_person"]
+    conn.executemany("INSERT INTO event_info (event_id, label, sort) VALUES (?,?,?)", [(new_id, l, i) for i, l in enumerate(labels)])
+    if start == "playbook":
         seed_playbook(conn)
         first, last = date.fromisoformat(values["starts"]), date.fromisoformat(values["ends"])
         rows = [r for r in conn.execute("SELECT * FROM playbook_steps ORDER BY sort, id") if not r["kinds"] or values["kind"] in r["kinds"].split(",")]
@@ -381,8 +454,34 @@ def save_event(conn, now, event_id, d):
     return new_id
 
 
+def copy_event(conn, source_id, new_id):
+    """Start a new event from a past one: its tasks, promotion plan, budget lines, goals, key details, target accounts and layout.
+    Dates move by the gap between the two events; statuses, notes, spend and results start again from nothing."""
+    src = conn.execute("SELECT * FROM events WHERE id = ?", (source_id,)).fetchone()
+    new = conn.execute("SELECT * FROM events WHERE id = ?", (new_id,)).fetchone()
+    if not src:
+        raise EventError("The event to copy from is not there any more.")
+    gap = lambda a, b: (date.fromisoformat(b) - date.fromisoformat(a)).days
+    first, last = gap(src["starts"], new["starts"]), gap(src["ends"] or src["starts"], new["ends"] or new["starts"])
+    move = lambda iso, n: (date.fromisoformat(iso) + timedelta(days=n)).isoformat() if iso else None
+    conn.execute("UPDATE events SET setup = ? WHERE id = ?", (src["setup"], new_id))
+    # a task marked not needed last time stays not needed; every other task starts again
+    conn.execute("INSERT INTO event_steps (event_id, phase, workstream, title, owner, due, status, done_when, critical, sort) "
+                 "SELECT ?, phase, workstream, title, owner, due, CASE WHEN status = ? THEN status ELSE 'Not started' END, done_when, critical, sort "
+                 "FROM event_steps WHERE event_id = ?", (new_id, SKIPPED, source_id))
+    for s in conn.execute("SELECT id, phase, due FROM event_steps WHERE event_id = ? AND due IS NOT NULL", (new_id,)).fetchall():
+        conn.execute("UPDATE event_steps SET due = ? WHERE id = ?", (move(s["due"], last if s["phase"] == "follow" else first), s["id"]))
+    for p in conn.execute("SELECT channel, what, day, owner FROM event_promos WHERE event_id = ?", (source_id,)).fetchall():
+        conn.execute("INSERT INTO event_promos (event_id, channel, what, day, owner) VALUES (?,?,?,?,?)", (new_id, p["channel"], p["what"], move(p["day"], first), p["owner"]))
+    conn.execute("INSERT INTO event_costs (event_id, category, item, amount, planned, paid) SELECT ?, category, item, 0, COALESCE(planned, amount), 0 "
+                 "FROM event_costs WHERE event_id = ?", (new_id, source_id))
+    conn.execute("INSERT INTO event_goals (event_id, name, target, sort) SELECT ?, name, target, sort FROM event_goals WHERE event_id = ?", (new_id, source_id))
+    conn.execute("INSERT INTO event_info (event_id, label, value, sort) SELECT ?, label, value, sort FROM event_info WHERE event_id = ?", (new_id, source_id))
+    conn.execute("INSERT INTO event_targets (event_id, company, tier, domain) SELECT ?, company, tier, domain FROM event_targets WHERE event_id = ?", (new_id, source_id))
+
+
 def remove_event(conn, event_id):
-    for table in ("event_steps", "event_promos", "event_creatives", "event_costs", "event_targets"):
+    for table in ("event_steps", "event_promos", "event_creatives", "event_costs", "event_targets", "event_goals", "event_info"):
         conn.execute("DELETE FROM {} WHERE event_id = ?".format(table), (event_id,))
     conn.execute("DELETE FROM events WHERE id = ?", (event_id,))
 
@@ -416,6 +515,63 @@ def set_status(conn, step_id, status):
     conn.execute("UPDATE event_steps SET status = ? WHERE id = ?", (status, step_id))
 
 
+STEP_FIELDS = ("status", "phase", "due", "title", "owner", "workstream")  # what the task list changes in place
+
+
+def step_value(field, value):
+    """One field of a task, checked, as changed straight in the task list."""
+    value = value.strip() if isinstance(value, str) else value
+    if field not in STEP_FIELDS:
+        raise EventError("That cannot be changed here.")
+    if field == "status" and value not in STATUSES:
+        raise EventError("Unknown status.")
+    if field == "phase" and value not in dict(PHASES):
+        raise EventError("Unknown phase.")
+    if field == "due":
+        return day_of(value, "The due date") if value else None
+    if field == "title":
+        return need(value, "What the task is")
+    return value or None
+
+
+def set_steps(conn, event_id, d):
+    """Change many tasks at once: set one field, move the due dates by a number of days, or delete them."""
+    ids = [int(i) for i in d.get("ids") or []]
+    if not ids:
+        raise EventError("Pick the tasks to change first.")
+    where = "event_id = ? AND id IN ({})".format(",".join("?" for _ in ids))
+    if d.get("delete"):
+        conn.execute("DELETE FROM event_steps WHERE " + where, [event_id] + ids)
+    elif d.get("shift") not in (None, ""):
+        try:
+            days = int(d["shift"])
+        except (TypeError, ValueError):
+            raise EventError("Move dates by a whole number of days, for example 7 or -3.")
+        conn.execute("UPDATE event_steps SET due = date(due, ?) WHERE due IS NOT NULL AND " + where, ["{:+d} days".format(days), event_id] + ids)
+    else:
+        field = d.get("field")
+        value = step_value(field, d.get("value"))
+        conn.execute("UPDATE event_steps SET {} = ? WHERE ".format(field) + where, [value, event_id] + ids)
+
+
+def save_goal(conn, goal_id, event_id, d):
+    values = (need(d.get("name"), "A name for the goal")[:80], number(d.get("target")), number(d.get("actual")))
+    if goal_id:
+        conn.execute("UPDATE event_goals SET name = ?, target = ?, actual = ? WHERE id = ?", values + (goal_id,))
+    else:
+        conn.execute("INSERT INTO event_goals (name, target, actual, event_id, sort) "
+                     "VALUES (?,?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM event_goals WHERE event_id = ?))", values + (event_id, event_id))
+
+
+def save_info(conn, info_id, event_id, d):
+    values = (need(d.get("label"), "A name for the detail")[:80], (d.get("value") or "").strip()[:500] or None)
+    if info_id:
+        conn.execute("UPDATE event_info SET label = ?, value = ? WHERE id = ?", values + (info_id,))
+    else:
+        conn.execute("INSERT INTO event_info (label, value, event_id, sort) "
+                     "VALUES (?,?,?, (SELECT COALESCE(MAX(sort), 0) + 1 FROM event_info WHERE event_id = ?))", values + (event_id, event_id))
+
+
 def save_playbook_step(conn, step_id, d):
     phase = d.get("phase") if d.get("phase") in dict(PHASES) else "plan"
     try:
@@ -424,7 +580,7 @@ def save_playbook_step(conn, step_id, d):
         raise EventError("Days from the event need a whole number, for example -21 or 3.")
     values = (phase, (d.get("workstream") or "").strip() or None, need(d.get("title"), "What the step is"), offset,
               (d.get("done_when") or "").strip() or None, (d.get("owner") or "").strip() or None,
-              ",".join(k for k, _ in KINDS if d.get("kind_" + k)) or None, 1 if d.get("critical") else 0)
+              ",".join(k for k, _ in kinds(conn) if d.get("kind_" + k)) or None, 1 if d.get("critical") else 0)
     if step_id:
         conn.execute("UPDATE playbook_steps SET phase = ?, workstream = ?, title = ?, offset_days = ?, done_when = ?, owner = ?, kinds = ?, critical = ? WHERE id = ?", values + (step_id,))
     else:
@@ -433,7 +589,7 @@ def save_playbook_step(conn, step_id, d):
 
 
 def save_promo(conn, promo_id, event_id, d):
-    channel = d.get("channel") if d.get("channel") in CHANNELS else "Other"
+    channel = (d.get("channel") or "").strip()[:60] or "Other"
     status = d.get("status") if d.get("status") in STATUSES else "Not started"
     values = (channel, need(d.get("what"), "What goes out"), day_of(d["day"], "The date") if d.get("day") else None, (d.get("owner") or "").strip() or None, status)
     if promo_id:
@@ -443,7 +599,7 @@ def save_promo(conn, promo_id, event_id, d):
 
 
 def save_cost(conn, cost_id, event_id, d):
-    kind = d.get("category") if d.get("category") in COST_KINDS else "Other"
+    kind = (d.get("category") or "").strip()[:60] or "Other"
     amount, planned = number(d.get("amount")) or 0, number(d.get("planned"))
     values = (kind, need(d.get("item"), "What the cost is for"), amount, planned, 1 if d.get("paid") else 0)
     if cost_id:
@@ -510,7 +666,7 @@ def save_creative(conn, creative_id, event_id, d):
 
 
 REMOVE = {"remove_target": "event_targets", "remove_step": "event_steps", "remove_promo": "event_promos", "remove_creative": "event_creatives", "remove_cost": "event_costs",
-          "remove_playbook_step": "playbook_steps"}
+          "remove_playbook_step": "playbook_steps", "remove_goal": "event_goals", "remove_info": "event_info"}
 
 
 def change(conn, now, what, item_id, event_id, d):
@@ -525,6 +681,22 @@ def change(conn, now, what, item_id, event_id, d):
         save_step(conn, item_id, event_id, d)
     elif what == "status":
         set_status(conn, item_id, d.get("status"))
+    elif what == "step_field":
+        field = d.get("field")
+        value = step_value(field, d.get("value"))
+        conn.execute("UPDATE event_steps SET {} = ? WHERE id = ?".format(field), (value, item_id))
+    elif what == "steps":
+        set_steps(conn, event_id, d)
+    elif what == "setup":
+        save_setup(conn, event_id, d)
+    elif what == "goal":
+        save_goal(conn, item_id, event_id, d)
+    elif what == "info":
+        save_info(conn, item_id, event_id, d)
+    elif what == "kind":
+        save_kind(conn, d.get("key"), d)
+    elif what == "remove_kind":
+        remove_kind(conn, d.get("key"))
     elif what == "playbook_step":
         save_playbook_step(conn, item_id, d)
     elif what == "targets":
