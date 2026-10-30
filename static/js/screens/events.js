@@ -279,6 +279,7 @@ function overview(d) {
   const thisWeek = d.promos.filter(x => x.day && x.day >= addDays(d.today, -3) && x.day <= addDays(d.today, 7));
   return html`
     ${e.goal ? html`<p class="ev-goal">${e.goal}</p>` : ''}
+    ${inputsBlock(d)}
     <div class="ev-tiles">
       ${tile(p.readiness + '%', 'Readiness', `${p.due_done} of ${p.due} tasks due are done`, p.due, p.due_done)}
       ${tile(String(p.overdue), 'Overdue tasks', `${p.at_risk} critical at risk this week`)}
@@ -309,6 +310,51 @@ function overview(d) {
       ${block('Goals', html`<span class="btn xs ev-noprint" data-act="newGoal">Add goal</span>`, goalBars(d))}
       ${block('Key details', html`<span class="btn xs ev-noprint" data-act="newInfo">Add detail</span>`, keyDetails(d))}
     </div>`;
+}
+
+// What the team enters by hand, per event. Everything else (leads, opportunities, pipeline, follow-up speed, account stages,
+// readiness, ROI) is worked out from Zoho and from these inputs. Items for a hidden tab are left out; items for after the
+// event wait until it has ended.
+function manualInputs(d) {
+  const e = d.event, shown = id => d.setup.tabs.some(t => t.id === id && t.show), ended = d.today > (e.ends || e.starts);
+  const open = d.steps.filter(s => s.status !== 'Done' && s.status !== SKIPPED);
+  const noOwner = open.filter(s => !s.owner).length, late = open.filter(s => isLate(s, d.today)).length;
+  const blank = d.info.filter(i => !i.value).length, noActual = d.goals.filter(g => g.actual == null).length;
+  const tab = sec => ({ href: `#/events?id=${e.id}&sec=${sec}` });
+  const items = [
+    { name: 'Lead Source', ok: e.lead_sources.length, act: { act: 'pickSources' }, btn: 'Select',
+      note: e.lead_sources.length ? e.lead_sources.join(', ') : 'Links Zoho leads and opportunities to this event. Every lead from the event must carry this value in Zoho.' },
+    { name: 'Targets', ok: e.target_leads || e.target_qualified || e.target_pipeline || e.target_meetings, act: { act: 'editEvent' }, btn: 'Edit event',
+      note: 'Lead, qualified lead, meeting and pipeline targets.' },
+    { name: 'Budget', ok: d.planned, act: { act: 'editEvent' }, btn: 'Edit event', note: 'Total budget, or a budgeted amount per cost line.' },
+    { name: 'Task owners', ok: !noOwner, act: tab('plan'), btn: 'Open plan', note: noOwner ? `${noOwner} open task${noOwner === 1 ? ' has' : 's have'} no owner.` : 'Every open task has an owner.' },
+    { name: 'Task status', ok: !late, act: tab('plan'), btn: 'Open plan', ongoing: true,
+      note: late ? `${late} task${late === 1 ? ' is' : 's are'} past the due date. Update the status when work is done.` : 'Up to date. Update the status as work is done.' },
+    shown('accounts') && { name: 'Target account list', ok: d.accounts.targets.length, act: { act: 'editTargets' }, btn: 'Import', note: 'Company names and tiers, matched to Zoho.' },
+    shown('promotion') && { name: 'Promotion plan', ok: d.promos.length, act: { act: 'newPromo' }, btn: 'Add activity', note: 'Posts, ads, emails and invites, with dates and owners.' },
+    d.info.length && { name: 'Key details', ok: !blank, act: tab('overview'), btn: '', note: blank ? `${blank} of ${d.info.length} not filled in. Click a detail below to edit it.` : 'All filled in.' },
+    shown('budget') && { name: 'Actual costs', after: true, ok: d.cost, act: tab('budget'), btn: 'Open budget', note: 'Amounts spent, for cost per lead and ROI.' },
+    { name: 'Meetings held', after: true, ok: e.meetings_held != null, act: { act: 'editEvent' }, btn: 'Edit event', note: 'Not in Zoho; enter the count.' },
+    shown('booth') && { name: 'Booth visitors', after: true, ok: e.visitors != null, act: { act: 'editEvent' }, btn: 'Edit event', note: 'From the organiser or the badge scanner.' },
+    shown('content') && { name: 'Published posts', after: true, ok: d.creatives.length, act: { act: 'newCreative' }, btn: 'Add post', note: 'Links to LinkedIn, Instagram or YouTube posts.' },
+    d.goals.length && { name: 'Custom goal results', after: true, ok: !noActual, act: { act: 'newGoal' }, btn: '', note: noActual ? `${noActual} goal${noActual === 1 ? '' : 's'} without a result. Click a goal below to enter it.` : 'All entered.' },
+    { name: 'Lessons learned', after: true, ok: e.lessons, act: { act: 'editEvent' }, btn: 'Edit event', note: 'Attend again, and what to change.' },
+  ].filter(Boolean);
+  return items.map(i => ({ ...i, state: i.ok ? 'done' : i.after && !ended ? 'later' : 'todo' }));
+}
+
+function inputsBlock(d) {
+  const items = manualInputs(d), todo = items.filter(i => i.state === 'todo').length;
+  const done = items.filter(i => i.state === 'done').length;
+  const label = { done: 'Done', todo: 'Needed', later: 'After the event' };
+  const button = i => (!i.btn ? '' : i.act.href ? html`<a class="btn xs" href="${i.act.href}" style="text-decoration:none;color:inherit">${i.btn}</a>` : html`<span class="btn xs" data-act="${i.act.act}">${i.btn}</span>`);
+  return html`<details class="ev-sec ev-inputs ev-noprint" ${todo ? 'open' : ''}>
+    <summary class="ev-h"><h2>Manual inputs <span class="ev-sub" style="font-weight:400">${done} of ${items.length} complete${todo ? html` · <span style="color:var(--warn)">${todo} needed</span>` : ''}</span></h2>
+      <span class="small muted">${todo ? 'Hide' : 'Show'}</span></summary>
+    <div class="ev-in-list">${items.map(i => html`<div class="ev-in ${i.state}">
+      <span class="ev-in-state">${label[i.state]}</span><span class="medium">${i.name}</span><span class="small muted">${i.note}</span><span class="right">${i.state === 'done' && !i.ongoing ? '' : button(i)}</span></div>`)}</div>
+    <p class="tiny muted" style="margin:14px 0 0">Calculated automatically: leads, qualified leads, opportunities, pipeline and revenue from Zoho (by Lead Source); follow-up speed from Zoho activity; target account stages; readiness, overdue tasks and workload from task dates and status; cost per lead and ROI from costs.</p>
+  </details>`;
 }
 
 // Every goal of the event as a bar of reached against target: the standard ones from Edit event, then the event's own.
@@ -603,8 +649,10 @@ export default {
         <div class="grid" style="grid-template-columns:1fr 1fr">${field('City', 'city', e.city)}${field('Venue', 'venue', e.venue)}${field('Partner', 'partner', e.partner, 'placeholder="If co-hosted, e.g. Vonage"')}${field('Booth / stand', 'booth', e.booth)}</div>
         ${field('Objective', 'goal', e.goal, 'placeholder="e.g. Book 25 meetings with Tier 1 banks"')}
         <div class="grid" style="grid-template-columns:repeat(3,1fr)">${field('Budget (₹)', 'budget', e.budget, 'type="number" min="0" step="any"')}${field('Lead target', 'target_leads', e.target_leads, 'type="number" min="0"')}${field('Qualified lead target', 'target_qualified', e.target_qualified, 'type="number" min="0"')}
-          ${field('Meeting target', 'target_meetings', e.target_meetings, 'type="number" min="0"')}${field('Pipeline target (₹)', 'target_pipeline', e.target_pipeline, 'type="number" min="0" step="any"')}${field('Meetings held', 'meetings_held', e.meetings_held, 'type="number" min="0"')}</div>
-        ${field('Lessons learned', 'lessons', e.lessons, 'placeholder="After the event: attend again? what to change?"')}
+          ${field('Meeting target', 'target_meetings', e.target_meetings, 'type="number" min="0"')}${field('Pipeline target (₹)', 'target_pipeline', e.target_pipeline, 'type="number" min="0" step="any"')}</div>
+        <span class="small medium" style="margin-top:6px">After the event</span>
+        <div class="grid" style="grid-template-columns:1fr 1fr">${field('Meetings held', 'meetings_held', e.meetings_held, 'type="number" min="0"')}${field('Booth visitors', 'visitors', e.visitors, 'type="number" min="0"')}</div>
+        ${field('Lessons learned', 'lessons', e.lessons, 'placeholder="Attend again? What to change?"')}
         ${buttons('removeEvent', m.event && e.id)}</form>`;
     }
     if (m.kind === 'step') {

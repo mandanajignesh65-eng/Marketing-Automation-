@@ -492,3 +492,17 @@ svg.lines polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linej
 .ev-tier.t1 { background: color-mix(in oklch, var(--k) 18%, var(--surface)); color: color-mix(in oklch, var(--k) 70%, var(--ink)); }
 .ev-chase { margin-top: 18px; padding: 10px 14px; border-radius: 10px; font-size: 13px; background: color-mix(in oklch, var(--warn) 12%, var(--surface)); }
 @media (max-width: 1100px) { .ev-board { grid-template-columns: 1fr 1fr; } }
+
+/* Overview: the inputs the team enters by hand */
+.ev-inputs { margin-bottom: 20px; }
+.ev-inputs summary { list-style: none; cursor: pointer; margin: 0; }
+.ev-inputs summary::-webkit-details-marker { display: none; }
+.ev-inputs[open] summary { margin-bottom: 10px; }
+.ev-in-list { display: flex; flex-direction: column; }
+.ev-in { display: grid; grid-template-columns: 120px 180px minmax(0, 1fr) 120px; gap: 14px; align-items: center; min-height: 44px; padding: 6px 0; border-top: 1px solid var(--line2); font-size: 13.5px; }
+.ev-in-state { justify-self: start; font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; }
+.ev-in.done .ev-in-state { color: var(--pos); background: color-mix(in oklch, var(--pos) 13%, var(--surface)); }
+.ev-in.todo .ev-in-state { color: var(--warn); background: color-mix(in oklch, var(--warn) 14%, var(--surface)); }
+.ev-in.later .ev-in-state { color: var(--ink2); background: var(--track); }
+.ev-in.later .medium, .ev-in.later .muted { color: var(--ink3); }
+@media (max-width: 900px) { .ev-in { grid-template-columns: 110px 1fr; } .ev-in > .small, .ev-in > .right { grid-column: 2; justify-self: start; } }
