@@ -8,6 +8,8 @@ services:
     container_name: meridian
     restart: unless-stopped
     env_file: .env
+    environment:
+      MERIDIAN_REQUIRE_LOGIN: "1"   # reachable from the internet: never open without sign-in, even with no logins yet
     volumes:
       - ./data:/app/data          # the database lives on the server disk and survives restarts
     mem_limit: 700m
