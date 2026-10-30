@@ -12,10 +12,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import accounts, ads, assistant, icp, alerts, backup, config, db, events, google, health, ingest, mailer, meta, money, narrative, outbound, people, reminders, research, rivals, scheduler, scoring, screens, semrush, team, website, zoho
+from . import accounts, ads, assistant, icp, alerts, backup, config, db, events, google, health, ingest, mailer, mcp, meta, money, narrative, outbound, people, reminders, research, rivals, scheduler, scoring, screens, semrush, team, website, zoho
 from .periods import Period, iso
 
 app = FastAPI(title="Meridian")
+app.include_router(mcp.router)
 
 
 @app.on_event("startup")
@@ -76,7 +77,8 @@ async def no_stale_assets(request: Request, call_next):
 
 # ------------------------------------------------------------------------------- sign-in
 
-OPEN_PATHS = ("/api/login", "/api/logout", "/static/", "/webhooks/", "/tasks/", "/healthz")  # webhooks and tasks carry their own token
+OPEN_PATHS = ("/api/login", "/api/logout", "/static/", "/webhooks/", "/tasks/", "/healthz",  # webhooks and tasks carry their own token
+              "/mcp", "/oauth/", "/.well-known/")  # MCP checks its own OAuth token (meridian/mcp.py)
 
 
 WRITES = ("POST", "PUT", "PATCH", "DELETE")
@@ -93,7 +95,8 @@ async def signed_in_only(request: Request, call_next):
     conn = db.connect()
     try:
         needed = accounts.required(conn)
-        person = accounts.who(conn, datetime.now().replace(microsecond=0), request.cookies.get(accounts.COOKIE)) if needed else None
+        # an MCP tool call runs in-process with its person already checked (mcp.call_api); a browser brings its cookie
+        person = request.scope.get("meridian.person") or (accounts.who(conn, datetime.now().replace(microsecond=0), request.cookies.get(accounts.COOKIE)) if needed else None)
     finally:
         conn.close()
     request.state.person = person
@@ -492,9 +495,23 @@ def get_alerts():
 
 
 @app.get("/api/settings")
-def get_settings(range: str = "month", start: Optional[str] = None, end: Optional[str] = None):
+def get_settings(request: Request, range: str = "month", start: Optional[str] = None, end: Optional[str] = None):
     with session() as conn:
-        return screens.settings(conn, db.now(conn), period(conn, range, start, end))
+        out = screens.settings(conn, db.now(conn), period(conn, range, start, end))
+        out["mcp"] = dict(url=mcp.base(request) + "/mcp", connections=mcp.connections(conn))  # the address to give Claude or ChatGPT, and who connected
+        return out
+
+
+class McpDisconnect(BaseModel):
+    client_id: str
+    account_id: Optional[int] = None
+
+
+@app.post("/api/mcp/disconnect")
+def mcp_disconnect(b: McpDisconnect):
+    with session() as conn:
+        mcp.disconnect(conn, b.client_id, b.account_id)
+        return {"ok": True}
 
 
 # ------------------------------------------------------------------------------- leads

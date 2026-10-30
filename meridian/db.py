@@ -152,6 +152,18 @@ CREATE TABLE IF NOT EXISTS accounts (
   id INTEGER PRIMARY KEY, email TEXT NOT NULL UNIQUE, name TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'member',
   salt TEXT NOT NULL, pw_hash TEXT NOT NULL, created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS mcp_clients (  -- assistant apps (Claude, ChatGPT) registered to connect over MCP
+  client_id TEXT PRIMARY KEY, secret_hash TEXT, name TEXT NOT NULL, redirect_uris TEXT NOT NULL, auth_method TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mcp_codes (  -- one-time codes from the consent page, swapped for tokens within minutes
+  code_hash TEXT PRIMARY KEY, client_id TEXT NOT NULL, account_id INTEGER, redirect_uri TEXT NOT NULL, challenge TEXT NOT NULL, expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mcp_tokens (  -- access and refresh tokens, stored as hashes only
+  token_hash TEXT PRIMARY KEY, kind TEXT NOT NULL, client_id TEXT NOT NULL, account_id INTEGER, created_at TEXT NOT NULL, expires_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS mcp_log (  -- each tool an assistant ran, by whom, kept 90 days
+  id INTEGER PRIMARY KEY, at TEXT NOT NULL, account_id INTEGER, app TEXT, tool TEXT NOT NULL, detail TEXT, status INTEGER
+);
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY, account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE, created_at TEXT NOT NULL, expires_at TEXT NOT NULL
 );

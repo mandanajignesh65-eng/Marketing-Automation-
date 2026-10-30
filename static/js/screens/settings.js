@@ -72,11 +72,24 @@ export default {
       ${d.users.map((u, i) => html`<div class="trow ${i ? '' : 'first'}" style="padding:9px 16px;gap:12px">
         <span class="row" style="gap:10px">${avatar(u.initials, 26)}<span class="medium">${u.name}</span></span><span class="muted">${u.team}</span><span>${u.role}</span><span class="muted">${u.last}</span></div>`)}
       <div class="small faint" style="padding:10px 16px;border-top:1px solid var(--line)">Admin: everything · Editor: targets, rules, reports · Lead owner: leads and reminders · Viewer: read only</div>
+    </div>
+    <div class="card clipped" style="margin-top:12px;--cols:minmax(0,1fr) minmax(0,1fr) 150px 150px 110px">
+      <div class="stack" style="padding:16px 16px 12px;gap:8px"><span class="title">AI assistants (MCP)</span>
+        <span class="small muted">Connect Claude or ChatGPT to read and change Meridian. Add this address as a custom connector; each person signs in with their Meridian login, and every change is recorded under their name. Logins and passwords cannot be changed this way.</span>
+        <div class="row" style="gap:8px"><input class="input mono" readonly value="${d.mcp.url}" style="max-width:420px" aria-label="MCP server address"><span class="btn xs" data-act="copyMcp">Copy</span></div>
+        <span class="tiny faint">Claude: Settings → Connectors → Add custom connector. ChatGPT: Settings → Apps &amp; Connectors → Advanced → Developer mode, then Create. Claude Code: claude mcp add --transport http meridian ${d.mcp.url}</span></div>
+      <div class="thead" style="padding:8px 16px;border-top:1px solid var(--line);gap:12px"><span>App</span><span>Person</span><span>Connected</span><span>Last used</span><span></span></div>
+      ${d.mcp.connections.length ? d.mcp.connections.map(c => html`<div class="trow" style="padding:9px 16px;gap:12px"><span class="medium">${c.app}</span><span class="muted">${c.person || '—'}</span>
+        <span class="muted">${c.since.slice(0, 10)}</span><span class="muted">${c.last_used ? c.last_used.slice(0, 10) : 'Not yet'}</span>
+        <span class="right"><span class="btn xs" data-act="disconnectMcp" data-arg="${c.client_id}" data-account="${c.account_id ?? ''}">Disconnect</span></span></div>`)
+        : html`<div class="small faint" style="padding:10px 16px;border-top:1px solid var(--line2)">No apps connected.</div>`}
     </div>`;
   },
 
   actions: {
     theme: (ctx, d) => ctx.setTheme(d.arg),
+    copyMcp: ctx => navigator.clipboard.writeText(ctx.app.data.mcp.url).then(() => ctx.toast('Address copied.')),
+    disconnectMcp: (ctx, d) => ctx.save(() => ctx.api.post('mcp/disconnect', { client_id: d.arg, account_id: d.account ? Number(d.account) : null }), 'App disconnected.'),
     editTarget(ctx, d) { ctx.ui().edit = d.arg; ctx.render(); },
     stopEdit(ctx) { if (ctx.ui().edit) { ctx.ui().edit = null; ctx.render(); } },
     mapTag(ctx, d) {
