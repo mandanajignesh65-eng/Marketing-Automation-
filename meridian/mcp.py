@@ -76,10 +76,18 @@ def oauth_error(code, text, status=400):
     return JSONResponse(dict(error=code, error_description=text), status_code=status, headers={"Cache-Control": "no-store"})
 
 
+# Where an app may send the person back after they allow access. Only the known assistant apps (and localhost, for Claude
+# Code and other desktop tools), so a look-alike app cannot collect a sign-in code. MERIDIAN_MCP_REDIRECT_HOSTS adds more.
+REDIRECT_HOSTS = ("claude.ai", "claude.com", "chatgpt.com", "chat.openai.com")
+
+
 def allowed_redirect(uri):
     u = urlparse(uri or "")
-    return (u.scheme == "https" and u.netloc) or (u.scheme == "http" and u.hostname in ("localhost", "127.0.0.1", "::1")) \
-        or (u.scheme not in ("", "http", "https", "javascript", "data", "file") and "." in u.scheme)  # an app's own scheme, e.g. com.example.app
+    if u.scheme == "http":
+        return u.hostname in ("localhost", "127.0.0.1", "::1")
+    extra = tuple(h.strip().lower() for h in config.setting("MERIDIAN_MCP_REDIRECT_HOSTS").split(",") if h.strip())
+    host = (u.hostname or "").lower()
+    return u.scheme == "https" and any(host == h or host.endswith("." + h) for h in REDIRECT_HOSTS + extra)
 
 
 @router.post("/oauth/register")
@@ -90,7 +98,7 @@ async def register(request: Request):
         return oauth_error("invalid_client_metadata", "The request body must be JSON.")
     uris = d.get("redirect_uris") or []
     if not isinstance(uris, list) or not uris or not all(isinstance(u, str) and allowed_redirect(u) for u in uris):
-        return oauth_error("invalid_redirect_uri", "Each redirect URI must use https, or http on localhost.")
+        return oauth_error("invalid_redirect_uri", "Only Claude, ChatGPT or localhost return addresses are accepted.")
     method = d.get("token_endpoint_auth_method") or "none"
     if method not in ("none", "client_secret_post", "client_secret_basic"):
         return oauth_error("invalid_client_metadata", "Unsupported token_endpoint_auth_method.")
@@ -98,6 +106,9 @@ async def register(request: Request):
     client_id, secret = secrets.token_urlsafe(24), (secrets.token_urlsafe(32) if method != "none" else None)
     conn = db.connect()
     try:
+        # apps that registered a day ago and never finished connecting are dropped, so registrations cannot fill the cap
+        conn.execute("DELETE FROM mcp_clients WHERE created_at < ? AND client_id NOT IN (SELECT client_id FROM mcp_tokens) "
+                     "AND client_id NOT IN (SELECT client_id FROM mcp_codes)", (iso(now() - timedelta(days=1)),))
         if conn.execute("SELECT COUNT(*) FROM mcp_clients").fetchone()[0] >= MAX_CLIENTS:
             return oauth_error("temporarily_unavailable", "Too many registered apps.", 503)
         conn.execute("INSERT INTO mcp_clients (client_id, secret_hash, name, redirect_uris, auth_method, created_at) VALUES (?,?,?,?,?,?)",

@@ -6,8 +6,11 @@ from Zoho leads and deals whose lead source is one of the event's sources. Only 
 who came.
 """
 
+import ipaddress
 import json
 import re
+import socket
+import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta
 from html import unescape
@@ -723,11 +726,29 @@ def platform_of(url):
     return next((name for key, name in PLATFORMS if host.endswith(key)), "Web")
 
 
+def public_host(url):
+    """True when the address points at the public internet, not at this server, its network or the cloud's metadata service."""
+    try:
+        host = urllib.parse.urlparse(url).hostname
+        return bool(host) and all(ipaddress.ip_address(a[4][0].split("%")[0]).is_global for a in socket.getaddrinfo(host, None))
+    except (ValueError, OSError):
+        return False
+
+
+class PublicRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not public_host(newurl):
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def preview(url):
     """The page's own preview picture and title (Open Graph), where the site lets us read it. Many social sites do not."""
+    if not public_host(url):
+        return None, None
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; MeridianPreview/1.0)", "Accept": "text/html"})
-        with urllib.request.urlopen(req, timeout=8) as res:
+        with urllib.request.build_opener(PublicRedirects).open(req, timeout=8) as res:
             page = res.read(400000).decode("utf-8", "ignore")
     except Exception:
         return None, None
@@ -748,6 +769,8 @@ def save_creative(conn, creative_id, event_id, d):
     if not creative_id and not (image and title):
         found_image, found_title = preview(url)
         image, title = image or found_image, title or found_title
+    # the picture goes into a style attribute: only a plain web address, with nothing that could end the url()
+    image = image if image and re.fullmatch(r"https?://[^\s'\"()\\<>]+", image) else None
     values = (url, platform_of(url), title, image, day_of(d["posted_on"], "Date") if d.get("posted_on") else None, (d.get("caption") or "").strip() or None)
     if creative_id:
         conn.execute("UPDATE event_creatives SET url = ?, platform = ?, title = ?, image = ?, posted_on = ?, caption = ? WHERE id = ?", values + (creative_id,))
