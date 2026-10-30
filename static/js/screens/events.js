@@ -6,12 +6,11 @@ import { pageHead, segmented, info, switcher } from '../ui.js';
 // room: a pinned event pass (who, when, countdown, stage, headline KPIs) beside sections for readiness, promotion,
 // content, target accounts, and results and ROI. Figures come from Zoho and are worked out here; typed status is the minority.
 
-const HOME_TABS = [['calendar', 'Calendar'], ['performance', 'Performance'], ['playbook', 'Playbook']];
+const HOME_TABS = [['calendar', 'All events'], ['performance', 'Performance'], ['playbook', 'Playbook']];
 const STAGES = [['Planning', 'Planning'], ['Promoting', 'Promotion'], ['Live', 'Event days'], ['Follow-up', 'Follow-up'], ['Done', 'Results']];
 const STATUS_TONE = { 'Not started': 'ink3', 'In progress': 'warn', 'Waiting on others': 'neg', Done: 'pos', Skipped: 'ink3' };
 const SKIPPED = 'Skipped';
 const PLATFORM_COLOR = { Instagram: '#d6249f', LinkedIn: '#0a66c2', Facebook: '#1877f2', X: '#111111', YouTube: '#ff0000', Web: '#6e6e73' };
-const KIND_COLOR = { booth: 'var(--accent)', sponsor: 'var(--violet)', partner: 'oklch(0.62 0.13 175)', roundtable: 'oklch(0.66 0.14 60)', webinar: 'oklch(0.6 0.15 25)' };
 const TIPS = {
   sourced: 'Leads and opportunities with this event as their Zoho Lead Source.',
   influenced: 'Value of target-account opportunities that were open during the event.',
@@ -42,16 +41,9 @@ function home(d, ctx) {
 }
 
 function calendar(d) {
-  if (!d.events.length) return html`<div class="ev-gantt stack" style="gap:8px;padding:28px"><span class="title">No events yet</span>
+  if (!d.events.length) return html`<div class="ev-sec stack" style="gap:8px;padding:28px"><span class="title">No events yet</span>
     <span class="small muted">Create an event to generate its task plan from the playbook.</span>
     <span><span class="btn primary" data-act="newEvent">New event</span></span></div>`;
-  // the window: from the earliest planning start to the latest follow-up end, clipped around today
-  const starts = d.events.map(e => toDays(e.starts) - 42), ends = d.events.map(e => toDays(e.ends_on) + 30);
-  const lo = Math.min(...starts, toDays(d.today) - 14), hi = Math.max(...ends, toDays(d.today) + 30);
-  const x = iso => ((toDays(iso) - lo) / (hi - lo)) * 100;
-  const months = [];
-  for (let t = lo; t <= hi; t++) { const dt = new Date(t * 864e5); if (dt.getUTCDate() === 1 || t === lo) months.push([t, dt.toLocaleDateString('en-GB', { month: 'short' })]); }
-  const seg = (a, b, color, op) => html`<span class="ev-gseg" style="left:${x(a)}%;width:${Math.max(x(b) - x(a), 0.6)}%;background:${color};opacity:${op}"></span>`;
   // across every event: what is coming, what is committed, what came back
   const upcoming = d.events.filter(e => e.days_to_go > 0), next = [...upcoming].sort((a, b) => a.days_to_go - b.days_to_go)[0];
   const sum = k => d.events.reduce((t, e) => t + (k(e) || 0), 0);
@@ -64,21 +56,19 @@ function calendar(d) {
       <div class="ev-stat"><b>${moneyOr(qualified ? cost / qualified : null)}</b><span>Avg. cost per qualified lead</span></div>
       <div class="ev-stat"><b>${moneyOr(pipeline)}</b><span>Sourced pipeline</span></div>
     </div></div>
-    <div class="ev-gantt">
-    <div style="display:grid;grid-template-columns:220px minmax(0,1fr) 250px;gap:18px;padding:0 8px 8px">
-      <span class="small muted">${d.events.length} event${d.events.length === 1 ? '' : 's'}</span>
-      <div style="position:relative;height:16px">${months.map(([t, m]) => html`<span class="micro faint" style="position:absolute;left:${(t - lo) / (hi - lo) * 100}%">${m}</span>`)}</div>
-      <div class="ev-legend"><span style="--c:var(--ink3)">Planning</span><span style="--c:var(--accent)">Event</span><span style="--c:var(--pos)">Follow-up</span></div></div>
-    ${d.events.map(e => { const k = KIND_COLOR[e.kind_key] || 'var(--accent)'; return html`<a class="ev-grow" href="#/events?id=${e.id}">
-      <span class="stack" style="gap:3px;min-width:0"><span class="medium clip">${e.name}</span><span class="tiny muted clip">${e.kind} · ${span(e)}${e.city ? ' · ' + e.city : ''}</span></span>
-      <span class="ev-gbar">
-        ${seg(addDays(e.starts, -42), e.starts, 'var(--ink3)', 0.28)}${seg(e.starts, addDays(e.ends_on, 1), k, 1)}${seg(addDays(e.ends_on, 1), addDays(e.ends_on, 30), 'var(--pos)', 0.35)}
-        <span style="position:absolute;top:0;bottom:0;left:${x(d.today)}%;border-left:1.5px dashed var(--ink2)"></span></span>
-      <span class="row" style="gap:16px;justify-content:flex-end">
-        <span class="ev-meter"><b>${e.progress.readiness}%</b><span>readiness</span></span>
-        <span class="ev-meter"><b style="color:var(--${e.progress.overdue ? 'neg' : 'ink3'})">${e.progress.overdue}</b><span>overdue</span></span>
-        <span class="ev-meter"><b>${e.has_sources ? f.num(e.total.leads) : '—'}</b><span>leads</span></span></span></a>`; })}
-    <div class="row tiny muted" style="gap:6px;padding:10px 8px 4px">Dashed line = today</div></div>`;
+    <div class="card clipped" style="--cols:minmax(0,1.8fr) 130px 110px 90px minmax(150px,1fr) 80px 80px 100px">
+      <div class="thead right"><span style="text-align:left">Event</span><span style="text-align:left">Dates</span><span style="text-align:left">Stage</span><span>Starts in</span>
+        <span style="text-align:left">Readiness</span><span>Overdue</span><span>Leads</span><span>Budget</span></div>
+      ${d.events.map(e => html`<a class="trow right" href="#/events?id=${e.id}" style="color:inherit;text-decoration:none">
+        <span class="stack" style="gap:2px;text-align:left;min-width:0"><span class="medium clip">${e.name}</span><span class="tiny muted clip">${e.kind}${e.city ? ' · ' + e.city : ''}</span></span>
+        <span class="small" style="text-align:left">${span(e)} ${e.starts.slice(0, 4)}</span>
+        <span class="small" style="text-align:left">${(STAGES.find(x => x[0] === e.phase) || [, e.phase])[1]}</span>
+        <span class="small">${e.days_to_go > 0 ? e.days_to_go + ' days' : e.phase === 'Live' ? 'Live' : '—'}</span>
+        <span class="row" style="gap:8px"><span class="track" style="flex:1;height:8px;border-radius:4px"><span class="fill" style="display:block;height:100%;border-radius:4px;width:${e.progress.readiness}%;background:var(--${e.progress.overdue ? 'warn' : 'pos'})"></span></span><span class="small medium" style="width:38px">${e.progress.readiness}%</span></span>
+        <span class="small" style="color:var(--${e.progress.overdue ? 'neg' : 'ink3'})">${e.progress.overdue}</span>
+        <span class="small">${e.has_sources ? f.num(e.total.leads) : '—'}</span>
+        <span class="small">${moneyOr(e.budget)}</span></a>`)}
+    </div>`;
 }
 
 function performance(d) {
