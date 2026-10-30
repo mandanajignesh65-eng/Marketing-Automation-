@@ -298,10 +298,8 @@ function overview(d) {
     </div>
     <div class="ev-grid3">
       ${block('Lead funnel', openTab(d, 'results'), has ? funnelBars(d) : html`<div class="ev-empty">Set the Lead Source on the Results tab.</div>`)}
-      ${block('Target accounts', openTab(d, 'accounts'), a.targets.length ? html`<div class="stack" style="gap:14px">${a.tiers.map(tr => html`<div class="stack" style="gap:6px">
-          <div class="between small"><span class="medium">Tier ${tr.tier}</span><span class="muted">${tr.engaged} of ${tr.total} engaged</span></div>
-          <div class="ev-split"><i style="width:${pct(tr.engaged, tr.total)}%;background:var(--k)"></i><i style="width:${pct(tr.known - tr.engaged, tr.total)}%;background:color-mix(in oklch, var(--k) 25%, var(--surface))"></i></div></div>`)}
-          <span class="small muted">Influenced pipeline ${moneyOr(a.influenced)}</span></div>` : html`<div class="ev-empty">No target accounts yet.</div>`)}
+      ${block('Target accounts', openTab(d, 'accounts'), a.targets.length ? html`${stageBars(a)}<div class="small muted" style="margin-top:12px">Influenced pipeline ${moneyOr(a.influenced)}</div>`
+        : html`<div class="ev-empty">No target accounts yet.</div>`)}
       ${block('Budget vs actual', openTab(d, 'budget'), html`<div class="ev-big" style="margin-bottom:12px">${moneyOr(d.cost)}<span class="small muted" style="font-weight:400"> of ${moneyOr(d.planned)}</span></div>${budgetBars(d)}`)}
     </div>
     <div class="ev-grid3">
@@ -364,12 +362,11 @@ function shownTasks(d, ui) {
 function groupTasks(d, steps, by) {
   const phases = Object.fromEntries(d.phases);
   const key = { phase: s => s.phase, workstream: s => s.workstream || '', owner: s => s.owner || '', week: s => (s.due ? weekOf(s.due) : ''), status: s => s.status }[by];
-  if (!key) return [{ title: '', steps, preset: {} }];
+  if (!key) return [{ title: '', steps }];
   const order = by === 'phase' ? d.phases.map(p => p[0]) : by === 'status' ? d.statuses : [...new Set(steps.map(key))].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b));
   const name = k => (by === 'phase' ? phases[k] : by === 'week' ? (k ? `Week of ${day(k)}${k === weekOf(d.event.starts) ? ' · event week' : k === weekOf(d.today) ? ' · this week' : ''}` : 'No due date')
     : k || (by === 'owner' ? 'Unassigned' : by === 'workstream' ? 'No workstream' : k));
-  const preset = k => ({ phase: { phase: k }, workstream: { workstream: k }, owner: { owner: k }, week: k ? { due: k } : {}, status: { status: k } }[by]);
-  return order.map(k => ({ title: name(k), steps: steps.filter(s => key(s) === k), preset: preset(k) })).filter(g => g.steps.length);
+  return order.map(k => ({ title: name(k), steps: steps.filter(s => key(s) === k) })).filter(g => g.steps.length);
 }
 
 function plan(d, ctx) {
@@ -393,7 +390,7 @@ function plan(d, ctx) {
     </div>
     <section class="ev-sec">
       <div class="ev-h"><h2>Tasks <span class="ev-sub" style="font-weight:400">${steps.length} of ${d.steps.length} shown</span></h2>
-        <span class="row ev-noprint" style="gap:8px"><span class="btn xs" data-act="setup">Workstreams & tabs</span><span class="btn xs primary" data-act="newStep">Add task</span></span></div>
+        <span class="row ev-noprint" style="gap:8px"><span class="btn xs" data-act="setup">Workstreams & tabs</span><span class="btn xs primary" data-act="newStep" data-preset="${JSON.stringify({ ...(phase && { phase }), ...(ws && { workstream: ws }), ...(owner && owner !== 'Unassigned' && { owner }) })}">Add task</span></span></div>
       <div class="ev-toolbar ev-noprint">
         <input class="input" id="taskQ" type="search" placeholder="Search tasks" value="${ui.q || ''}" data-input="taskQ" autocomplete="off" style="width:200px">
         ${segmented(SHOW.map(([arg, text]) => ({ arg, label: text, on: show === arg })), 'show', 10)}
@@ -413,7 +410,7 @@ function plan(d, ctx) {
       ${groups.map(g => { const ids = g.steps.map(s => s.id), all = ids.every(id => picked.has(id)); return html`
         ${g.title ? html`<div class="ev-ghead"><input type="checkbox" class="ev-pick ev-noprint" data-change="pickGroup" data-ids="${ids.join(',')}" ${all ? 'checked' : ''} aria-label="Pick every task in ${g.title}">
           <span class="medium">${g.title}</span><span class="tiny muted">${g.steps.length} task${g.steps.length === 1 ? '' : 's'}${g.steps.some(s => isLate(s, d.today)) ? html` · <span style="color:var(--neg)">${g.steps.filter(s => isLate(s, d.today)).length} overdue</span>` : ''}</span>
-          <span class="link tiny ev-noprint" data-act="newStep" data-preset="${JSON.stringify(g.preset)}">+ Add here</span></div>` : ''}
+</div>` : ''}
         ${g.steps.map(s => taskRow(d, s, picked.has(s.id)))}`; })}
       ${steps.length ? '' : html`<div class="ev-empty">${d.steps.length ? 'No tasks match.' : 'No tasks yet.'}</div>`}
     </section>`;
@@ -501,23 +498,48 @@ function content(d, ctx) {
   </section>`;
 }
 
-function accounts(d) {
-  const a = d.accounts;
-  const tierColors = ['', 'var(--k)', 'color-mix(in oklch, var(--k) 70%, var(--surface))', 'color-mix(in oklch, var(--k) 45%, var(--surface))'];
+// Where each target account stands, furthest step only: not reached, in Zoho, engaged at this event, or with an opportunity.
+const STAGE = [['none', 'Not reached', 'color-mix(in oklch, var(--ink3) 30%, var(--surface))', 'Not in Zoho at all. Invite them or book a meeting.'],
+  ['known', 'In Zoho, not at this event', 'color-mix(in oklch, var(--k) 30%, var(--surface))', 'Known to sales, but no lead came from this event.'],
+  ['engaged', 'Engaged at this event', 'var(--k)', 'A lead came in with this event\u2019s Lead Source. Next: an opportunity.'],
+  ['deal', 'Has an opportunity', 'var(--pos)', 'An open or won opportunity in Zoho.']];
+const stageOf = x => (x.deal ? 'deal' : x.engaged ? 'engaged' : x.known ? 'known' : 'none');
+
+function stageBars(a) {
+  return stacked(a.tiers.map(t => ({ label: `Tier ${t.tier}`, parts: STAGE.map(([k]) => a.targets.filter(x => x.tier === t.tier && stageOf(x) === k).length) })),
+    STAGE.map(([, label, color]) => [label, color]));
+}
+
+function accounts(d, ctx) {
+  const a = d.accounts, tier = Number(ctx.ui().tier) || 0;
+  const list = a.targets.filter(x => !tier || x.tier === tier);
+  const count = k => list.filter(x => stageOf(x) === k).length;
+  const chase = a.targets.filter(x => x.tier === 1 && (stageOf(x) === 'none' || stageOf(x) === 'known'));
   return html`<section class="ev-sec">
     <div class="ev-h"><h2>Target accounts</h2><span class="row ev-noprint" style="gap:10px">${info(TIPS.accounts)}<span class="btn xs ${a.targets.length ? '' : 'primary'}" data-act="editTargets">${a.targets.length ? 'Edit list' : 'Add target accounts'}</span></span></div>
     ${a.targets.length ? html`
       <div class="ev-stats">
-        ${a.tiers.map(t => html`<div class="ev-stat"><b>${t.engaged}<span class="muted" style="font-size:16px"> / ${t.total}</span></b><span>Tier ${t.tier} accounts engaged</span></div>`)}
-        <div class="ev-stat"><b>${moneyOr(a.influenced)}</b><span>Influenced pipeline · ${a.influenced_deals} opportunit${a.influenced_deals === 1 ? 'y' : 'ies'} ${info(TIPS.influenced)}</span></div>
+        <div class="ev-stat"><b>${a.targets.length}</b><span>Accounts on the list</span></div>
+        <div class="ev-stat"><b>${a.targets.filter(x => ['engaged', 'deal'].includes(stageOf(x))).length}<span class="muted" style="font-size:16px"> · ${pct(a.targets.filter(x => ['engaged', 'deal'].includes(stageOf(x))).length, a.targets.length)}%</span></b><span>Engaged at this event</span></div>
+        <div class="ev-stat"><b style="color:var(--pos)">${a.targets.filter(x => x.deal).length}</b><span>With an opportunity</span></div>
+        <div class="ev-stat"><b>${moneyOr(a.influenced)}</b><span>Influenced pipeline ${info(TIPS.influenced)}</span></div>
       </div>
-      ${a.tiers.map(t => { const list = a.targets.filter(x => x.tier === t.tier); return html`<div class="stack" style="gap:10px;margin-top:22px">
-        <div class="between"><span class="medium">Tier ${t.tier}</span><span class="small muted">${t.engaged} engaged · ${t.known} in CRM · ${t.deals} with an opportunity</span></div>
-        <div class="ev-split"><i style="width:${pct(t.engaged, t.total)}%;background:${tierColors[t.tier] || 'var(--k)'}"></i><i style="width:${pct(t.known - t.engaged, t.total)}%;background:color-mix(in oklch, var(--k) 22%, var(--surface))"></i></div>
-        <div class="ev-chips">${list.map(x => html`<span class="ev-chip ${x.deal ? 'deal' : x.engaged ? 'engaged' : ''}" title="${x.deal ? 'Opportunity: ' + x.deal : x.engaged ? 'Engaged at this event' : x.known ? 'In CRM' : 'Not reached'}">${x.company}</span>`)}</div></div>`; })}
-      <div class="ev-legend" style="margin-top:14px"><span style="--c:color-mix(in oklch, var(--pos) 40%, var(--surface))">Has an opportunity</span><span style="--c:color-mix(in oklch, var(--k) 40%, var(--surface))">Engaged at this event</span><span style="--c:var(--track)">Not reached</span></div>`
-      : html`<div class="small muted">Paste the target account list (company, tier, domain) to see which accounts this event reached and the pipeline it influenced. Company names only.</div>`}
-  </section>`;
+      ${chase.length ? html`<div class="ev-chase"><b>${chase.length} Tier 1 account${chase.length === 1 ? '' : 's'} not reached at this event:</b> ${chase.map(x => x.company).join(', ')}</div>` : ''}
+    ` : html`<div class="small muted">Paste the target account list (company, tier, domain) to see which accounts this event reached and the pipeline it influenced. Company names only.</div>`}
+  </section>
+  ${a.targets.length ? html`<div class="ev-grid2">
+    ${block('Accounts by tier', '', stageBars(a), 'span2')}
+    ${block('What each step means', '', html`<div class="stack" style="gap:10px">${STAGE.map(([, label, color, means]) => html`<div class="row small" style="gap:10px;align-items:flex-start">
+      <span style="width:10px;height:10px;border-radius:3px;background:${color};flex:none;margin-top:4px"></span><span><span class="medium">${label}.</span> <span class="muted">${means}</span></span></div>`)}</div>`)}
+  </div>
+  <section class="ev-sec">
+    <div class="ev-h"><h2>Every account by step</h2>${switcher([{ arg: '', label: 'Every tier', on: !tier }, ...a.tiers.map(t => ({ arg: String(t.tier), label: `Tier ${t.tier}`, on: tier === t.tier }))], 'tier')}</div>
+    <div class="ev-board">${STAGE.map(([k, label, color]) => html`<div class="ev-col">
+      <div class="ev-col-h"><span style="width:10px;height:10px;border-radius:3px;background:${color};flex:none"></span><span class="medium">${label}</span><span class="muted">${count(k)}</span></div>
+      ${list.filter(x => stageOf(x) === k).map(x => html`<div class="ev-acct"><span class="ev-tier t${x.tier}">T${x.tier}</span><span class="clip" title="${x.company}">${x.company}</span>
+        ${x.deal ? html`<span class="tiny muted" style="margin-left:auto">${x.deal === 'won' ? 'Won' : x.deal}${x.pipeline ? ' · ' + f.moneyShort(x.pipeline) : ''}</span>` : ''}</div>`)}
+      ${count(k) ? '' : html`<div class="tiny faint" style="padding:6px 2px">None</div>`}</div>`)}</div>
+  </section>` : ''}`;
 }
 
 function results(d) {
@@ -544,7 +566,7 @@ function room(d, ctx) {
   const ids = tabs(d).map(x => x[0]);
   const current = ids.includes(ctx.app.params.sec) ? ctx.app.params.sec : 'overview';
   const page = { overview: () => overview(d), plan: () => plan(d, ctx), promotion: () => promotion(d), content: () => content(d, ctx), booth: () => booth(d, ctx),
-    accounts: () => accounts(d), leads: () => leadsTab(d, ctx), budget: () => budget(d), results: () => results(d) };
+    accounts: () => accounts(d, ctx), leads: () => leadsTab(d, ctx), budget: () => budget(d), results: () => results(d) };
   return html`<div class="ev evw" data-kind="${d.event.kind}">${header(d, current)}
     <main class="ev-main">${ctx.ui().printing ? ['overview', 'results', 'budget', 'accounts'].filter(id => ids.includes(id)).map(id => page[id]()) : page[current]()}</main></div>`;
 }
@@ -703,6 +725,7 @@ export default {
     phase(ctx, d) { ctx.ui().phase = d.arg; ctx.render(); },
     owner(ctx, d) { ctx.ui().owner = d.arg; ctx.render(); },
     platform(ctx, d) { ctx.ui().platform = d.arg; ctx.render(); },
+    tier(ctx, d) { ctx.ui().tier = d.arg; ctx.render(); },
     // the report prints the overview, results, accounts and promotion together, then the page returns to normal
     print(ctx) { ctx.ui().printing = true; ctx.render(); setTimeout(() => { window.print(); ctx.ui().printing = false; ctx.render(); }, 60); },
     newEvent: ctx => ctx.openModal({ kind: 'event' }),

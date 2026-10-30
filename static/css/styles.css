@@ -465,3 +465,14 @@ svg.lines polyline { fill: none; vector-effect: non-scaling-stroke; stroke-linej
 .ev-click { cursor: pointer; }
 @media (max-width: 900px) { .ev-trow { grid-template-columns: 18px 1fr; } .ev-trow .ev-task { grid-column: 2; } .ev-trow .ev-sel, .ev-trow .ev-date { grid-column: 2; } }
 @media print { .ev-trow { grid-template-columns: 110px minmax(0, 1fr) 130px 120px; } .ev-trow input, .ev-trow select { border: 0; background: none; appearance: none; } }
+
+/* Target accounts: one column per step, furthest step only */
+.ev-board { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.ev-col { background: var(--surface2); border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ev-col-h { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding-bottom: 4px; }
+.ev-col-h .muted { margin-left: auto; font-variant-numeric: tabular-nums; }
+.ev-acct { display: flex; align-items: center; gap: 8px; background: var(--surface); border-radius: 8px; padding: 7px 9px; font-size: 12.5px; box-shadow: 0 1px 2px rgba(0,0,0,.05); min-width: 0; }
+.ev-tier { font-size: 10.5px; font-weight: 650; padding: 1px 6px; border-radius: 5px; flex: none; background: var(--track); color: var(--ink2); }
+.ev-tier.t1 { background: color-mix(in oklch, var(--k) 18%, var(--surface)); color: color-mix(in oklch, var(--k) 70%, var(--ink)); }
+.ev-chase { margin-top: 18px; padding: 10px 14px; border-radius: 10px; font-size: 13px; background: color-mix(in oklch, var(--warn) 12%, var(--surface)); }
+@media (max-width: 1100px) { .ev-board { grid-template-columns: 1fr 1fr; } }
